@@ -135,6 +135,63 @@ export interface ChangePasswordRequest {
   new_password: string;
 }
 
+/**
+ * RFC 7591 §2 Dynamic Client Registration request body.
+ */
+export interface ClientRegistrationRequest {
+  /** @nullable */
+  client_name?: string | null;
+  /** @nullable */
+  grant_types?: string[] | null;
+  /**
+     * Reserved for the runtime JWKS-URI fetch path (not yet implemented).
+     * @nullable
+     */
+  jwks_uri?: string | null;
+  /**
+     * Client's public signing key for `private_key_jwt` (RFC 7523). Required
+  when `token_endpoint_auth_method = "private_key_jwt"` unless `jwks_uri`
+  is supplied instead.
+     * @nullable
+     */
+  public_key_pem?: string | null;
+  redirect_uris: string[];
+  /** @nullable */
+  response_types?: string[] | null;
+  /** @nullable */
+  scope?: string | null;
+  /** @nullable */
+  token_endpoint_auth_method?: string | null;
+}
+
+/**
+ * RFC 7591 §3.2.1 Dynamic Client Registration success body. Mirrors
+yauth-go's `dcrRegisterResponse` so a single TS client can drive both
+backends.
+ */
+export interface ClientRegistrationResponse {
+  client_id: string;
+  client_id_issued_at: number;
+  /** @nullable */
+  client_name?: string | null;
+  /** @nullable */
+  client_secret?: string | null;
+  /** Unix seconds. `0` means the secret never expires (or there is no secret). */
+  client_secret_expires_at: number;
+  grant_types: string[];
+  redirect_uris: string[];
+  /** JWT scoped to registration management of `client_id`. RFC 7592 §2
+  management endpoints are not yet implemented; the token is emitted
+  for forward compatibility. */
+  registration_access_token: string;
+  registration_client_uri: string;
+  response_types: string[];
+  /** Space-separated scope list, echoed back per RFC 7591 §3.2.1. Empty
+  when the client did not request any scopes. */
+  scope: string;
+  token_endpoint_auth_method: string;
+}
+
 export interface ConfirmTotpRequest {
   code: string;
 }
@@ -1499,14 +1556,15 @@ export const getOauth2ServerRegisterUrl = () => {
   return `/oauth/register`
 }
 
-export const oauth2ServerRegister = async ( options?: RequestInit): Promise<void> => {
+export const oauth2ServerRegister = async (clientRegistrationRequest: ClientRegistrationRequest, options?: RequestInit): Promise<ClientRegistrationResponse> => {
 
-  return customFetch<void>(getOauth2ServerRegisterUrl(),
+  return customFetch<ClientRegistrationResponse>(getOauth2ServerRegisterUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      clientRegistrationRequest,)
   }
 );}
 
@@ -2183,6 +2241,8 @@ export const getMfaVerifyResponseMock = (overrideResponse: Partial<Extract<MfaAu
 
 export const getOauthAccountsResponseMock = (overrideResponse: Partial<Extract<ListOAuthAccountsResponse, object>> = {}): ListOAuthAccountsResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_user_id: faker.string.alpha({length: {min: 10, max: 20}})})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
+export const getOauth2ServerRegisterResponseMock = (overrideResponse: Partial<Extract<ClientRegistrationResponse, object>> = {}): ClientRegistrationResponse => ({client_id: faker.string.alpha({length: {min: 10, max: 20}}), client_id_issued_at: faker.number.int(), client_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_secret: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_secret_expires_at: faker.number.int(), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), registration_access_token: faker.string.alpha({length: {min: 10, max: 20}}), registration_client_uri: faker.string.alpha({length: {min: 10, max: 20}}), response_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scope: faker.string.alpha({length: {min: 10, max: 20}}), token_endpoint_auth_method: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
 export const getOauthCallbackResponseMock = (overrideResponse: Partial<Extract<OAuthAuthResponse, object>> = {}): OAuthAuthResponse => ({user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 
 export const getOauthLinkResponseMock = (overrideResponse: Partial<Extract<AuthorizeResponse, object>> = {}): AuthorizeResponse => ({auth_url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
@@ -2652,11 +2712,13 @@ export const getOauth2ServerIntrospectMockHandler = (overrideResponse?: void | (
   }, options)
 }
 
-export const getOauth2ServerRegisterMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+export const getOauth2ServerRegisterMockHandler = (overrideResponse?: ClientRegistrationResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ClientRegistrationResponse> | ClientRegistrationResponse), options?: RequestHandlerOptions) => {
   return http.post('*/oauth/register', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
 
-    return new HttpResponse(null,
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOauth2ServerRegisterResponseMock(),
       { status: 200
       })
   }, options)

@@ -1060,13 +1060,17 @@ async fn handle_oauth2_refresh_token(
 // Dynamic Client Registration (RFC 7591) — POST /register
 // ---------------------------------------------------------------------------
 
+/// RFC 7591 §2 Dynamic Client Registration request body.
 #[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ClientRegistrationRequest {
     pub redirect_uris: Vec<String>,
     #[serde(default)]
     pub client_name: Option<String>,
     #[serde(default)]
     pub grant_types: Option<Vec<String>>,
+    #[serde(default)]
+    pub response_types: Option<Vec<String>>,
     #[serde(default)]
     pub token_endpoint_auth_method: Option<String>,
     #[serde(default)]
@@ -1078,20 +1082,36 @@ pub struct ClientRegistrationRequest {
     #[serde(default)]
     pub public_key_pem: Option<String>,
     /// Reserved for the runtime JWKS-URI fetch path (not yet implemented).
-    #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
     #[serde(default)]
     pub jwks_uri: Option<String>,
 }
 
+/// RFC 7591 §3.2.1 Dynamic Client Registration success body. Mirrors
+/// yauth-go's `dcrRegisterResponse` so a single TS client can drive both
+/// backends.
 #[derive(Serialize)]
-struct ClientRegistrationResponse {
-    client_id: String,
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ClientRegistrationResponse {
+    pub client_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    client_secret: Option<String>,
-    redirect_uris: Vec<String>,
-    client_name: Option<String>,
-    grant_types: Vec<String>,
-    token_endpoint_auth_method: String,
+    pub client_secret: Option<String>,
+    pub client_id_issued_at: i64,
+    /// Unix seconds. `0` means the secret never expires (or there is no secret).
+    pub client_secret_expires_at: i64,
+    pub redirect_uris: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_name: Option<String>,
+    pub grant_types: Vec<String>,
+    pub response_types: Vec<String>,
+    /// Space-separated scope list, echoed back per RFC 7591 §3.2.1. Empty
+    /// when the client did not request any scopes.
+    pub scope: String,
+    pub token_endpoint_auth_method: String,
+    /// JWT scoped to registration management of `client_id`. RFC 7592 §2
+    /// management endpoints are not yet implemented; the token is emitted
+    /// for forward compatibility.
+    pub registration_access_token: String,
+    pub registration_client_uri: String,
 }
 
 async fn dynamic_client_registration(
@@ -1125,7 +1145,13 @@ async fn dynamic_client_registration(
 
     let grant_types = input
         .grant_types
+        .clone()
         .unwrap_or_else(|| vec!["authorization_code".into()]);
+    let response_types = input
+        .response_types
+        .clone()
+        .unwrap_or_else(|| vec!["code".into()]);
+    let scope_echo = input.scope.clone().unwrap_or_default();
     let auth_method = input
         .token_endpoint_auth_method
         .as_deref()
@@ -1172,10 +1198,7 @@ async fn dynamic_client_registration(
     let public_key_pem = input.public_key_pem.clone();
     #[cfg(not(all(feature = "asymmetric-jwt", feature = "oauth2-server")))]
     let public_key_pem: Option<String> = None;
-    #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
     let jwks_uri = input.jwks_uri.clone();
-    #[cfg(not(all(feature = "asymmetric-jwt", feature = "oauth2-server")))]
-    let jwks_uri: Option<String> = None;
 
     let new_client = crate::domain::NewOauth2Client {
         id: Uuid::now_v7(),
@@ -1216,15 +1239,30 @@ async fn dynamic_client_registration(
         vec![],
     );
 
+    let issuer = config.issuer.trim_end_matches('/');
+    let registration_client_uri = format!("{}/oauth/register/{}", issuer, client_id);
+
     Ok((
         StatusCode::CREATED,
         Json(ClientRegistrationResponse {
-            client_id,
+            client_id: client_id.clone(),
             client_secret,
+            client_id_issued_at: now.timestamp(),
+            // RFC 7591 §3.2.1: 0 means no expiry. yauth doesn't rotate client
+            // secrets on a schedule today.
+            client_secret_expires_at: 0,
             redirect_uris: input.redirect_uris,
             client_name: input.client_name,
             grant_types,
+            response_types,
+            scope: scope_echo,
             token_endpoint_auth_method: auth_method.to_string(),
+            // RFC 7592 management endpoints are not implemented yet — the
+            // token is a UUID placeholder so the field is non-empty and
+            // forward-compatible. See yauth-go's signRegistrationAccessToken
+            // for the JWT shape we'll mirror once mgmt endpoints land.
+            registration_access_token: Uuid::now_v7().to_string(),
+            registration_client_uri,
         }),
     ))
 }

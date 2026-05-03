@@ -237,6 +237,14 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<AccountLockoutMessageResponse>();
     }
 
+    #[cfg(feature = "oauth2-server")]
+    {
+        use crate::plugins::oauth2_server::*;
+        b = b
+            .schema_from::<ClientRegistrationRequest>()
+            .schema_from::<ClientRegistrationResponse>();
+    }
+
     b
 }
 
@@ -1018,9 +1026,14 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Post,
-                    op("oauth2Server_register", "oauth2-server")
-                        .pipe(with_empty_response)
-                        .build(),
+                    with_body(
+                        with_response(
+                            op("oauth2Server_register", "oauth2-server"),
+                            "ClientRegistrationResponse",
+                        ),
+                        "ClientRegistrationRequest",
+                    )
+                    .build(),
                 )
                 .build(),
         )

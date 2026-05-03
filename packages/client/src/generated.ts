@@ -123,6 +123,63 @@ export interface ChangePasswordRequest {
   new_password: string;
 }
 
+/**
+ * RFC 7591 §2 Dynamic Client Registration request body.
+ */
+export interface ClientRegistrationRequest {
+  /** @nullable */
+  client_name?: string | null;
+  /** @nullable */
+  grant_types?: string[] | null;
+  /**
+     * Reserved for the runtime JWKS-URI fetch path (not yet implemented).
+     * @nullable
+     */
+  jwks_uri?: string | null;
+  /**
+     * Client's public signing key for `private_key_jwt` (RFC 7523). Required
+  when `token_endpoint_auth_method = "private_key_jwt"` unless `jwks_uri`
+  is supplied instead.
+     * @nullable
+     */
+  public_key_pem?: string | null;
+  redirect_uris: string[];
+  /** @nullable */
+  response_types?: string[] | null;
+  /** @nullable */
+  scope?: string | null;
+  /** @nullable */
+  token_endpoint_auth_method?: string | null;
+}
+
+/**
+ * RFC 7591 §3.2.1 Dynamic Client Registration success body. Mirrors
+yauth-go's `dcrRegisterResponse` so a single TS client can drive both
+backends.
+ */
+export interface ClientRegistrationResponse {
+  client_id: string;
+  client_id_issued_at: number;
+  /** @nullable */
+  client_name?: string | null;
+  /** @nullable */
+  client_secret?: string | null;
+  /** Unix seconds. `0` means the secret never expires (or there is no secret). */
+  client_secret_expires_at: number;
+  grant_types: string[];
+  redirect_uris: string[];
+  /** JWT scoped to registration management of `client_id`. RFC 7592 §2
+  management endpoints are not yet implemented; the token is emitted
+  for forward compatibility. */
+  registration_access_token: string;
+  registration_client_uri: string;
+  response_types: string[];
+  /** Space-separated scope list, echoed back per RFC 7591 §3.2.1. Empty
+  when the client did not request any scopes. */
+  scope: string;
+  token_endpoint_auth_method: string;
+}
+
 export interface ConfirmTotpRequest {
   code: string;
 }
@@ -1487,14 +1544,15 @@ export const getOauth2ServerRegisterUrl = () => {
   return `/oauth/register`
 }
 
-export const oauth2ServerRegister = async ( options?: RequestInit): Promise<void> => {
+export const oauth2ServerRegister = async (clientRegistrationRequest: ClientRegistrationRequest, options?: RequestInit): Promise<ClientRegistrationResponse> => {
 
-  return customFetch<void>(getOauth2ServerRegisterUrl(),
+  return customFetch<ClientRegistrationResponse>(getOauth2ServerRegisterUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      clientRegistrationRequest,)
   }
 );}
 

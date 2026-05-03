@@ -1080,9 +1080,26 @@
           "oauth2-server"
         ],
         "operationId": "oauth2Server_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRegistrationRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientRegistrationResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2235,6 +2252,145 @@
             "type": "string"
           },
           "new_password": {
+            "type": "string"
+          }
+        }
+      },
+      "ClientRegistrationRequest": {
+        "type": "object",
+        "description": "RFC 7591 §2 Dynamic Client Registration request body.",
+        "required": [
+          "redirect_uris"
+        ],
+        "properties": {
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "grant_types": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "jwks_uri": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reserved for the runtime JWKS-URI fetch path (not yet implemented)."
+          },
+          "public_key_pem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Client's public signing key for `private_key_jwt` (RFC 7523). Required\nwhen `token_endpoint_auth_method = \"private_key_jwt\"` unless `jwks_uri`\nis supplied instead."
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "response_types": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_endpoint_auth_method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ClientRegistrationResponse": {
+        "type": "object",
+        "description": "RFC 7591 §3.2.1 Dynamic Client Registration success body. Mirrors\nyauth-go's `dcrRegisterResponse` so a single TS client can drive both\nbackends.",
+        "required": [
+          "client_id",
+          "client_id_issued_at",
+          "client_secret_expires_at",
+          "redirect_uris",
+          "grant_types",
+          "response_types",
+          "scope",
+          "token_endpoint_auth_method",
+          "registration_access_token",
+          "registration_client_uri"
+        ],
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_id_issued_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_secret": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_secret_expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix seconds. `0` means the secret never expires (or there is no secret)."
+          },
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "registration_access_token": {
+            "type": "string",
+            "description": "JWT scoped to registration management of `client_id`. RFC 7592 §2\nmanagement endpoints are not yet implemented; the token is emitted\nfor forward compatibility."
+          },
+          "registration_client_uri": {
+            "type": "string"
+          },
+          "response_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": "string",
+            "description": "Space-separated scope list, echoed back per RFC 7591 §3.2.1. Empty\nwhen the client did not request any scopes."
+          },
+          "token_endpoint_auth_method": {
             "type": "string"
           }
         }
