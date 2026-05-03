@@ -22,6 +22,17 @@ export interface AccountLockoutMessageResponse {
   message: string;
 }
 
+export interface AdminAuditEntry {
+  created_at: string;
+  event_type: string;
+  id: string;
+  /** @nullable */
+  ip_address?: string | null;
+  metadata?: unknown;
+  /** @nullable */
+  user_id?: string | null;
+}
+
 /**
  * Session info returned by admin list endpoint.
  */
@@ -257,6 +268,28 @@ export interface ListApiKeysResponse {
   per_page: number;
   /** @minimum 0 */
   total: number;
+}
+
+export interface ListAuditQuery {
+  /** @nullable */
+  limit?: number | null;
+  /** @nullable */
+  offset?: number | null;
+  /**
+     * Event type filter — corresponds to yauth-go's `?type=` query param.
+     * @nullable
+     */
+  type?: string | null;
+  /** @nullable */
+  user_id?: string | null;
+}
+
+/**
+ * Response for `GET /admin/audit`. Mirrors yauth-go's
+`AdminListAuditResponse`.
+ */
+export interface ListAuditResponse {
+  entries: AdminAuditEntry[];
 }
 
 export interface ListOAuthAccountsQuery {
@@ -667,6 +700,13 @@ export interface WebhookTestResponse {
   delivery_queued: string;
 }
 
+export type AdminListAuditParams = {
+limit?: string;
+offset?: string;
+user_id?: string;
+type?: string;
+};
+
 export type AdminListSessionsParams = {
 page?: string;
 per_page?: string;
@@ -810,6 +850,34 @@ export const accountLockoutUnlock = async (unlockAccountRequest: UnlockAccountRe
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       unlockAccountRequest,)
+  }
+);}
+
+
+
+export const getAdminListAuditUrl = (params?: AdminListAuditParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/admin/audit?${stringifiedParams}` : `/admin/audit`
+}
+
+export const adminListAudit = async (params?: AdminListAuditParams, options?: RequestInit): Promise<ListAuditResponse> => {
+
+  return customFetch<ListAuditResponse>(getAdminListAuditUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 
@@ -2339,6 +2407,8 @@ export const getAccountLockoutRequestUnlockResponseMock = (overrideResponse: Par
 
 export const getAccountLockoutUnlockResponseMock = (overrideResponse: Partial<Extract<AccountLockoutMessageResponse, object>> = {}): AccountLockoutMessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
+export const getAdminListAuditResponseMock = (overrideResponse: Partial<Extract<ListAuditResponse, object>> = {}): ListAuditResponse => ({entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.string.alpha({length: {min: 10, max: 20}}), event_type: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), ip_address: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), metadata: faker.helpers.arrayElement([{}, undefined]), user_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])})), ...overrideResponse})
+
 export const getAdminListSessionsResponseMock = (overrideResponse: Partial<Extract<PaginatedSessionsResponse, object>> = {}): PaginatedSessionsResponse => ({page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), sessions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), ip_address: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), user_agent: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), user_id: faker.string.alpha({length: {min: 10, max: 20}})})), total: faker.number.int({min: 0}), ...overrideResponse})
 
 export const getAdminListUsersResponseMock = (overrideResponse: Partial<Extract<PaginatedUsersResponse, object>> = {}): PaginatedUsersResponse => ({page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), users: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
@@ -2475,6 +2545,18 @@ export const getAccountLockoutUnlockMockHandler = (overrideResponse?: AccountLoc
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getAccountLockoutUnlockResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getAdminListAuditMockHandler = (overrideResponse?: ListAuditResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ListAuditResponse> | ListAuditResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/admin/audit', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getAdminListAuditResponseMock(),
       { status: 200
       })
   }, options)
@@ -3251,6 +3333,7 @@ export const getYauthMock = () => [
   getOidcOpenidConfigurationMockHandler(),
   getAccountLockoutRequestUnlockMockHandler(),
   getAccountLockoutUnlockMockHandler(),
+  getAdminListAuditMockHandler(),
   getAdminListSessionsMockHandler(),
   getAdminDeleteSessionMockHandler(),
   getAdminListUsersMockHandler(),

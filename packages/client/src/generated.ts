@@ -10,6 +10,17 @@ export interface AccountLockoutMessageResponse {
   message: string;
 }
 
+export interface AdminAuditEntry {
+  created_at: string;
+  event_type: string;
+  id: string;
+  /** @nullable */
+  ip_address?: string | null;
+  metadata?: unknown;
+  /** @nullable */
+  user_id?: string | null;
+}
+
 /**
  * Session info returned by admin list endpoint.
  */
@@ -245,6 +256,28 @@ export interface ListApiKeysResponse {
   per_page: number;
   /** @minimum 0 */
   total: number;
+}
+
+export interface ListAuditQuery {
+  /** @nullable */
+  limit?: number | null;
+  /** @nullable */
+  offset?: number | null;
+  /**
+     * Event type filter — corresponds to yauth-go's `?type=` query param.
+     * @nullable
+     */
+  type?: string | null;
+  /** @nullable */
+  user_id?: string | null;
+}
+
+/**
+ * Response for `GET /admin/audit`. Mirrors yauth-go's
+`AdminListAuditResponse`.
+ */
+export interface ListAuditResponse {
+  entries: AdminAuditEntry[];
 }
 
 export interface ListOAuthAccountsQuery {
@@ -655,6 +688,13 @@ export interface WebhookTestResponse {
   delivery_queued: string;
 }
 
+export type AdminListAuditParams = {
+limit?: string;
+offset?: string;
+user_id?: string;
+type?: string;
+};
+
 export type AdminListSessionsParams = {
 page?: string;
 per_page?: string;
@@ -798,6 +838,34 @@ export const accountLockoutUnlock = async (unlockAccountRequest: UnlockAccountRe
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       unlockAccountRequest,)
+  }
+);}
+
+
+
+export const getAdminListAuditUrl = (params?: AdminListAuditParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/admin/audit?${stringifiedParams}` : `/admin/audit`
+}
+
+export const adminListAudit = async (params?: AdminListAuditParams, options?: RequestInit): Promise<ListAuditResponse> => {
+
+  return customFetch<ListAuditResponse>(getAdminListAuditUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

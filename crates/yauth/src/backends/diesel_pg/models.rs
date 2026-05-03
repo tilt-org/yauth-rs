@@ -192,6 +192,31 @@ impl DieselNewAuditLog {
     }
 }
 
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
+#[diesel(table_name = yauth_audit_log)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub(crate) struct DieselAuditLog {
+    pub id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub event_type: String,
+    pub metadata: Option<serde_json::Value>,
+    pub ip_address: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl DieselAuditLog {
+    pub(crate) fn into_domain(self) -> crate::domain::AuditLog {
+        crate::domain::AuditLog {
+            id: self.id,
+            user_id: self.user_id,
+            event_type: self.event_type,
+            metadata: self.metadata,
+            ip_address: self.ip_address,
+            created_at: self.created_at.naive_utc(),
+        }
+    }
+}
+
 // ──────────────────────────────────────────────
 // email-password: yauth_passwords
 // ──────────────────────────────────────────────

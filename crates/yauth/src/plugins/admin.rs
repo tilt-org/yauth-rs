@@ -38,10 +38,8 @@ impl YAuthPlugin for AdminPlugin {
             .route("/admin/users/{id}/ban", post(ban_user))
             .route("/admin/users/{id}/unban", post(unban_user))
             .route("/admin/users/{id}/impersonate", post(impersonate_user))
-            .route(
-                "/admin/users/{id}/sessions",
-                delete(delete_user_sessions),
-            )
+            .route("/admin/users/{id}/sessions", delete(delete_user_sessions))
+            .route("/admin/audit", get(list_audit))
             .route("/admin/sessions", get(list_sessions))
             .route("/admin/sessions/{id}", delete(delete_session));
 
@@ -169,6 +167,36 @@ pub struct PaginatedSessionsResponse {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct DeleteUserSessionsResponse {
     pub deleted: u64,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListAuditQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub user_id: Option<Uuid>,
+    /// Event type filter — corresponds to yauth-go's `?type=` query param.
+    #[serde(rename = "type")]
+    pub event_type: Option<String>,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AdminAuditEntry {
+    pub id: String,
+    pub user_id: Option<String>,
+    pub event_type: String,
+    pub metadata: Option<serde_json::Value>,
+    pub ip_address: Option<String>,
+    pub created_at: String,
+}
+
+/// Response for `GET /admin/audit`. Mirrors yauth-go's
+/// `AdminListAuditResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListAuditResponse {
+    pub entries: Vec<AdminAuditEntry>,
 }
 
 /// Session info returned by admin list endpoint.
@@ -616,6 +644,47 @@ async fn impersonate_user(
         "session_id": session_id,
         "expires_at": expires_at,
     })))
+}
+
+// ---------------------------------------------------------------------------
+// GET /admin/audit
+// ---------------------------------------------------------------------------
+
+async fn list_audit(
+    State(state): State<YAuthState>,
+    Extension(_admin): Extension<AuthUser>,
+    Query(params): Query<ListAuditQuery>,
+) -> Result<Json<ListAuditResponse>, ApiError> {
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+    let offset = params.offset.unwrap_or(0).max(0);
+    let filter = crate::repo::AuditLogFilter {
+        user_id: params.user_id,
+        event_type: params.event_type,
+    };
+
+    let rows = state
+        .repos
+        .audit
+        .list(filter, limit, offset)
+        .await
+        .map_err(|e| {
+            crate::otel::record_error("admin_db_list_audit_error", &e);
+            api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+        })?;
+
+    let entries = rows
+        .into_iter()
+        .map(|r| AdminAuditEntry {
+            id: r.id.to_string(),
+            user_id: r.user_id.map(|u| u.to_string()),
+            event_type: r.event_type,
+            metadata: r.metadata,
+            ip_address: r.ip_address,
+            created_at: r.created_at.and_utc().to_rfc3339(),
+        })
+        .collect();
+
+    Ok(Json(ListAuditResponse { entries }))
 }
 
 // ---------------------------------------------------------------------------

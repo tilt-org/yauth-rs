@@ -12,7 +12,8 @@ use super::schema::*;
 
 // Re-export shared UUID/JSON converters from diesel_common.
 pub(crate) use crate::backends::diesel_common::{
-    json_to_str, opt_json_to_str, opt_uuid_to_str, str_to_json, str_to_uuid, uuid_to_str,
+    json_to_str, opt_json_to_str, opt_str_to_uuid, opt_uuid_to_str, str_to_json, str_to_uuid,
+    uuid_to_str,
 };
 
 // ──────────────────────────────────────────────
@@ -193,6 +194,31 @@ impl MysqlNewAuditLog {
             metadata: opt_json_to_str(input.metadata),
             ip_address: input.ip_address,
             created_at: input.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
+#[diesel(table_name = yauth_audit_log)]
+#[diesel(check_for_backend(diesel::mysql::Mysql))]
+pub(crate) struct MysqlAuditLog {
+    pub id: String,
+    pub user_id: Option<String>,
+    pub event_type: String,
+    pub metadata: Option<String>,
+    pub ip_address: Option<String>,
+    pub created_at: NaiveDateTime,
+}
+
+impl MysqlAuditLog {
+    pub(crate) fn into_domain(self) -> crate::domain::AuditLog {
+        crate::domain::AuditLog {
+            id: str_to_uuid(&self.id),
+            user_id: opt_str_to_uuid(self.user_id),
+            event_type: self.event_type,
+            metadata: self.metadata.as_deref().map(str_to_json),
+            ip_address: self.ip_address,
+            created_at: self.created_at,
         }
     }
 }

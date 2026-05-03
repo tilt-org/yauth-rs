@@ -207,6 +207,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<UpdateUserRequest>()
             .schema_from::<BanRequest>()
             .schema_from::<DeleteUserSessionsResponse>()
+            .schema_from::<ListAuditQuery>()
+            .schema_from::<ListAuditResponse>()
+            .schema_from::<AdminAuditEntry>()
             .schema_from::<PaginatedUsersResponse>()
             .schema_from::<AdminUserInfo>()
             .schema_from::<PaginatedSessionsResponse>()
@@ -962,6 +965,26 @@ fn admin_paths(builder: PathsBuilder) -> PathsBuilder {
                         .pipe(|b| with_response(b, "DeleteUserSessionsResponse"))
                         .security(auth_req())
                         .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/admin/audit",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_query_params(
+                        op("admin_listAudit", "admin"),
+                        &[
+                            ("limit", false),
+                            ("offset", false),
+                            ("user_id", false),
+                            ("type", false),
+                        ],
+                    )
+                    .pipe(|b| with_response(b, "ListAuditResponse"))
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
