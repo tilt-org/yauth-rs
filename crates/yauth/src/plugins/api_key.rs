@@ -1,6 +1,6 @@
 use axum::{
     Extension, Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
@@ -59,6 +59,24 @@ pub struct ApiKeyResponse {
     pub last_used_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     pub expires_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     pub created_at: chrono::DateTime<chrono::FixedOffset>,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListApiKeysQuery {
+    pub page: Option<u64>,
+    pub per_page: Option<u64>,
+}
+
+/// Paginated response for `GET /api-keys`. Mirrors yauth-go's
+/// `ApiKeyListResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListApiKeysResponse {
+    pub items: Vec<ApiKeyResponse>,
+    pub page: u64,
+    pub per_page: u64,
+    pub total: u64,
 }
 
 async fn create_api_key(
@@ -148,8 +166,11 @@ async fn create_api_key(
 async fn list_api_keys(
     State(state): State<YAuthState>,
     Extension(user): Extension<AuthUser>,
-) -> Result<Json<Vec<ApiKeyResponse>>, (StatusCode, Json<serde_json::Value>)> {
+    Query(params): Query<ListApiKeysQuery>,
+) -> Result<Json<ListApiKeysResponse>, (StatusCode, Json<serde_json::Value>)> {
     let err = |status: StatusCode, msg: &str| (status, Json(serde_json::json!({ "error": msg })));
+
+    let (page, per_page) = super::paginate(params.page, params.per_page, 200);
 
     let keys = state
         .repos
@@ -161,7 +182,7 @@ async fn list_api_keys(
             err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?;
 
-    let response: Vec<ApiKeyResponse> = keys
+    let mapped: Vec<ApiKeyResponse> = keys
         .into_iter()
         .map(|k| {
             let scopes = k
@@ -179,7 +200,14 @@ async fn list_api_keys(
         })
         .collect();
 
-    Ok(Json(response))
+    let (items, total) = super::paginate_vec(mapped, page, per_page);
+
+    Ok(Json(ListApiKeysResponse {
+        items,
+        page,
+        per_page,
+        total,
+    }))
 }
 
 async fn delete_api_key(

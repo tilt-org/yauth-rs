@@ -199,9 +199,7 @@ impl From<crate::domain::Session> for SessionInfo {
 // ---------------------------------------------------------------------------
 
 fn paginate_params(page: Option<u64>, per_page: Option<u64>) -> (u64, u64) {
-    let per_page = per_page.unwrap_or(50).clamp(1, 100);
-    let page = page.unwrap_or(1).max(1);
-    (page, per_page)
+    super::paginate(page, per_page, 100)
 }
 
 // ---------------------------------------------------------------------------

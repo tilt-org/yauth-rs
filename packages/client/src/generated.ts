@@ -154,6 +154,102 @@ export interface ForgotPasswordRequest {
   email: string;
 }
 
+export interface ListApiKeysQuery {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  page?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  per_page?: number | null;
+}
+
+/**
+ * Paginated response for `GET /api-keys`. Mirrors yauth-go's
+`ApiKeyListResponse`.
+ */
+export interface ListApiKeysResponse {
+  items: ApiKeyResponse[];
+  /** @minimum 0 */
+  page: number;
+  /** @minimum 0 */
+  per_page: number;
+  /** @minimum 0 */
+  total: number;
+}
+
+export interface ListOAuthAccountsQuery {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  page?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  per_page?: number | null;
+}
+
+export interface OAuthAccountResponse {
+  created_at: string;
+  id: string;
+  provider: string;
+  provider_user_id: string;
+}
+
+/**
+ * Paginated response for `GET /oauth/accounts`. Mirrors yauth-go's
+`OauthListAccountsResponse`.
+ */
+export interface ListOAuthAccountsResponse {
+  items: OAuthAccountResponse[];
+  /** @minimum 0 */
+  page: number;
+  /** @minimum 0 */
+  per_page: number;
+  /** @minimum 0 */
+  total: number;
+}
+
+export interface ListPasskeysQuery {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  page?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  per_page?: number | null;
+}
+
+export interface PasskeyInfo {
+  created_at: string;
+  id: string;
+  /** @nullable */
+  last_used_at?: string | null;
+  name: string;
+}
+
+/**
+ * Paginated response for `GET /passkeys`. Mirrors yauth-go's
+`PasskeyListResponse`.
+ */
+export interface ListPasskeysResponse {
+  items: PasskeyInfo[];
+  /** @minimum 0 */
+  page: number;
+  /** @minimum 0 */
+  per_page: number;
+  /** @minimum 0 */
+  total: number;
+}
+
 export interface ListSessionsQuery {
   /**
      * @minimum 0
@@ -180,6 +276,42 @@ export interface ListUsersQuery {
   per_page?: number | null;
   /** @nullable */
   search?: string | null;
+}
+
+export interface ListWebhooksQuery {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  page?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  per_page?: number | null;
+}
+
+export interface WebhookResponse {
+  active: boolean;
+  created_at: string;
+  events: string[];
+  id: string;
+  updated_at: string;
+  url: string;
+}
+
+/**
+ * Paginated response for `GET /webhooks`. Mirrors yauth-go's
+`WebhookListResponse`.
+ */
+export interface ListWebhooksResponse {
+  items: WebhookResponse[];
+  /** @minimum 0 */
+  page: number;
+  /** @minimum 0 */
+  per_page: number;
+  /** @minimum 0 */
+  total: number;
 }
 
 export interface LoginRequest {
@@ -217,13 +349,6 @@ export interface MfaMessageResponse {
   message: string;
 }
 
-export interface OAuthAccountResponse {
-  created_at: string;
-  id: string;
-  provider: string;
-  provider_user_id: string;
-}
-
 /**
  * Envelope returned by `POST|GET /oauth/{provider}/callback` after a
 successful exchange. Matches yauth-go's `OauthCallbackResponse`.
@@ -256,14 +381,6 @@ export interface PaginatedUsersResponse {
   /** @minimum 0 */
   total: number;
   users: AdminUserInfo[];
-}
-
-export interface PasskeyInfo {
-  created_at: string;
-  id: string;
-  /** @nullable */
-  last_used_at?: string | null;
-  name: string;
 }
 
 export interface PasskeyLoginBeginRequest {
@@ -415,15 +532,6 @@ export interface WebhookDeliveryResponse {
   success: boolean;
 }
 
-export interface WebhookResponse {
-  active: boolean;
-  created_at: string;
-  events: string[];
-  id: string;
-  updated_at: string;
-  url: string;
-}
-
 export interface WebhookDetailResponse {
   recent_deliveries: WebhookDeliveryResponse[];
   webhook: WebhookResponse;
@@ -438,6 +546,26 @@ export type AdminListUsersParams = {
 page?: string;
 per_page?: string;
 search?: string;
+};
+
+export type ApiKeysListParams = {
+page?: string;
+per_page?: string;
+};
+
+export type OauthAccountsParams = {
+page?: string;
+per_page?: string;
+};
+
+export type PasskeyListParams = {
+page?: string;
+per_page?: string;
+};
+
+export type WebhooksListParams = {
+page?: string;
+per_page?: string;
 };
 
 export const getOidcJwksUrl = () => {
@@ -775,17 +903,24 @@ export const accountLockoutAdminUnlock = async (id: string, options?: RequestIni
 
 
 
-export const getApiKeysListUrl = () => {
+export const getApiKeysListUrl = (params?: ApiKeysListParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api-keys`
+  return stringifiedParams.length > 0 ? `/api-keys?${stringifiedParams}` : `/api-keys`
 }
 
-export const apiKeysList = async ( options?: RequestInit): Promise<ApiKeyResponse[]> => {
+export const apiKeysList = async (params?: ApiKeysListParams, options?: RequestInit): Promise<ListApiKeysResponse> => {
 
-  return customFetch<ApiKeyResponse[]>(getApiKeysListUrl(),
+  return customFetch<ListApiKeysResponse>(getApiKeysListUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1141,17 +1276,24 @@ export const mfaVerify = async (verifyMfaRequest: VerifyMfaRequest, options?: Re
 
 
 
-export const getOauthAccountsUrl = () => {
+export const getOauthAccountsUrl = (params?: OauthAccountsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/oauth/accounts`
+  return stringifiedParams.length > 0 ? `/oauth/accounts?${stringifiedParams}` : `/oauth/accounts`
 }
 
-export const oauthAccounts = async ( options?: RequestInit): Promise<OAuthAccountResponse[]> => {
+export const oauthAccounts = async (params?: OauthAccountsParams, options?: RequestInit): Promise<ListOAuthAccountsResponse> => {
 
-  return customFetch<OAuthAccountResponse[]>(getOauthAccountsUrl(),
+  return customFetch<ListOAuthAccountsResponse>(getOauthAccountsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1481,17 +1623,24 @@ export const passkeyLoginFinish = async (passkeyLoginFinishRequest: PasskeyLogin
 
 
 
-export const getPasskeyListUrl = () => {
+export const getPasskeyListUrl = (params?: PasskeyListParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/passkeys`
+  return stringifiedParams.length > 0 ? `/passkeys?${stringifiedParams}` : `/passkeys`
 }
 
-export const passkeyList = async ( options?: RequestInit): Promise<PasskeyInfo[]> => {
+export const passkeyList = async (params?: PasskeyListParams, options?: RequestInit): Promise<ListPasskeysResponse> => {
 
-  return customFetch<PasskeyInfo[]>(getPasskeyListUrl(),
+  return customFetch<ListPasskeysResponse>(getPasskeyListUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1762,17 +1911,24 @@ export const emailPasswordVerifyEmail = async (verifyEmailRequest: VerifyEmailRe
 
 
 
-export const getWebhooksListUrl = () => {
+export const getWebhooksListUrl = (params?: WebhooksListParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/webhooks`
+  return stringifiedParams.length > 0 ? `/webhooks?${stringifiedParams}` : `/webhooks`
 }
 
-export const webhooksList = async ( options?: RequestInit): Promise<WebhookResponse[]> => {
+export const webhooksList = async (params?: WebhooksListParams, options?: RequestInit): Promise<ListWebhooksResponse> => {
 
-  return customFetch<WebhookResponse[]>(getWebhooksListUrl(),
+  return customFetch<ListWebhooksResponse>(getWebhooksListUrl(params),
   {
     ...options,
     method: 'GET'

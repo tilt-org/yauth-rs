@@ -98,6 +98,29 @@ pub struct PatchMeResponse {
     pub user: AuthUser,
 }
 
+/// 1-based pagination clamp shared by list endpoints. `max_per_page` differs
+/// between admin (100) and per-user lists (200) to mirror yauth-go.
+pub(crate) fn paginate(page: Option<u64>, per_page: Option<u64>, max_per_page: u64) -> (u64, u64) {
+    let per_page = per_page.unwrap_or(50).clamp(1, max_per_page);
+    let page = page.unwrap_or(1).max(1);
+    (page, per_page)
+}
+
+/// Slice an in-memory `Vec<T>` for a 1-based `(page, per_page)` window.
+/// Returned tuple is `(items, total)`. Used by list endpoints whose repo
+/// trait does not expose a paginated query.
+pub(crate) fn paginate_vec<T>(items: Vec<T>, page: u64, per_page: u64) -> (Vec<T>, u64) {
+    let total = items.len() as u64;
+    let start = (page.saturating_sub(1) * per_page) as usize;
+    let end = (start + per_page as usize).min(items.len());
+    let window = if start >= items.len() {
+        Vec::new()
+    } else {
+        items.into_iter().skip(start).take(end - start).collect()
+    };
+    (window, total)
+}
+
 async fn get_config(State(state): State<YAuthState>) -> Json<AuthConfigResponse> {
     #[cfg(feature = "email-password")]
     let require_email_verification = state.email_password_config.require_email_verification;

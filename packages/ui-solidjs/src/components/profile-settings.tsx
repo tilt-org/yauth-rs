@@ -16,7 +16,7 @@ export const ProfileSettings: Component = () => {
 	const [passkeys, { refetch: refetchPasskeys }] = createResource(async () => {
 		if (!passkeyClient) return [];
 		try {
-			return await passkeyClient.list();
+			return (await passkeyClient.list()).items;
 		} catch {
 			return [];
 		}
@@ -31,7 +31,7 @@ export const ProfileSettings: Component = () => {
 		async () => {
 			if (!oauthClient) return [];
 			try {
-				return await oauthClient.accounts();
+				return (await oauthClient.accounts()).items;
 			} catch {
 				return [];
 			}

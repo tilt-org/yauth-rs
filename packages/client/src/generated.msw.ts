@@ -166,6 +166,102 @@ export interface ForgotPasswordRequest {
   email: string;
 }
 
+export interface ListApiKeysQuery {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  page?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  per_page?: number | null;
+}
+
+/**
+ * Paginated response for `GET /api-keys`. Mirrors yauth-go's
+`ApiKeyListResponse`.
+ */
+export interface ListApiKeysResponse {
+  items: ApiKeyResponse[];
+  /** @minimum 0 */
+  page: number;
+  /** @minimum 0 */
+  per_page: number;
+  /** @minimum 0 */
+  total: number;
+}
+
+export interface ListOAuthAccountsQuery {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  page?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  per_page?: number | null;
+}
+
+export interface OAuthAccountResponse {
+  created_at: string;
+  id: string;
+  provider: string;
+  provider_user_id: string;
+}
+
+/**
+ * Paginated response for `GET /oauth/accounts`. Mirrors yauth-go's
+`OauthListAccountsResponse`.
+ */
+export interface ListOAuthAccountsResponse {
+  items: OAuthAccountResponse[];
+  /** @minimum 0 */
+  page: number;
+  /** @minimum 0 */
+  per_page: number;
+  /** @minimum 0 */
+  total: number;
+}
+
+export interface ListPasskeysQuery {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  page?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  per_page?: number | null;
+}
+
+export interface PasskeyInfo {
+  created_at: string;
+  id: string;
+  /** @nullable */
+  last_used_at?: string | null;
+  name: string;
+}
+
+/**
+ * Paginated response for `GET /passkeys`. Mirrors yauth-go's
+`PasskeyListResponse`.
+ */
+export interface ListPasskeysResponse {
+  items: PasskeyInfo[];
+  /** @minimum 0 */
+  page: number;
+  /** @minimum 0 */
+  per_page: number;
+  /** @minimum 0 */
+  total: number;
+}
+
 export interface ListSessionsQuery {
   /**
      * @minimum 0
@@ -192,6 +288,42 @@ export interface ListUsersQuery {
   per_page?: number | null;
   /** @nullable */
   search?: string | null;
+}
+
+export interface ListWebhooksQuery {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  page?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  per_page?: number | null;
+}
+
+export interface WebhookResponse {
+  active: boolean;
+  created_at: string;
+  events: string[];
+  id: string;
+  updated_at: string;
+  url: string;
+}
+
+/**
+ * Paginated response for `GET /webhooks`. Mirrors yauth-go's
+`WebhookListResponse`.
+ */
+export interface ListWebhooksResponse {
+  items: WebhookResponse[];
+  /** @minimum 0 */
+  page: number;
+  /** @minimum 0 */
+  per_page: number;
+  /** @minimum 0 */
+  total: number;
 }
 
 export interface LoginRequest {
@@ -229,13 +361,6 @@ export interface MfaMessageResponse {
   message: string;
 }
 
-export interface OAuthAccountResponse {
-  created_at: string;
-  id: string;
-  provider: string;
-  provider_user_id: string;
-}
-
 /**
  * Envelope returned by `POST|GET /oauth/{provider}/callback` after a
 successful exchange. Matches yauth-go's `OauthCallbackResponse`.
@@ -268,14 +393,6 @@ export interface PaginatedUsersResponse {
   /** @minimum 0 */
   total: number;
   users: AdminUserInfo[];
-}
-
-export interface PasskeyInfo {
-  created_at: string;
-  id: string;
-  /** @nullable */
-  last_used_at?: string | null;
-  name: string;
 }
 
 export interface PasskeyLoginBeginRequest {
@@ -427,15 +544,6 @@ export interface WebhookDeliveryResponse {
   success: boolean;
 }
 
-export interface WebhookResponse {
-  active: boolean;
-  created_at: string;
-  events: string[];
-  id: string;
-  updated_at: string;
-  url: string;
-}
-
 export interface WebhookDetailResponse {
   recent_deliveries: WebhookDeliveryResponse[];
   webhook: WebhookResponse;
@@ -450,6 +558,26 @@ export type AdminListUsersParams = {
 page?: string;
 per_page?: string;
 search?: string;
+};
+
+export type ApiKeysListParams = {
+page?: string;
+per_page?: string;
+};
+
+export type OauthAccountsParams = {
+page?: string;
+per_page?: string;
+};
+
+export type PasskeyListParams = {
+page?: string;
+per_page?: string;
+};
+
+export type WebhooksListParams = {
+page?: string;
+per_page?: string;
 };
 
 export const getOidcJwksUrl = () => {
@@ -787,17 +915,24 @@ export const accountLockoutAdminUnlock = async (id: string, options?: RequestIni
 
 
 
-export const getApiKeysListUrl = () => {
+export const getApiKeysListUrl = (params?: ApiKeysListParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api-keys`
+  return stringifiedParams.length > 0 ? `/api-keys?${stringifiedParams}` : `/api-keys`
 }
 
-export const apiKeysList = async ( options?: RequestInit): Promise<ApiKeyResponse[]> => {
+export const apiKeysList = async (params?: ApiKeysListParams, options?: RequestInit): Promise<ListApiKeysResponse> => {
 
-  return customFetch<ApiKeyResponse[]>(getApiKeysListUrl(),
+  return customFetch<ListApiKeysResponse>(getApiKeysListUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1153,17 +1288,24 @@ export const mfaVerify = async (verifyMfaRequest: VerifyMfaRequest, options?: Re
 
 
 
-export const getOauthAccountsUrl = () => {
+export const getOauthAccountsUrl = (params?: OauthAccountsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/oauth/accounts`
+  return stringifiedParams.length > 0 ? `/oauth/accounts?${stringifiedParams}` : `/oauth/accounts`
 }
 
-export const oauthAccounts = async ( options?: RequestInit): Promise<OAuthAccountResponse[]> => {
+export const oauthAccounts = async (params?: OauthAccountsParams, options?: RequestInit): Promise<ListOAuthAccountsResponse> => {
 
-  return customFetch<OAuthAccountResponse[]>(getOauthAccountsUrl(),
+  return customFetch<ListOAuthAccountsResponse>(getOauthAccountsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1493,17 +1635,24 @@ export const passkeyLoginFinish = async (passkeyLoginFinishRequest: PasskeyLogin
 
 
 
-export const getPasskeyListUrl = () => {
+export const getPasskeyListUrl = (params?: PasskeyListParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/passkeys`
+  return stringifiedParams.length > 0 ? `/passkeys?${stringifiedParams}` : `/passkeys`
 }
 
-export const passkeyList = async ( options?: RequestInit): Promise<PasskeyInfo[]> => {
+export const passkeyList = async (params?: PasskeyListParams, options?: RequestInit): Promise<ListPasskeysResponse> => {
 
-  return customFetch<PasskeyInfo[]>(getPasskeyListUrl(),
+  return customFetch<ListPasskeysResponse>(getPasskeyListUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1774,17 +1923,24 @@ export const emailPasswordVerifyEmail = async (verifyEmailRequest: VerifyEmailRe
 
 
 
-export const getWebhooksListUrl = () => {
+export const getWebhooksListUrl = (params?: WebhooksListParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/webhooks`
+  return stringifiedParams.length > 0 ? `/webhooks?${stringifiedParams}` : `/webhooks`
 }
 
-export const webhooksList = async ( options?: RequestInit): Promise<WebhookResponse[]> => {
+export const webhooksList = async (params?: WebhooksListParams, options?: RequestInit): Promise<ListWebhooksResponse> => {
 
-  return customFetch<WebhookResponse[]>(getWebhooksListUrl(),
+  return customFetch<ListWebhooksResponse>(getWebhooksListUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1920,7 +2076,7 @@ export const getAdminUnbanUserResponseMock = (overrideResponse: Partial<Extract<
 
 export const getAccountLockoutAdminUnlockResponseMock = (overrideResponse: Partial<Extract<AccountLockoutMessageResponse, object>> = {}): AccountLockoutMessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getApiKeysListResponseMock = (): ApiKeyResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}}), prefix: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])})))
+export const getApiKeysListResponseMock = (overrideResponse: Partial<Extract<ListApiKeysResponse, object>> = {}): ListApiKeysResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}}), prefix: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
 export const getApiKeysCreateResponseMock = (overrideResponse: Partial<Extract<CreateApiKeyResponse, object>> = {}): CreateApiKeyResponse => ({api_key: {created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}}), prefix: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, secret: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -1946,13 +2102,13 @@ export const getMfaSetupResponseMock = (overrideResponse: Partial<Extract<SetupT
 
 export const getMfaVerifyResponseMock = (overrideResponse: Partial<Extract<MfaAuthResponse, object>> = {}): MfaAuthResponse => ({user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 
-export const getOauthAccountsResponseMock = (): OAuthAccountResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_user_id: faker.string.alpha({length: {min: 10, max: 20}})})))
+export const getOauthAccountsResponseMock = (overrideResponse: Partial<Extract<ListOAuthAccountsResponse, object>> = {}): ListOAuthAccountsResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_user_id: faker.string.alpha({length: {min: 10, max: 20}})})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
 export const getOauthCallbackResponseMock = (overrideResponse: Partial<Extract<OAuthAuthResponse, object>> = {}): OAuthAuthResponse => ({user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 
 export const getOauthLinkResponseMock = (overrideResponse: Partial<Extract<AuthorizeResponse, object>> = {}): AuthorizeResponse => ({auth_url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getPasskeyListResponseMock = (): PasskeyInfo[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}})})))
+export const getPasskeyListResponseMock = (overrideResponse: Partial<Extract<ListPasskeysResponse, object>> = {}): ListPasskeysResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}})})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
 export const getEmailPasswordRegisterResponseMock = (overrideResponse: Partial<Extract<RegisterResponse, object>> = {}): RegisterResponse => ({message: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 
@@ -1968,7 +2124,7 @@ export const getBearerRefreshResponseMock = (overrideResponse: Partial<Extract<T
 
 export const getEmailPasswordVerifyEmailResponseMock = (overrideResponse: Partial<Extract<MessageResponse, object>> = {}): MessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getWebhooksListResponseMock = (): WebhookResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({active: faker.datatype.boolean(), created_at: faker.string.alpha({length: {min: 10, max: 20}}), events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), id: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), url: faker.string.alpha({length: {min: 10, max: 20}})})))
+export const getWebhooksListResponseMock = (overrideResponse: Partial<Extract<ListWebhooksResponse, object>> = {}): ListWebhooksResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({active: faker.datatype.boolean(), created_at: faker.string.alpha({length: {min: 10, max: 20}}), events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), id: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), url: faker.string.alpha({length: {min: 10, max: 20}})})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
 export const getWebhooksCreateResponseMock = (overrideResponse: Partial<Extract<WebhookResponse, object>> = {}): WebhookResponse => ({active: faker.datatype.boolean(), created_at: faker.string.alpha({length: {min: 10, max: 20}}), events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), id: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -2145,7 +2301,7 @@ export const getAccountLockoutAdminUnlockMockHandler = (overrideResponse?: Accou
   }, options)
 }
 
-export const getApiKeysListMockHandler = (overrideResponse?: ApiKeyResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ApiKeyResponse[]> | ApiKeyResponse[]), options?: RequestHandlerOptions) => {
+export const getApiKeysListMockHandler = (overrideResponse?: ListApiKeysResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ListApiKeysResponse> | ListApiKeysResponse), options?: RequestHandlerOptions) => {
   return http.get('*/api-keys', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -2341,7 +2497,7 @@ export const getMfaVerifyMockHandler = (overrideResponse?: MfaAuthResponse | ((i
   }, options)
 }
 
-export const getOauthAccountsMockHandler = (overrideResponse?: OAuthAccountResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<OAuthAccountResponse[]> | OAuthAccountResponse[]), options?: RequestHandlerOptions) => {
+export const getOauthAccountsMockHandler = (overrideResponse?: ListOAuthAccountsResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ListOAuthAccountsResponse> | ListOAuthAccountsResponse), options?: RequestHandlerOptions) => {
   return http.get('*/oauth/accounts', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -2507,7 +2663,7 @@ export const getPasskeyLoginFinishMockHandler = (overrideResponse?: void | ((inf
   }, options)
 }
 
-export const getPasskeyListMockHandler = (overrideResponse?: PasskeyInfo[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PasskeyInfo[]> | PasskeyInfo[]), options?: RequestHandlerOptions) => {
+export const getPasskeyListMockHandler = (overrideResponse?: ListPasskeysResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ListPasskeysResponse> | ListPasskeysResponse), options?: RequestHandlerOptions) => {
   return http.get('*/passkeys', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -2653,7 +2809,7 @@ export const getEmailPasswordVerifyEmailMockHandler = (overrideResponse?: Messag
   }, options)
 }
 
-export const getWebhooksListMockHandler = (overrideResponse?: WebhookResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<WebhookResponse[]> | WebhookResponse[]), options?: RequestHandlerOptions) => {
+export const getWebhooksListMockHandler = (overrideResponse?: ListWebhooksResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ListWebhooksResponse> | ListWebhooksResponse), options?: RequestHandlerOptions) => {
   return http.get('*/webhooks', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 

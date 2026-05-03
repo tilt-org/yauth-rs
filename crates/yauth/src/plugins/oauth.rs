@@ -91,6 +91,24 @@ pub struct OAuthAccountResponse {
     pub created_at: String,
 }
 
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListOAuthAccountsQuery {
+    pub page: Option<u64>,
+    pub per_page: Option<u64>,
+}
+
+/// Paginated response for `GET /oauth/accounts`. Mirrors yauth-go's
+/// `OauthListAccountsResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListOAuthAccountsResponse {
+    pub items: Vec<OAuthAccountResponse>,
+    pub page: u64,
+    pub per_page: u64,
+    pub total: u64,
+}
+
 /// Envelope returned by `POST|GET /oauth/{provider}/callback` after a
 /// successful exchange. Matches yauth-go's `OauthCallbackResponse`.
 #[derive(Serialize)]
@@ -931,7 +949,10 @@ async fn callback_post(
 async fn list_accounts(
     State(state): State<YAuthState>,
     Extension(user): Extension<AuthUser>,
-) -> Result<Json<Vec<OAuthAccountResponse>>, ApiError> {
+    Query(params): Query<ListOAuthAccountsQuery>,
+) -> Result<Json<ListOAuthAccountsResponse>, ApiError> {
+    let (page, per_page) = super::paginate(params.page, params.per_page, 200);
+
     let accounts = state
         .repos
         .oauth_accounts
@@ -943,7 +964,7 @@ async fn list_accounts(
         })?;
 
     use chrono::TimeZone;
-    let response = accounts
+    let mapped: Vec<OAuthAccountResponse> = accounts
         .into_iter()
         .map(|a| OAuthAccountResponse {
             id: a.id.to_string(),
@@ -951,9 +972,16 @@ async fn list_accounts(
             provider_user_id: a.provider_user_id,
             created_at: chrono::Utc.from_utc_datetime(&a.created_at).to_rfc3339(),
         })
-        .collect::<Vec<_>>();
+        .collect();
 
-    Ok(Json(response))
+    let (items, total) = super::paginate_vec(mapped, page, per_page);
+
+    Ok(Json(ListOAuthAccountsResponse {
+        items,
+        page,
+        per_page,
+        total,
+    }))
 }
 
 async fn unlink_provider(

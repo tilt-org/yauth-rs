@@ -1,6 +1,6 @@
 use axum::{
     Extension, Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     middleware as axum_mw,
     response::IntoResponse,
@@ -298,6 +298,24 @@ pub struct WebhookResponse {
     pub updated_at: String,
 }
 
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListWebhooksQuery {
+    pub page: Option<u64>,
+    pub per_page: Option<u64>,
+}
+
+/// Paginated response for `GET /webhooks`. Mirrors yauth-go's
+/// `WebhookListResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListWebhooksResponse {
+    pub items: Vec<WebhookResponse>,
+    pub page: u64,
+    pub per_page: u64,
+    pub total: u64,
+}
+
 #[derive(Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WebhookDetailResponse {
@@ -509,15 +527,24 @@ async fn create_webhook(
 async fn list_webhooks(
     State(state): State<YAuthState>,
     Extension(_admin): Extension<AuthUser>,
-) -> Result<impl IntoResponse, ApiError> {
+    Query(params): Query<ListWebhooksQuery>,
+) -> Result<Json<ListWebhooksResponse>, ApiError> {
+    let (page, per_page) = super::paginate(params.page, params.per_page, 200);
+
     let webhooks = state.repos.webhooks_repo.find_all().await.map_err(|e| {
         crate::otel::record_error("webhook_list_db_error", &e);
         api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
     })?;
 
-    let responses: Vec<WebhookResponse> = webhooks.into_iter().map(Into::into).collect();
+    let mapped: Vec<WebhookResponse> = webhooks.into_iter().map(Into::into).collect();
+    let (items, total) = super::paginate_vec(mapped, page, per_page);
 
-    Ok(Json(serde_json::json!({ "webhooks": responses })))
+    Ok(Json(ListWebhooksResponse {
+        items,
+        page,
+        per_page,
+        total,
+    }))
 }
 
 // ---------------------------------------------------------------------------

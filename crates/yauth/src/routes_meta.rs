@@ -70,28 +70,6 @@ fn with_response(builder: OperationBuilder, schema_name: &str) -> OperationBuild
 }
 
 /// Adds a 200 response with an array of schema components.
-fn with_array_response(builder: OperationBuilder, schema_name: &str) -> OperationBuilder {
-    builder.response(
-        "200",
-        ResponseBuilder::new()
-            .description("Success")
-            .content(
-                "application/json",
-                ContentBuilder::new()
-                    .schema(Some(RefOr::T(
-                        utoipa::openapi::ArrayBuilder::new()
-                            .items(RefOr::Ref(utoipa::openapi::Ref::new(format!(
-                                "#/components/schemas/{schema_name}"
-                            ))))
-                            .build()
-                            .into(),
-                    )))
-                    .build(),
-            )
-            .build(),
-    )
-}
-
 /// Adds a 200 response with no body.
 fn with_empty_response(builder: OperationBuilder) -> OperationBuilder {
     builder.response("200", ResponseBuilder::new().description("Success").build())
@@ -159,7 +137,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<PasskeyLoginBeginRequest>()
             .schema_from::<PasskeyLoginFinishRequest>()
             .schema_from::<RegisterFinishRequest>()
-            .schema_from::<PasskeyInfo>();
+            .schema_from::<PasskeyInfo>()
+            .schema_from::<ListPasskeysQuery>()
+            .schema_from::<ListPasskeysResponse>();
     }
 
     #[cfg(feature = "mfa")]
@@ -183,7 +163,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<CallbackBody>()
             .schema_from::<OAuthAuthResponse>()
             .schema_from::<OAuthAccountResponse>()
-            .schema_from::<AuthorizeResponse>();
+            .schema_from::<AuthorizeResponse>()
+            .schema_from::<ListOAuthAccountsQuery>()
+            .schema_from::<ListOAuthAccountsResponse>();
     }
 
     #[cfg(feature = "bearer")]
@@ -202,7 +184,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
         b = b
             .schema_from::<CreateApiKeyRequest>()
             .schema_from::<CreateApiKeyResponse>()
-            .schema_from::<ApiKeyResponse>();
+            .schema_from::<ApiKeyResponse>()
+            .schema_from::<ListApiKeysQuery>()
+            .schema_from::<ListApiKeysResponse>();
     }
 
     #[cfg(feature = "magic-link")]
@@ -236,7 +220,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<UpdateWebhookRequest>()
             .schema_from::<WebhookResponse>()
             .schema_from::<WebhookDetailResponse>()
-            .schema_from::<WebhookDeliveryResponse>();
+            .schema_from::<WebhookDeliveryResponse>()
+            .schema_from::<ListWebhooksQuery>()
+            .schema_from::<ListWebhooksResponse>();
     }
 
     #[cfg(feature = "account-lockout")]
@@ -504,10 +490,13 @@ fn passkey_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Get,
-                    op("passkey_list", "passkey")
-                        .pipe(|b| with_array_response(b, "PasskeyInfo"))
-                        .security(auth_req())
-                        .build(),
+                    with_query_params(
+                        op("passkey_list", "passkey"),
+                        &[("page", false), ("per_page", false)],
+                    )
+                    .pipe(|b| with_response(b, "ListPasskeysResponse"))
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
@@ -656,10 +645,13 @@ fn oauth_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Get,
-                    op("oauth_accounts", "oauth")
-                        .pipe(|b| with_array_response(b, "OAuthAccountResponse"))
-                        .security(auth_req())
-                        .build(),
+                    with_query_params(
+                        op("oauth_accounts", "oauth"),
+                        &[("page", false), ("per_page", false)],
+                    )
+                    .pipe(|b| with_response(b, "ListOAuthAccountsResponse"))
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
@@ -767,10 +759,13 @@ fn api_key_paths(builder: PathsBuilder) -> PathsBuilder {
                 )
                 .operation(
                     HttpMethod::Get,
-                    op("apiKeys_list", "api-key")
-                        .pipe(|b| with_array_response(b, "ApiKeyResponse"))
-                        .security(auth_req())
-                        .build(),
+                    with_query_params(
+                        op("apiKeys_list", "api-key"),
+                        &[("page", false), ("per_page", false)],
+                    )
+                    .pipe(|b| with_response(b, "ListApiKeysResponse"))
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
@@ -1081,10 +1076,13 @@ fn webhook_paths(builder: PathsBuilder) -> PathsBuilder {
                 )
                 .operation(
                     HttpMethod::Get,
-                    op("webhooks_list", "webhooks")
-                        .pipe(|b| with_array_response(b, "WebhookResponse"))
-                        .security(auth_req())
-                        .build(),
+                    with_query_params(
+                        op("webhooks_list", "webhooks"),
+                        &[("page", false), ("per_page", false)],
+                    )
+                    .pipe(|b| with_response(b, "ListWebhooksResponse"))
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
