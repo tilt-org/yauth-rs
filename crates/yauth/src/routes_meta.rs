@@ -10,9 +10,7 @@ use utoipa::openapi::path::{
 };
 use utoipa::openapi::request_body::RequestBodyBuilder;
 use utoipa::openapi::response::ResponseBuilder;
-use utoipa::openapi::security::{
-    ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme,
-};
+use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::openapi::{
     ComponentsBuilder, ContentBuilder, InfoBuilder, OpenApiBuilder, PathsBuilder, RefOr,
 };
@@ -127,13 +125,17 @@ fn with_query_params(builder: OperationBuilder, params: &[(&str, bool)]) -> Oper
 /// Register all schema components from `ToSchema` derives.
 fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
     use crate::middleware::{AuthMethod, AuthUser};
-    use crate::plugins::{AuthConfigResponse, UpdateProfileRequest};
+    use crate::plugins::{
+        AuthConfigResponse, PatchMeResponse, SessionResponse, UpdateProfileRequest,
+    };
 
     let mut b = builder
         .schema_from::<AuthUser>()
         .schema_from::<AuthMethod>()
         .schema_from::<AuthConfigResponse>()
-        .schema_from::<UpdateProfileRequest>();
+        .schema_from::<UpdateProfileRequest>()
+        .schema_from::<SessionResponse>()
+        .schema_from::<PatchMeResponse>();
 
     #[cfg(feature = "email-password")]
     {
@@ -142,6 +144,7 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<RegisterRequest>()
             .schema_from::<LoginRequest>()
             .schema_from::<MessageResponse>()
+            .schema_from::<RegisterResponse>()
             .schema_from::<VerifyEmailRequest>()
             .schema_from::<ResendVerificationRequest>()
             .schema_from::<ForgotPasswordRequest>()
@@ -268,7 +271,7 @@ fn core_paths(builder: PathsBuilder) -> PathsBuilder {
                 .operation(
                     HttpMethod::Get,
                     op("getSession", "email-password")
-                        .pipe(|b| with_response(b, "AuthUser"))
+                        .pipe(|b| with_response(b, "SessionResponse"))
                         .security(utoipa::openapi::security::SecurityRequirement::new::<
                             &str,
                             [&str; 0],
@@ -301,7 +304,7 @@ fn core_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Patch,
                     op("updateProfile", "email-password")
                         .pipe(|b| with_body(b, "UpdateProfileRequest"))
-                        .pipe(|b| with_response(b, "AuthUser"))
+                        .pipe(|b| with_response(b, "PatchMeResponse"))
                         .security(utoipa::openapi::security::SecurityRequirement::new::<
                             &str,
                             [&str; 0],
@@ -325,7 +328,7 @@ fn email_password_paths(builder: PathsBuilder) -> PathsBuilder {
                     with_body(
                         with_response(
                             op("emailPassword_register", "email-password"),
-                            "MessageResponse",
+                            "RegisterResponse",
                         ),
                         "RegisterRequest",
                     )

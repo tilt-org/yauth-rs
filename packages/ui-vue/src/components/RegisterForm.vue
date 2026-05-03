@@ -26,7 +26,7 @@ const handleSubmit = async (e: Event) => {
 			password: password.value,
 			display_name: displayName.value || undefined,
 		});
-		props.onSuccess?.(result.message);
+		props.onSuccess?.(result.message ?? "");
 	} catch (err) {
 		const e = err instanceof Error ? err : new Error(String(err));
 		error.value = e.message;

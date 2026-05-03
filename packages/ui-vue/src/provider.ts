@@ -56,8 +56,8 @@ export const YAuthPlugin = {
 			loading.value = true;
 			try {
 				const result = await clientRef.value.getSession();
-				user.value = result;
-				return result;
+				user.value = result.user;
+				return result.user;
 			} catch {
 				user.value = null;
 				return null;

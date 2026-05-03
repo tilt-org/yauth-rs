@@ -161,11 +161,11 @@ importers:
         specifier: ^13.0.0
         version: 13.3.0
       '@yackey-labs/yauth-client':
-        specifier: 0.12.0
-        version: 0.12.0
+        specifier: workspace:*
+        version: link:../client
       '@yackey-labs/yauth-shared':
-        specifier: 0.12.0
-        version: 0.12.0
+        specifier: workspace:*
+        version: link:../shared
       solid-js:
         specifier: ^1.9.5
         version: 1.9.12
@@ -189,11 +189,11 @@ importers:
         specifier: ^13.0.0
         version: 13.3.0
       '@yackey-labs/yauth-client':
-        specifier: 0.12.0
-        version: 0.12.0
+        specifier: workspace:*
+        version: link:../client
       '@yackey-labs/yauth-shared':
-        specifier: 0.12.0
-        version: 0.12.0
+        specifier: workspace:*
+        version: link:../shared
       vue:
         specifier: ^3.5.0
         version: 3.5.33(typescript@5.9.3)
@@ -1814,9 +1814,6 @@ packages:
     peerDependenciesMeta:
       '@vue/server-renderer':
         optional: true
-
-  '@yackey-labs/yauth-client@0.12.0':
-    resolution: {integrity: sha512-vrnuTwYfWt8dYT6vaX2BT8XVRjrhMFFf2FzZeQY7t91DmQX3Jrw8ZWybA+mhwXQiM2Jy5FNjW5j/4ml//b7/IQ==}
 
   '@yackey-labs/yauth-shared@0.12.0':
     resolution: {integrity: sha512-lX7ZhFuKqJsl5bMeEyDCvPS9ZF18Bca2M8sc8OWobQwzr3MHZxzyOpI0Iz6Bwcc7KEepUNkyJKCpRm0kHR6Q/A==}
@@ -5390,10 +5387,6 @@ snapshots:
       vue-component-type-helpers: 3.2.7
     optionalDependencies:
       '@vue/server-renderer': 3.5.33(vue@3.5.33(typescript@5.9.3))
-
-  '@yackey-labs/yauth-client@0.12.0':
-    dependencies:
-      '@yackey-labs/yauth-shared': 0.12.0
 
   '@yackey-labs/yauth-shared@0.12.0': {}
 

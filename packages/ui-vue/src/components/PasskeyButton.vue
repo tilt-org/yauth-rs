@@ -37,7 +37,7 @@ const handleLogin = async () => {
 		credential: credential as unknown as Record<string, unknown>,
 	});
 	const session = await client.getSession();
-	props.onSuccess?.(session as unknown as AuthUser);
+	props.onSuccess?.(session.user as unknown as AuthUser);
 };
 
 const handleRegister = async () => {

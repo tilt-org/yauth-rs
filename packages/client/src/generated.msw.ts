@@ -217,12 +217,12 @@ export interface MessageResponse {
   message: string;
 }
 
+/**
+ * Envelope returned by `POST /mfa/verify` after a TOTP/backup code passes.
+Matches yauth-go's `MfaVerifyResponse`.
+ */
 export interface MfaAuthResponse {
-  /** @nullable */
-  display_name?: string | null;
-  email: string;
-  email_verified: boolean;
-  user_id: string;
+  user: AuthUser;
 }
 
 export interface MfaMessageResponse {
@@ -236,12 +236,12 @@ export interface OAuthAccountResponse {
   provider_user_id: string;
 }
 
+/**
+ * Envelope returned by `POST|GET /oauth/{provider}/callback` after a
+successful exchange. Matches yauth-go's `OauthCallbackResponse`.
+ */
 export interface OAuthAuthResponse {
-  /** @nullable */
-  display_name?: string | null;
-  email: string;
-  email_verified: boolean;
-  user_id: string;
+  user: AuthUser;
 }
 
 /**
@@ -290,6 +290,14 @@ export interface PasskeyLoginFinishRequest {
   credential: PasskeyLoginFinishRequestCredential;
 }
 
+/**
+ * Envelope returned by `PATCH /me`. Mirrors yauth-go's
+`EmailPasswordPatchMeResponse`.
+ */
+export interface PatchMeResponse {
+  user: AuthUser;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
 }
@@ -308,6 +316,17 @@ export interface RegisterRequest {
   password: string;
 }
 
+/**
+ * Envelope returned by `POST /register` — wraps the newly-created user and
+carries an optional human-readable message. Matches yauth-go's
+`EmailPasswordRegisterResponse`.
+ */
+export interface RegisterResponse {
+  /** @nullable */
+  message?: string | null;
+  user: AuthUser;
+}
+
 export interface RequestUnlockRequest {
   email: string;
 }
@@ -323,6 +342,17 @@ export interface ResetPasswordRequest {
 
 export interface RevokeRequest {
   refresh_token: string;
+}
+
+/**
+ * Envelope returned by `GET /session` — wraps the authenticated user and
+surfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`
+shape so a single TypeScript client serves both backends.
+ */
+export interface SessionResponse {
+  /** @nullable */
+  expires_at?: string | null;
+  user: AuthUser;
 }
 
 export interface SetupTotpResponse {
@@ -981,9 +1011,9 @@ export const getUpdateProfileUrl = () => {
   return `/me`
 }
 
-export const updateProfile = async (updateProfileRequest: UpdateProfileRequest, options?: RequestInit): Promise<AuthUser> => {
+export const updateProfile = async (updateProfileRequest: UpdateProfileRequest, options?: RequestInit): Promise<PatchMeResponse> => {
 
-  return customFetch<AuthUser>(getUpdateProfileUrl(),
+  return customFetch<PatchMeResponse>(getUpdateProfileUrl(),
   {
     ...options,
     method: 'PATCH',
@@ -1556,9 +1586,9 @@ export const getEmailPasswordRegisterUrl = () => {
   return `/register`
 }
 
-export const emailPasswordRegister = async (registerRequest: RegisterRequest, options?: RequestInit): Promise<MessageResponse> => {
+export const emailPasswordRegister = async (registerRequest: RegisterRequest, options?: RequestInit): Promise<RegisterResponse> => {
 
-  return customFetch<MessageResponse>(getEmailPasswordRegisterUrl(),
+  return customFetch<RegisterResponse>(getEmailPasswordRegisterUrl(),
   {
     ...options,
     method: 'POST',
@@ -1622,9 +1652,9 @@ export const getGetSessionUrl = () => {
   return `/session`
 }
 
-export const getSession = async ( options?: RequestInit): Promise<AuthUser> => {
+export const getSession = async ( options?: RequestInit): Promise<SessionResponse> => {
 
-  return customFetch<AuthUser>(getGetSessionUrl(),
+  return customFetch<SessionResponse>(getGetSessionUrl(),
   {
     ...options,
     method: 'GET'
@@ -1902,7 +1932,7 @@ export const getEmailPasswordForgotPasswordResponseMock = (overrideResponse: Par
 
 export const getMagicLinkSendResponseMock = (overrideResponse: Partial<Extract<MagicLinkMessageResponse, object>> = {}): MagicLinkMessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getUpdateProfileResponseMock = (overrideResponse: Partial<Extract<AuthUser, object>> = {}): AuthUser => ({auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), ...overrideResponse})
+export const getUpdateProfileResponseMock = (overrideResponse: Partial<Extract<PatchMeResponse, object>> = {}): PatchMeResponse => ({user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 
 export const getMfaGetBackupCodeCountResponseMock = (overrideResponse: Partial<Extract<BackupCodeCountResponse, object>> = {}): BackupCodeCountResponse => ({remaining: faker.number.int({min: 0}), ...overrideResponse})
 
@@ -1914,23 +1944,23 @@ export const getMfaConfirmResponseMock = (overrideResponse: Partial<Extract<MfaM
 
 export const getMfaSetupResponseMock = (overrideResponse: Partial<Extract<SetupTotpResponse, object>> = {}): SetupTotpResponse => ({backup_codes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), otpauth_url: faker.string.alpha({length: {min: 10, max: 20}}), secret: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getMfaVerifyResponseMock = (overrideResponse: Partial<Extract<MfaAuthResponse, object>> = {}): MfaAuthResponse => ({display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), user_id: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getMfaVerifyResponseMock = (overrideResponse: Partial<Extract<MfaAuthResponse, object>> = {}): MfaAuthResponse => ({user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 
 export const getOauthAccountsResponseMock = (): OAuthAccountResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), provider: faker.string.alpha({length: {min: 10, max: 20}}), provider_user_id: faker.string.alpha({length: {min: 10, max: 20}})})))
 
-export const getOauthCallbackResponseMock = (overrideResponse: Partial<Extract<OAuthAuthResponse, object>> = {}): OAuthAuthResponse => ({display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), user_id: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getOauthCallbackResponseMock = (overrideResponse: Partial<Extract<OAuthAuthResponse, object>> = {}): OAuthAuthResponse => ({user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 
 export const getOauthLinkResponseMock = (overrideResponse: Partial<Extract<AuthorizeResponse, object>> = {}): AuthorizeResponse => ({auth_url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getPasskeyListResponseMock = (): PasskeyInfo[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}})})))
 
-export const getEmailPasswordRegisterResponseMock = (overrideResponse: Partial<Extract<MessageResponse, object>> = {}): MessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getEmailPasswordRegisterResponseMock = (overrideResponse: Partial<Extract<RegisterResponse, object>> = {}): RegisterResponse => ({message: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 
 export const getEmailPasswordResendVerificationResponseMock = (overrideResponse: Partial<Extract<MessageResponse, object>> = {}): MessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getEmailPasswordResetPasswordResponseMock = (overrideResponse: Partial<Extract<MessageResponse, object>> = {}): MessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getGetSessionResponseMock = (overrideResponse: Partial<Extract<AuthUser, object>> = {}): AuthUser => ({auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), ...overrideResponse})
+export const getGetSessionResponseMock = (overrideResponse: Partial<Extract<SessionResponse, object>> = {}): SessionResponse => ({expires_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 
 export const getBearerGetTokenResponseMock = (overrideResponse: Partial<Extract<TokenResponse, object>> = {}): TokenResponse => ({access_token: faker.string.alpha({length: {min: 10, max: 20}}), expires_in: faker.number.int({min: 0}), refresh_token: faker.string.alpha({length: {min: 10, max: 20}}), token_type: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -2227,7 +2257,7 @@ export const getMagicLinkVerifyMockHandler = (overrideResponse?: void | ((info: 
   }, options)
 }
 
-export const getUpdateProfileMockHandler = (overrideResponse?: AuthUser | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<AuthUser> | AuthUser), options?: RequestHandlerOptions) => {
+export const getUpdateProfileMockHandler = (overrideResponse?: PatchMeResponse | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<PatchMeResponse> | PatchMeResponse), options?: RequestHandlerOptions) => {
   return http.patch('*/me', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
 
 
@@ -2519,7 +2549,7 @@ export const getPasskeyDeleteMockHandler = (overrideResponse?: void | ((info: Pa
   }, options)
 }
 
-export const getEmailPasswordRegisterMockHandler = (overrideResponse?: MessageResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<MessageResponse> | MessageResponse), options?: RequestHandlerOptions) => {
+export const getEmailPasswordRegisterMockHandler = (overrideResponse?: RegisterResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<RegisterResponse> | RegisterResponse), options?: RequestHandlerOptions) => {
   return http.post('*/register', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
 
@@ -2555,7 +2585,7 @@ export const getEmailPasswordResetPasswordMockHandler = (overrideResponse?: Mess
   }, options)
 }
 
-export const getGetSessionMockHandler = (overrideResponse?: AuthUser | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<AuthUser> | AuthUser), options?: RequestHandlerOptions) => {
+export const getGetSessionMockHandler = (overrideResponse?: SessionResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<SessionResponse> | SessionResponse), options?: RequestHandlerOptions) => {
   return http.get('*/session', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 

@@ -205,12 +205,12 @@ export interface MessageResponse {
   message: string;
 }
 
+/**
+ * Envelope returned by `POST /mfa/verify` after a TOTP/backup code passes.
+Matches yauth-go's `MfaVerifyResponse`.
+ */
 export interface MfaAuthResponse {
-  /** @nullable */
-  display_name?: string | null;
-  email: string;
-  email_verified: boolean;
-  user_id: string;
+  user: AuthUser;
 }
 
 export interface MfaMessageResponse {
@@ -224,12 +224,12 @@ export interface OAuthAccountResponse {
   provider_user_id: string;
 }
 
+/**
+ * Envelope returned by `POST|GET /oauth/{provider}/callback` after a
+successful exchange. Matches yauth-go's `OauthCallbackResponse`.
+ */
 export interface OAuthAuthResponse {
-  /** @nullable */
-  display_name?: string | null;
-  email: string;
-  email_verified: boolean;
-  user_id: string;
+  user: AuthUser;
 }
 
 /**
@@ -278,6 +278,14 @@ export interface PasskeyLoginFinishRequest {
   credential: PasskeyLoginFinishRequestCredential;
 }
 
+/**
+ * Envelope returned by `PATCH /me`. Mirrors yauth-go's
+`EmailPasswordPatchMeResponse`.
+ */
+export interface PatchMeResponse {
+  user: AuthUser;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
 }
@@ -296,6 +304,17 @@ export interface RegisterRequest {
   password: string;
 }
 
+/**
+ * Envelope returned by `POST /register` — wraps the newly-created user and
+carries an optional human-readable message. Matches yauth-go's
+`EmailPasswordRegisterResponse`.
+ */
+export interface RegisterResponse {
+  /** @nullable */
+  message?: string | null;
+  user: AuthUser;
+}
+
 export interface RequestUnlockRequest {
   email: string;
 }
@@ -311,6 +330,17 @@ export interface ResetPasswordRequest {
 
 export interface RevokeRequest {
   refresh_token: string;
+}
+
+/**
+ * Envelope returned by `GET /session` — wraps the authenticated user and
+surfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`
+shape so a single TypeScript client serves both backends.
+ */
+export interface SessionResponse {
+  /** @nullable */
+  expires_at?: string | null;
+  user: AuthUser;
 }
 
 export interface SetupTotpResponse {
@@ -969,9 +999,9 @@ export const getUpdateProfileUrl = () => {
   return `/me`
 }
 
-export const updateProfile = async (updateProfileRequest: UpdateProfileRequest, options?: RequestInit): Promise<AuthUser> => {
+export const updateProfile = async (updateProfileRequest: UpdateProfileRequest, options?: RequestInit): Promise<PatchMeResponse> => {
 
-  return customFetch<AuthUser>(getUpdateProfileUrl(),
+  return customFetch<PatchMeResponse>(getUpdateProfileUrl(),
   {
     ...options,
     method: 'PATCH',
@@ -1544,9 +1574,9 @@ export const getEmailPasswordRegisterUrl = () => {
   return `/register`
 }
 
-export const emailPasswordRegister = async (registerRequest: RegisterRequest, options?: RequestInit): Promise<MessageResponse> => {
+export const emailPasswordRegister = async (registerRequest: RegisterRequest, options?: RequestInit): Promise<RegisterResponse> => {
 
-  return customFetch<MessageResponse>(getEmailPasswordRegisterUrl(),
+  return customFetch<RegisterResponse>(getEmailPasswordRegisterUrl(),
   {
     ...options,
     method: 'POST',
@@ -1610,9 +1640,9 @@ export const getGetSessionUrl = () => {
   return `/session`
 }
 
-export const getSession = async ( options?: RequestInit): Promise<AuthUser> => {
+export const getSession = async ( options?: RequestInit): Promise<SessionResponse> => {
 
-  return customFetch<AuthUser>(getGetSessionUrl(),
+  return customFetch<SessionResponse>(getGetSessionUrl(),
   {
     ...options,
     method: 'GET'

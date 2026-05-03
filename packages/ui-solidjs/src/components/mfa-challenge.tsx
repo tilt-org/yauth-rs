@@ -30,7 +30,7 @@ export const MfaChallenge: Component<MfaChallengeProps> = (props) => {
 				code: (formData.get("code") as string) || code(),
 			});
 			const session = await client.getSession();
-			props.onSuccess?.(session as unknown as AuthUser);
+			props.onSuccess?.(session.user as unknown as AuthUser);
 		} catch (err) {
 			const error = err instanceof Error ? err : new Error(String(err));
 			setError(error.message);

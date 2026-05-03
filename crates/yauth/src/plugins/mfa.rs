@@ -159,13 +159,12 @@ pub struct BackupCodesResponse {
     pub backup_codes: Vec<String>,
 }
 
+/// Envelope returned by `POST /mfa/verify` after a TOTP/backup code passes.
+/// Matches yauth-go's `MfaVerifyResponse`.
 #[derive(Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MfaAuthResponse {
-    pub user_id: String,
-    pub email: String,
-    pub display_name: Option<String>,
-    pub email_verified: bool,
+    pub user: AuthUser,
 }
 
 // ---------------------------------------------------------------------------
@@ -566,6 +565,8 @@ async fn verify_mfa(
         email: String,
         display_name: Option<String>,
         email_verified: bool,
+        role: String,
+        banned: bool,
     }
 
     let user = {
@@ -584,6 +585,8 @@ async fn verify_mfa(
             email: u.email,
             display_name: u.display_name,
             email_verified: u.email_verified,
+            role: u.role,
+            banned: u.banned,
         }
     };
 
@@ -686,10 +689,16 @@ async fn verify_mfa(
             session_set_cookie(&state, &token, state.config.session_ttl),
         )],
         Json(MfaAuthResponse {
-            user_id: user.id.to_string(),
-            email: user.email.clone(),
-            display_name: user.display_name.clone(),
-            email_verified: user.email_verified,
+            user: AuthUser {
+                id: user.id,
+                email: user.email.clone(),
+                display_name: user.display_name.clone(),
+                email_verified: user.email_verified,
+                role: user.role.clone(),
+                banned: user.banned,
+                auth_method: crate::middleware::AuthMethod::Session,
+                scopes: None,
+            },
         }),
     ))
 }

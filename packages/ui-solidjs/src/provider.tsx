@@ -54,7 +54,8 @@ export const YAuthProvider: ParentComponent<YAuthProviderProps> = (props) => {
 		const c = resolvedClient();
 		if (!c) return null;
 		try {
-			return await c.getSession();
+			const result = await c.getSession();
+			return result.user;
 		} catch {
 			return null;
 		}

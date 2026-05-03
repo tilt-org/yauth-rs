@@ -32,7 +32,7 @@ export const RegisterForm: Component<RegisterFormProps> = (props) => {
 				password: (formData.get("password") as string) || password(),
 				display_name: formDisplayName || undefined,
 			});
-			props.onSuccess?.(result.message);
+			props.onSuccess?.(result.message ?? "");
 		} catch (err) {
 			const error = err instanceof Error ? err : new Error(String(err));
 			setError(error.message);

@@ -91,13 +91,12 @@ pub struct OAuthAccountResponse {
     pub created_at: String,
 }
 
+/// Envelope returned by `POST|GET /oauth/{provider}/callback` after a
+/// successful exchange. Matches yauth-go's `OauthCallbackResponse`.
 #[derive(Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct OAuthAuthResponse {
-    pub user_id: String,
-    pub email: String,
-    pub display_name: Option<String>,
-    pub email_verified: bool,
+    pub user: crate::middleware::AuthUser,
 }
 
 #[derive(Serialize)]
@@ -390,12 +389,18 @@ async fn fetch_primary_email(emails_url: &str, access_token: &str) -> Result<Str
 }
 
 /// Core callback logic shared by GET and POST handlers.
+struct CallbackResult {
+    user: crate::middleware::AuthUser,
+    token: String,
+    redirect_url: Option<String>,
+}
+
 async fn handle_callback(
     state: &YAuthState,
     provider: &str,
     code: &str,
     state_param: &str,
-) -> Result<(String, String, Option<String>, bool, String, Option<String>), ApiError> {
+) -> Result<CallbackResult, ApiError> {
     // 1. Validate and consume state
     let stored_state = consume_state(state, state_param, provider).await?;
 
@@ -534,14 +539,20 @@ async fn handle_callback(
             )
             .await;
 
-        return Ok((
-            user.id.to_string(),
-            user.email,
-            user.display_name,
-            user.email_verified,
+        return Ok(CallbackResult {
+            user: crate::middleware::AuthUser {
+                id: user.id,
+                email: user.email,
+                display_name: user.display_name,
+                email_verified: user.email_verified,
+                role: user.role,
+                banned: user.banned,
+                auth_method: crate::middleware::AuthMethod::Session,
+                scopes: None,
+            },
             token,
-            None,
-        ));
+            redirect_url: None,
+        });
     }
 
     // 7. Look up existing OAuth account
@@ -560,6 +571,8 @@ async fn handle_callback(
         email: String,
         display_name: Option<String>,
         email_verified: bool,
+        role: String,
+        banned: bool,
     }
 
     let user_info = if let Some(account) = existing_account {
@@ -628,6 +641,8 @@ async fn handle_callback(
             email: user.email,
             display_name: user.display_name,
             email_verified: user.email_verified,
+            role: user.role,
+            banned: user.banned,
         }
     } else {
         // New user — create user and OAuth account
@@ -648,8 +663,13 @@ async fn handle_callback(
             api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?;
 
-        let (uid, display_name, email_verified) = if let Some(existing) = existing_user {
-            (existing.id, existing.display_name, existing.email_verified)
+        let (uid, display_name, email_verified, role) = if let Some(existing) = existing_user {
+            (
+                existing.id,
+                existing.display_name,
+                existing.email_verified,
+                existing.role,
+            )
         } else {
             if !state.config.allow_signups {
                 crate::otel::add_event(
@@ -682,7 +702,7 @@ async fn handle_callback(
                 crate::otel::record_error("user_create_failed", &e);
                 api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             })?;
-            (user_id, userinfo.name.clone(), true)
+            (user_id, userinfo.name.clone(), true, "user".to_string())
         };
 
         let now = chrono::Utc::now().naive_utc();
@@ -732,6 +752,8 @@ async fn handle_callback(
             email: email.clone(),
             display_name,
             email_verified,
+            role,
+            banned: false,
         }
     };
 
@@ -744,14 +766,20 @@ async fn handle_callback(
                 api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             })?;
 
-    Ok((
-        user_info.id.to_string(),
-        user_info.email,
-        user_info.display_name,
-        user_info.email_verified,
+    Ok(CallbackResult {
+        user: crate::middleware::AuthUser {
+            id: user_info.id,
+            email: user_info.email,
+            display_name: user_info.display_name,
+            email_verified: user_info.email_verified,
+            role: user_info.role,
+            banned: user_info.banned,
+            auth_method: crate::middleware::AuthMethod::Session,
+            scopes: None,
+        },
         token,
-        stored_state.redirect_url,
-    ))
+        redirect_url: stored_state.redirect_url,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -853,10 +881,9 @@ async fn callback_get(
         .as_deref()
         .ok_or_else(|| api_err(StatusCode::BAD_REQUEST, "Missing state parameter"))?;
 
-    let (user_id, email, display_name, email_verified, token, redirect_url) =
-        handle_callback(&state, &provider, code, state_param).await?;
+    let result = handle_callback(&state, &provider, code, state_param).await?;
 
-    if let Some(ref url) = redirect_url
+    if let Some(ref url) = result.redirect_url
         && !url.starts_with("link:")
     {
         let separator = if url.contains('?') { '&' } else { '?' };
@@ -864,7 +891,7 @@ async fn callback_get(
         return Ok((
             [(
                 SET_COOKIE,
-                session_set_cookie(&state, &token, state.config.session_ttl),
+                session_set_cookie(&state, &result.token, state.config.session_ttl),
             )],
             Redirect::temporary(&redirect_with_session),
         )
@@ -874,14 +901,9 @@ async fn callback_get(
     Ok((
         [(
             SET_COOKIE,
-            session_set_cookie(&state, &token, state.config.session_ttl),
+            session_set_cookie(&state, &result.token, state.config.session_ttl),
         )],
-        Json(OAuthAuthResponse {
-            user_id,
-            email,
-            display_name,
-            email_verified,
-        }),
+        Json(OAuthAuthResponse { user: result.user }),
     )
         .into_response())
 }
@@ -891,20 +913,14 @@ async fn callback_post(
     Path(provider): Path<String>,
     Json(body): Json<CallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let (user_id, email, display_name, email_verified, token, _redirect_url) =
-        handle_callback(&state, &provider, &body.code, &body.state).await?;
+    let result = handle_callback(&state, &provider, &body.code, &body.state).await?;
 
     Ok((
         [(
             SET_COOKIE,
-            session_set_cookie(&state, &token, state.config.session_ttl),
+            session_set_cookie(&state, &result.token, state.config.session_ttl),
         )],
-        Json(OAuthAuthResponse {
-            user_id,
-            email,
-            display_name,
-            email_verified,
-        }),
+        Json(OAuthAuthResponse { user: result.user }),
     ))
 }
 

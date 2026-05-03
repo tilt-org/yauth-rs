@@ -70,7 +70,7 @@ export function useAuth() {
 				password,
 				display_name: displayName || undefined,
 			});
-			return result.message;
+			return result.message ?? null;
 		} catch (err) {
 			error.value = err instanceof Error ? err.message : String(err);
 			return null;

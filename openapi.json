@@ -764,7 +764,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuthUser"
+                  "$ref": "#/components/schemas/PatchMeResponse"
                 }
               }
             }
@@ -1379,7 +1379,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MessageResponse"
+                  "$ref": "#/components/schemas/RegisterResponse"
                 }
               }
             }
@@ -1459,7 +1459,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuthUser"
+                  "$ref": "#/components/schemas/SessionResponse"
                 }
               }
             }
@@ -2325,26 +2325,13 @@
       },
       "MfaAuthResponse": {
         "type": "object",
+        "description": "Envelope returned by `POST /mfa/verify` after a TOTP/backup code passes.\nMatches yauth-go's `MfaVerifyResponse`.",
         "required": [
-          "user_id",
-          "email",
-          "email_verified"
+          "user"
         ],
         "properties": {
-          "display_name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "email": {
-            "type": "string"
-          },
-          "email_verified": {
-            "type": "boolean"
-          },
-          "user_id": {
-            "type": "string"
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
           }
         }
       },
@@ -2384,26 +2371,13 @@
       },
       "OAuthAuthResponse": {
         "type": "object",
+        "description": "Envelope returned by `POST|GET /oauth/{provider}/callback` after a\nsuccessful exchange. Matches yauth-go's `OauthCallbackResponse`.",
         "required": [
-          "user_id",
-          "email",
-          "email_verified"
+          "user"
         ],
         "properties": {
-          "display_name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "email": {
-            "type": "string"
-          },
-          "email_verified": {
-            "type": "boolean"
-          },
-          "user_id": {
-            "type": "string"
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
           }
         }
       },
@@ -2528,6 +2502,18 @@
           }
         }
       },
+      "PatchMeResponse": {
+        "type": "object",
+        "description": "Envelope returned by `PATCH /me`. Mirrors yauth-go's\n`EmailPasswordPatchMeResponse`.",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
+          }
+        }
+      },
       "RefreshRequest": {
         "type": "object",
         "required": [
@@ -2572,6 +2558,24 @@
           },
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "RegisterResponse": {
+        "type": "object",
+        "description": "Envelope returned by `POST /register` — wraps the newly-created user and\ncarries an optional human-readable message. Matches yauth-go's\n`EmailPasswordRegisterResponse`.",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
           }
         }
       },
@@ -2620,6 +2624,25 @@
         "properties": {
           "refresh_token": {
             "type": "string"
+          }
+        }
+      },
+      "SessionResponse": {
+        "type": "object",
+        "description": "Envelope returned by `GET /session` — wraps the authenticated user and\nsurfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`\nshape so a single TypeScript client serves both backends.",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
           }
         }
       },
