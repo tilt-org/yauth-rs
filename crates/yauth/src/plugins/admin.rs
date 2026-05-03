@@ -38,6 +38,10 @@ impl YAuthPlugin for AdminPlugin {
             .route("/admin/users/{id}/ban", post(ban_user))
             .route("/admin/users/{id}/unban", post(unban_user))
             .route("/admin/users/{id}/impersonate", post(impersonate_user))
+            .route(
+                "/admin/users/{id}/sessions",
+                delete(delete_user_sessions),
+            )
             .route("/admin/sessions", get(list_sessions))
             .route("/admin/sessions/{id}", delete(delete_session));
 
@@ -157,6 +161,14 @@ pub struct PaginatedSessionsResponse {
     pub total: u64,
     pub page: u64,
     pub per_page: u64,
+}
+
+/// Response for `DELETE /admin/users/{id}/sessions`. Mirrors yauth-go's
+/// `AdminDeleteSessionsResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DeleteUserSessionsResponse {
+    pub deleted: u64,
 }
 
 /// Session info returned by admin list endpoint.
@@ -604,6 +616,49 @@ async fn impersonate_user(
         "session_id": session_id,
         "expires_at": expires_at,
     })))
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /admin/users/{id}/sessions
+// ---------------------------------------------------------------------------
+
+async fn delete_user_sessions(
+    State(state): State<YAuthState>,
+    Extension(admin): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<DeleteUserSessionsResponse>, ApiError> {
+    state
+        .repos
+        .users
+        .find_by_id(id)
+        .await
+        .map_err(|e| {
+            crate::otel::record_error("admin_db_fetch_user_error", &e);
+            api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+        })?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "User not found"))?;
+
+    let deleted = crate::auth::session::delete_all_user_sessions(&state, id)
+        .await
+        .map_err(|e| {
+            crate::otel::record_error("admin_db_delete_user_sessions_error", &e);
+            api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+        })?;
+
+    state
+        .write_audit_log(
+            Some(admin.id),
+            "admin_revoke_user_sessions",
+            Some(serde_json::json!({
+                "admin_user_id": admin.id,
+                "target_user_id": id,
+                "deleted": deleted,
+            })),
+            None,
+        )
+        .await;
+
+    Ok(Json(DeleteUserSessionsResponse { deleted }))
 }
 
 // ---------------------------------------------------------------------------

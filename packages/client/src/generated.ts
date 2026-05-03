@@ -207,6 +207,15 @@ export interface CreateWebhookRequest {
   url: string;
 }
 
+/**
+ * Response for `DELETE /admin/users/{id}/sessions`. Mirrors yauth-go's
+`AdminDeleteSessionsResponse`.
+ */
+export interface DeleteUserSessionsResponse {
+  /** @minimum 0 */
+  deleted: number;
+}
+
 export interface ForgotPasswordRequest {
   email: string;
 }
@@ -996,6 +1005,27 @@ export const adminImpersonate = async (id: string, options?: RequestInit): Promi
   {
     ...options,
     method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAdminDeleteUserSessionsUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/sessions`
+}
+
+export const adminDeleteUserSessions = async (id: string, options?: RequestInit): Promise<DeleteUserSessionsResponse> => {
+
+  return customFetch<DeleteUserSessionsResponse>(getAdminDeleteUserSessionsUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
 
 
   }

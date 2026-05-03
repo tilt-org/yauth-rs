@@ -447,6 +447,41 @@
         ]
       }
     },
+    "/admin/users/{id}/sessions": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_deleteUserSessions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteUserSessionsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/admin/users/{id}/unban": {
       "post": {
         "tags": [
@@ -2625,6 +2660,20 @@
           },
           "url": {
             "type": "string"
+          }
+        }
+      },
+      "DeleteUserSessionsResponse": {
+        "type": "object",
+        "description": "Response for `DELETE /admin/users/{id}/sessions`. Mirrors yauth-go's\n`AdminDeleteSessionsResponse`.",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },

@@ -219,6 +219,15 @@ export interface CreateWebhookRequest {
   url: string;
 }
 
+/**
+ * Response for `DELETE /admin/users/{id}/sessions`. Mirrors yauth-go's
+`AdminDeleteSessionsResponse`.
+ */
+export interface DeleteUserSessionsResponse {
+  /** @minimum 0 */
+  deleted: number;
+}
+
 export interface ForgotPasswordRequest {
   email: string;
 }
@@ -1008,6 +1017,27 @@ export const adminImpersonate = async (id: string, options?: RequestInit): Promi
   {
     ...options,
     method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAdminDeleteUserSessionsUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/sessions`
+}
+
+export const adminDeleteUserSessions = async (id: string, options?: RequestInit): Promise<DeleteUserSessionsResponse> => {
+
+  return customFetch<DeleteUserSessionsResponse>(getAdminDeleteUserSessionsUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
 
 
   }
@@ -2321,6 +2351,8 @@ export const getAdminPatchUserResponseMock = (overrideResponse: Partial<Extract<
 
 export const getAdminBanUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
+export const getAdminDeleteUserSessionsResponseMock = (overrideResponse: Partial<Extract<DeleteUserSessionsResponse, object>> = {}): DeleteUserSessionsResponse => ({deleted: faker.number.int({min: 0}), ...overrideResponse})
+
 export const getAdminUnbanUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getAccountLockoutAdminUnlockResponseMock = (overrideResponse: Partial<Extract<AccountLockoutMessageResponse, object>> = {}): AccountLockoutMessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
@@ -2545,6 +2577,18 @@ export const getAdminImpersonateMockHandler = (overrideResponse?: void | ((info:
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
 
     return new HttpResponse(null,
+      { status: 200
+      })
+  }, options)
+}
+
+export const getAdminDeleteUserSessionsMockHandler = (overrideResponse?: DeleteUserSessionsResponse | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<DeleteUserSessionsResponse> | DeleteUserSessionsResponse), options?: RequestHandlerOptions) => {
+  return http.delete('*/admin/users/:id/sessions', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getAdminDeleteUserSessionsResponseMock(),
       { status: 200
       })
   }, options)
@@ -3216,6 +3260,7 @@ export const getYauthMock = () => [
   getAdminPatchUserMockHandler(),
   getAdminBanUserMockHandler(),
   getAdminImpersonateMockHandler(),
+  getAdminDeleteUserSessionsMockHandler(),
   getAdminUnbanUserMockHandler(),
   getAccountLockoutAdminUnlockMockHandler(),
   getApiKeysListMockHandler(),

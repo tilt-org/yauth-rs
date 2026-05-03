@@ -206,6 +206,7 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<ListSessionsQuery>()
             .schema_from::<UpdateUserRequest>()
             .schema_from::<BanRequest>()
+            .schema_from::<DeleteUserSessionsResponse>()
             .schema_from::<PaginatedUsersResponse>()
             .schema_from::<AdminUserInfo>()
             .schema_from::<PaginatedSessionsResponse>()
@@ -947,6 +948,18 @@ fn admin_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_path_param(op("admin_impersonate", "admin"), "id")
                         .pipe(with_empty_response)
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/admin/users/{id}/sessions",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Delete,
+                    with_path_param(op("admin_deleteUserSessions", "admin"), "id")
+                        .pipe(|b| with_response(b, "DeleteUserSessionsResponse"))
                         .security(auth_req())
                         .build(),
                 )
