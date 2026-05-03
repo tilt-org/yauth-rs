@@ -475,6 +475,10 @@ export interface SessionResponse {
 export interface SetupTotpResponse {
   backup_codes: string[];
   otpauth_url: string;
+  /** Server-rendered QR code as a `data:image/png;base64,...` URL. CLI/mobile
+  clients render this directly; web clients can fall back to building
+  their own from `otpauth_url`. Empty string if rendering failed. */
+  qr_code: string;
   secret: string;
 }
 
@@ -2098,7 +2102,7 @@ export const getMfaDisableResponseMock = (overrideResponse: Partial<Extract<MfaM
 
 export const getMfaConfirmResponseMock = (overrideResponse: Partial<Extract<MfaMessageResponse, object>> = {}): MfaMessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getMfaSetupResponseMock = (overrideResponse: Partial<Extract<SetupTotpResponse, object>> = {}): SetupTotpResponse => ({backup_codes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), otpauth_url: faker.string.alpha({length: {min: 10, max: 20}}), secret: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getMfaSetupResponseMock = (overrideResponse: Partial<Extract<SetupTotpResponse, object>> = {}): SetupTotpResponse => ({backup_codes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), otpauth_url: faker.string.alpha({length: {min: 10, max: 20}}), qr_code: faker.string.alpha({length: {min: 10, max: 20}}), secret: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getMfaVerifyResponseMock = (overrideResponse: Partial<Extract<MfaAuthResponse, object>> = {}): MfaAuthResponse => ({user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 

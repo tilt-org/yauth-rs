@@ -2927,7 +2927,8 @@
         "required": [
           "otpauth_url",
           "secret",
-          "backup_codes"
+          "backup_codes",
+          "qr_code"
         ],
         "properties": {
           "backup_codes": {
@@ -2938,6 +2939,10 @@
           },
           "otpauth_url": {
             "type": "string"
+          },
+          "qr_code": {
+            "type": "string",
+            "description": "Server-rendered QR code as a `data:image/png;base64,...` URL. CLI/mobile\nclients render this directly; web clients can fall back to building\ntheir own from `otpauth_url`. Empty string if rendering failed."
           },
           "secret": {
             "type": "string"

@@ -139,6 +139,10 @@ pub struct SetupTotpResponse {
     pub otpauth_url: String,
     pub secret: String,
     pub backup_codes: Vec<String>,
+    /// Server-rendered QR code as a `data:image/png;base64,...` URL. CLI/mobile
+    /// clients render this directly; web clients can fall back to building
+    /// their own from `otpauth_url`. Empty string if rendering failed.
+    pub qr_code: String,
 }
 
 #[derive(Serialize)]
@@ -338,11 +342,30 @@ async fn setup_totp(
         vec![],
     );
 
+    let qr_code = render_qr_data_url(&otpauth_url);
+
     Ok(Json(SetupTotpResponse {
         otpauth_url,
         secret: secret_base32,
         backup_codes,
+        qr_code,
     }))
+}
+
+/// Encode an otpauth URL into a `data:image/png;base64,…` string. Returns an
+/// empty string if rendering fails — callers fall back to `otpauth_url`.
+fn render_qr_data_url(otpauth_url: &str) -> String {
+    use base64::Engine;
+    match qrcode_generator::to_png_to_vec(otpauth_url, qrcode_generator::QrCodeEcc::Medium, 256) {
+        Ok(png) => format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png)
+        ),
+        Err(e) => {
+            log::warn!("qr_code render failed: {e}");
+            String::new()
+        }
+    }
 }
 
 /// POST /mfa/totp/confirm (protected)

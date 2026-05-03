@@ -463,6 +463,10 @@ export interface SessionResponse {
 export interface SetupTotpResponse {
   backup_codes: string[];
   otpauth_url: string;
+  /** Server-rendered QR code as a `data:image/png;base64,...` URL. CLI/mobile
+  clients render this directly; web clients can fall back to building
+  their own from `otpauth_url`. Empty string if rendering failed. */
+  qr_code: string;
   secret: string;
 }
 
