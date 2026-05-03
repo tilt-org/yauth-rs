@@ -27,6 +27,10 @@ pub trait AccountLockRepository: sealed::Sealed + Send + Sync {
 
     /// Auto-unlock: clear locked_until and locked_reason.
     fn auto_unlock(&self, id: Uuid) -> RepoFuture<'_, ()>;
+
+    /// Return every account currently locked (`locked_until` is non-null and
+    /// in the future). Used by `GET /lockout/state` for the admin view.
+    fn list_active_locked(&self, now: NaiveDateTime) -> RepoFuture<'_, Vec<domain::AccountLock>>;
 }
 
 /// Repository for account unlock tokens.

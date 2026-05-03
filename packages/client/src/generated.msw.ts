@@ -462,6 +462,29 @@ export interface ListWebhooksResponse {
   total: number;
 }
 
+/**
+ * One row in the admin lockout listing. Mirrors yauth-go's
+`LockoutLockedAccountJSON`.
+ */
+export interface LockoutLockedAccount {
+  email: string;
+  failed_count: number;
+  lock_count: number;
+  /** @nullable */
+  locked_reason?: string | null;
+  /** @nullable */
+  locked_until?: string | null;
+  user_id: string;
+}
+
+/**
+ * Response for `GET /lockout/state`. Mirrors yauth-go's
+`LockoutStateResponse`.
+ */
+export interface LockoutStateResponse {
+  locked: LockoutLockedAccount[];
+}
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -1286,6 +1309,27 @@ export const emailPasswordForgotPassword = async (forgotPasswordRequest: ForgotP
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       forgotPasswordRequest,)
+  }
+);}
+
+
+
+export const getAccountLockoutStateUrl = () => {
+
+
+
+
+  return `/lockout/state`
+}
+
+export const accountLockoutState = async ( options?: RequestInit): Promise<LockoutStateResponse> => {
+
+  return customFetch<LockoutStateResponse>(getAccountLockoutStateUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 
@@ -2437,6 +2481,8 @@ export const getGetConfigResponseMock = (overrideResponse: Partial<Extract<AuthC
 
 export const getEmailPasswordForgotPasswordResponseMock = (overrideResponse: Partial<Extract<MessageResponse, object>> = {}): MessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
+export const getAccountLockoutStateResponseMock = (overrideResponse: Partial<Extract<LockoutStateResponse, object>> = {}): LockoutStateResponse => ({locked: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({email: faker.string.alpha({length: {min: 10, max: 20}}), failed_count: faker.number.int(), lock_count: faker.number.int(), locked_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), locked_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), user_id: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
+
 export const getMagicLinkSendResponseMock = (overrideResponse: Partial<Extract<MagicLinkMessageResponse, object>> = {}): MagicLinkMessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getUpdateProfileResponseMock = (overrideResponse: Partial<Extract<PatchMeResponse, object>> = {}): PatchMeResponse => ({user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
@@ -2765,6 +2811,18 @@ export const getEmailPasswordForgotPasswordMockHandler = (overrideResponse?: Mes
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getEmailPasswordForgotPasswordResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getAccountLockoutStateMockHandler = (overrideResponse?: LockoutStateResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<LockoutStateResponse> | LockoutStateResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/lockout/state', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getAccountLockoutStateResponseMock(),
       { status: 200
       })
   }, options)
@@ -3352,6 +3410,7 @@ export const getYauthMock = () => [
   getEmailPasswordChangePasswordMockHandler(),
   getGetConfigMockHandler(),
   getEmailPasswordForgotPasswordMockHandler(),
+  getAccountLockoutStateMockHandler(),
   getEmailPasswordLoginMockHandler(),
   getLogoutMockHandler(),
   getMagicLinkSendMockHandler(),

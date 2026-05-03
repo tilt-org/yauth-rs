@@ -800,6 +800,31 @@
         }
       }
     },
+    "/lockout/state": {
+      "get": {
+        "tags": [
+          "lockout"
+        ],
+        "operationId": "accountLockout_state",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LockoutStateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/login": {
       "post": {
         "tags": [
@@ -3142,6 +3167,59 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "LockoutLockedAccount": {
+        "type": "object",
+        "description": "One row in the admin lockout listing. Mirrors yauth-go's\n`LockoutLockedAccountJSON`.",
+        "required": [
+          "user_id",
+          "email",
+          "failed_count",
+          "lock_count"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "failed_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lock_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "locked_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locked_until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LockoutStateResponse": {
+        "type": "object",
+        "description": "Response for `GET /lockout/state`. Mirrors yauth-go's\n`LockoutStateResponse`.",
+        "required": [
+          "locked"
+        ],
+        "properties": {
+          "locked": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LockoutLockedAccount"
+            }
           }
         }
       },

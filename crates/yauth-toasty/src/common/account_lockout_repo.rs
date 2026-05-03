@@ -126,6 +126,29 @@ impl AccountLockRepository for ToastyAccountLockRepo {
             Ok(())
         })
     }
+
+    fn list_active_locked(
+        &self,
+        now: NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<domain::AccountLock>> {
+        Box::pin(async move {
+            let mut db = self.db.clone();
+            // Toasty currently lacks a chained `IS NOT NULL AND > ?`
+            // predicate builder, so we pull all rows and filter in Rust.
+            // Lockouts are an admin-scoped, low-volume table — fine in
+            // practice; revisit if scale demands.
+            let now_jiff = chrono_to_jiff(now);
+            let rows: Vec<YauthAccountLock> = YauthAccountLock::all()
+                .exec(&mut db)
+                .await
+                .map_err(toasty_err)?;
+            Ok(rows
+                .into_iter()
+                .filter(|r| r.locked_until.is_some_and(|until| until > now_jiff))
+                .map(account_lock_to_domain)
+                .collect())
+        })
+    }
 }
 
 // -- UnlockTokenRepository --

@@ -238,7 +238,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
         b = b
             .schema_from::<RequestUnlockRequest>()
             .schema_from::<UnlockAccountRequest>()
-            .schema_from::<AccountLockoutMessageResponse>();
+            .schema_from::<AccountLockoutMessageResponse>()
+            .schema_from::<LockoutLockedAccount>()
+            .schema_from::<LockoutStateResponse>();
     }
 
     #[cfg(feature = "oauth2-server")]
@@ -1283,6 +1285,18 @@ fn account_lockout_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_path_param(op("accountLockout_adminUnlock", "lockout"), "id")
                         .pipe(|b| with_response(b, "AccountLockoutMessageResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/lockout/state",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    op("accountLockout_state", "lockout")
+                        .pipe(|b| with_response(b, "LockoutStateResponse"))
                         .security(auth_req())
                         .build(),
                 )

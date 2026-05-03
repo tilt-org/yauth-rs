@@ -149,6 +149,21 @@ impl AccountLockRepository for MysqlAccountLockRepo {
             Ok(())
         })
     }
+
+    fn list_active_locked(&self, now: NaiveDateTime) -> RepoFuture<'_, Vec<domain::AccountLock>> {
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            let rows: Vec<MysqlAccountLock> = yauth_account_locks::table
+                .filter(yauth_account_locks::locked_until.is_not_null())
+                .filter(yauth_account_locks::locked_until.gt(now))
+                .order(yauth_account_locks::locked_until.desc())
+                .select(MysqlAccountLock::as_select())
+                .load(&mut *c)
+                .await
+                .map_err(diesel_err)?;
+            Ok(rows.into_iter().map(|r| r.into_domain()).collect())
+        })
+    }
 }
 
 pub(crate) struct MysqlUnlockTokenRepo {

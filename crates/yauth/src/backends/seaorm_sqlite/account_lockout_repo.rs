@@ -1,7 +1,9 @@
 use chrono::{NaiveDateTime, Utc};
 use sea_orm::prelude::*;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ActiveModelTrait, ExprTrait, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, ExprTrait, QueryFilter, QueryOrder, Set,
+};
 use uuid::Uuid;
 
 use super::entities::{account_locks, unlock_tokens};
@@ -139,6 +141,20 @@ impl AccountLockRepository for SeaOrmAccountLockRepo {
                 .await
                 .map_err(sea_err)?;
             Ok(())
+        })
+    }
+
+    fn list_active_locked(&self, now: NaiveDateTime) -> RepoFuture<'_, Vec<domain::AccountLock>> {
+        Box::pin(async move {
+            let now_tz = super::to_tz(now);
+            let rows = account_locks::Entity::find()
+                .filter(account_locks::Column::LockedUntil.is_not_null())
+                .filter(account_locks::Column::LockedUntil.gt(now_tz))
+                .order_by_desc(account_locks::Column::LockedUntil)
+                .all(&self.db)
+                .await
+                .map_err(sea_err)?;
+            Ok(rows.into_iter().map(|m| m.into_domain()).collect())
         })
     }
 }

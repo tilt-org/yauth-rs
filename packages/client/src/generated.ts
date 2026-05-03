@@ -450,6 +450,29 @@ export interface ListWebhooksResponse {
   total: number;
 }
 
+/**
+ * One row in the admin lockout listing. Mirrors yauth-go's
+`LockoutLockedAccountJSON`.
+ */
+export interface LockoutLockedAccount {
+  email: string;
+  failed_count: number;
+  lock_count: number;
+  /** @nullable */
+  locked_reason?: string | null;
+  /** @nullable */
+  locked_until?: string | null;
+  user_id: string;
+}
+
+/**
+ * Response for `GET /lockout/state`. Mirrors yauth-go's
+`LockoutStateResponse`.
+ */
+export interface LockoutStateResponse {
+  locked: LockoutLockedAccount[];
+}
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -1274,6 +1297,27 @@ export const emailPasswordForgotPassword = async (forgotPasswordRequest: ForgotP
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       forgotPasswordRequest,)
+  }
+);}
+
+
+
+export const getAccountLockoutStateUrl = () => {
+
+
+
+
+  return `/lockout/state`
+}
+
+export const accountLockoutState = async ( options?: RequestInit): Promise<LockoutStateResponse> => {
+
+  return customFetch<LockoutStateResponse>(getAccountLockoutStateUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

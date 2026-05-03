@@ -103,6 +103,17 @@ impl AccountLockRepository for InMemoryAccountLockRepo {
             Ok(())
         })
     }
+
+    fn list_active_locked(&self, now: NaiveDateTime) -> RepoFuture<'_, Vec<domain::AccountLock>> {
+        Box::pin(async move {
+            let map = self.locks.read().unwrap();
+            Ok(map
+                .values()
+                .filter(|l| l.locked_until.is_some_and(|until| until > now))
+                .cloned()
+                .collect())
+        })
+    }
 }
 
 // ──────────────────────────────────────────────
