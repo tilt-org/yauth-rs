@@ -529,6 +529,95 @@ export interface OAuthAuthResponse {
 }
 
 /**
+ * Public-facing serialization of an OAuth2 client. Matches yauth-go's
+`Oauth2ClientJSON`.
+ */
+export interface Oauth2ClientView {
+  banned: boolean;
+  /** @nullable */
+  banned_reason?: string | null;
+  client_id: string;
+  created_at: string;
+  grant_types: string[];
+  has_public_key: boolean;
+  id: string;
+  is_public: boolean;
+  /** @nullable */
+  jwks_uri?: string | null;
+  /**
+     * yauth-go calls this field `name` on the wire — keep the Rust field
+  `client_name` (closer to the domain model) but rename for serde.
+     * @nullable
+     */
+  name?: string | null;
+  redirect_uris: string[];
+  /** @nullable */
+  scopes?: string[] | null;
+  /** @nullable */
+  token_endpoint_auth_method?: string | null;
+}
+
+/**
+ * Response for `GET /oauth2/clients` (list banned). Mirrors yauth-go's
+`Oauth2BannedClientsResponse`.
+ */
+export interface Oauth2BannedClientsResponse {
+  banned: Oauth2ClientView[];
+}
+
+/**
+ * Body for `POST /oauth2/clients`. Admin-scoped client creation; mirrors
+yauth-go's `Oauth2CreateClientRequest`.
+ */
+export interface Oauth2CreateClientRequest {
+  grant_types?: string[];
+  is_public?: boolean;
+  /** @nullable */
+  jwks_uri?: string | null;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  public_key_pem?: string | null;
+  redirect_uris?: string[];
+  scopes?: string[];
+  /**
+     * Explicit `token_endpoint_auth_method` override. When omitted the
+  server picks one based on `is_public` / whether `public_key_pem` or
+  `jwks_uri` is set.
+     * @nullable
+     */
+  token_endpoint_auth_method?: string | null;
+}
+
+/**
+ * Response for `POST /oauth2/clients`. Mirrors yauth-go's
+`Oauth2CreateClientResponse`.
+ */
+export interface Oauth2CreateClientResponse {
+  client: Oauth2ClientView;
+  /**
+     * Plaintext secret returned exactly once on creation. Empty for public
+  clients (where `is_public=true` or `private_key_jwt` is in use).
+     * @nullable
+     */
+  client_secret?: string | null;
+}
+
+/**
+ * Body for `PATCH /oauth2/clients/{id}`. Mirrors yauth-go's
+`Oauth2PatchClientRequest`. Each field is optional; omitting a field
+leaves it unchanged.
+ */
+export interface Oauth2PatchClientRequest {
+  /** @nullable */
+  banned?: boolean | null;
+  /** @nullable */
+  banned_reason?: string | null;
+  /** @nullable */
+  public_key_pem?: string | null;
+}
+
+/**
  * Response type for `GET /admin/sessions` (schema-only, used for OpenAPI spec).
  */
 export interface PaginatedSessionsResponse {
@@ -1906,6 +1995,114 @@ export const oauthLink = async (provider: string, options?: RequestInit): Promis
 
 
 
+export const getOauth2AdminListClientsUrl = () => {
+
+
+
+
+  return `/oauth2/clients`
+}
+
+export const oauth2AdminListClients = async ( options?: RequestInit): Promise<Oauth2BannedClientsResponse> => {
+
+  return customFetch<Oauth2BannedClientsResponse>(getOauth2AdminListClientsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOauth2AdminCreateClientUrl = () => {
+
+
+
+
+  return `/oauth2/clients`
+}
+
+export const oauth2AdminCreateClient = async (oauth2CreateClientRequest: Oauth2CreateClientRequest, options?: RequestInit): Promise<Oauth2CreateClientResponse> => {
+
+  return customFetch<Oauth2CreateClientResponse>(getOauth2AdminCreateClientUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      oauth2CreateClientRequest,)
+  }
+);}
+
+
+
+export const getOauth2AdminGetClientUrl = (id: string,) => {
+
+
+
+
+  return `/oauth2/clients/${id}`
+}
+
+export const oauth2AdminGetClient = async (id: string, options?: RequestInit): Promise<Oauth2ClientView> => {
+
+  return customFetch<Oauth2ClientView>(getOauth2AdminGetClientUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOauth2AdminDeleteClientUrl = (id: string,) => {
+
+
+
+
+  return `/oauth2/clients/${id}`
+}
+
+export const oauth2AdminDeleteClient = async (id: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOauth2AdminDeleteClientUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getOauth2AdminPatchClientUrl = (id: string,) => {
+
+
+
+
+  return `/oauth2/clients/${id}`
+}
+
+export const oauth2AdminPatchClient = async (id: string,
+    oauth2PatchClientRequest: Oauth2PatchClientRequest, options?: RequestInit): Promise<Oauth2ClientView> => {
+
+  return customFetch<Oauth2ClientView>(getOauth2AdminPatchClientUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      oauth2PatchClientRequest,)
+  }
+);}
+
+
+
 export const getPasskeyLoginBeginUrl = () => {
 
 
@@ -2508,6 +2705,14 @@ export const getOauthCallbackGetResponseMock = (overrideResponse: Partial<Extrac
 export const getOauthCallbackResponseMock = (overrideResponse: Partial<Extract<OAuthAuthResponse, object>> = {}): OAuthAuthResponse => ({user: {auth_method: faker.helpers.arrayElement(Object.values(AuthMethod)), banned: faker.datatype.boolean(), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])}, ...overrideResponse})
 
 export const getOauthLinkResponseMock = (overrideResponse: Partial<Extract<AuthorizeResponse, object>> = {}): AuthorizeResponse => ({auth_url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getOauth2AdminListClientsResponseMock = (overrideResponse: Partial<Extract<Oauth2BannedClientsResponse, object>> = {}): Oauth2BannedClientsResponse => ({banned: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])})), ...overrideResponse})
+
+export const getOauth2AdminCreateClientResponseMock = (overrideResponse: Partial<Extract<Oauth2CreateClientResponse, object>> = {}): Oauth2CreateClientResponse => ({client: {banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, client_secret: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
+
+export const getOauth2AdminGetClientResponseMock = (overrideResponse: Partial<Extract<Oauth2ClientView, object>> = {}): Oauth2ClientView => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
+
+export const getOauth2AdminPatchClientResponseMock = (overrideResponse: Partial<Extract<Oauth2ClientView, object>> = {}): Oauth2ClientView => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
 
 export const getPasskeyListResponseMock = (overrideResponse: Partial<Extract<ListPasskeysResponse, object>> = {}): ListPasskeysResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}})})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
@@ -3114,6 +3319,64 @@ export const getOauthLinkMockHandler = (overrideResponse?: AuthorizeResponse | (
   }, options)
 }
 
+export const getOauth2AdminListClientsMockHandler = (overrideResponse?: Oauth2BannedClientsResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<Oauth2BannedClientsResponse> | Oauth2BannedClientsResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/oauth2/clients', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOauth2AdminListClientsResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOauth2AdminCreateClientMockHandler = (overrideResponse?: Oauth2CreateClientResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<Oauth2CreateClientResponse> | Oauth2CreateClientResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/oauth2/clients', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOauth2AdminCreateClientResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOauth2AdminGetClientMockHandler = (overrideResponse?: Oauth2ClientView | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<Oauth2ClientView> | Oauth2ClientView), options?: RequestHandlerOptions) => {
+  return http.get('*/oauth2/clients/:id', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOauth2AdminGetClientResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOauth2AdminDeleteClientMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.delete('*/oauth2/clients/:id', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOauth2AdminPatchClientMockHandler = (overrideResponse?: Oauth2ClientView | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<Oauth2ClientView> | Oauth2ClientView), options?: RequestHandlerOptions) => {
+  return http.patch('*/oauth2/clients/:id', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOauth2AdminPatchClientResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getPasskeyLoginBeginMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.post('*/passkey/login/begin', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
@@ -3437,6 +3700,11 @@ export const getYauthMock = () => [
   getOauthCallbackGetMockHandler(),
   getOauthCallbackMockHandler(),
   getOauthLinkMockHandler(),
+  getOauth2AdminListClientsMockHandler(),
+  getOauth2AdminCreateClientMockHandler(),
+  getOauth2AdminGetClientMockHandler(),
+  getOauth2AdminDeleteClientMockHandler(),
+  getOauth2AdminPatchClientMockHandler(),
   getPasskeyLoginBeginMockHandler(),
   getPasskeyLoginFinishMockHandler(),
   getPasskeyListMockHandler(),

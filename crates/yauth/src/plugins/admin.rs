@@ -57,6 +57,21 @@ impl YAuthPlugin for AdminPlugin {
                 .route(
                     "/admin/oauth2/clients",
                     get(super::oauth2_admin::list_banned_clients),
+                )
+                // /oauth2/clients{,/{id}} mirrors yauth-go's surface 1:1.
+                // The /admin/oauth2/clients/{id}/{action} routes above stay
+                // for backward compat — call sites can migrate to the
+                // converged paths over time.
+                .route(
+                    "/oauth2/clients",
+                    get(super::oauth2_admin::list_oauth2_clients)
+                        .post(super::oauth2_admin::create_oauth2_client),
+                )
+                .route(
+                    "/oauth2/clients/{client_id}",
+                    get(super::oauth2_admin::get_oauth2_client)
+                        .patch(super::oauth2_admin::patch_oauth2_client)
+                        .delete(super::oauth2_admin::delete_oauth2_client),
                 );
             #[cfg(feature = "asymmetric-jwt")]
             {

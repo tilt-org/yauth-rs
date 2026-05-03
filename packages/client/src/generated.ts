@@ -517,6 +517,95 @@ export interface OAuthAuthResponse {
 }
 
 /**
+ * Public-facing serialization of an OAuth2 client. Matches yauth-go's
+`Oauth2ClientJSON`.
+ */
+export interface Oauth2ClientView {
+  banned: boolean;
+  /** @nullable */
+  banned_reason?: string | null;
+  client_id: string;
+  created_at: string;
+  grant_types: string[];
+  has_public_key: boolean;
+  id: string;
+  is_public: boolean;
+  /** @nullable */
+  jwks_uri?: string | null;
+  /**
+     * yauth-go calls this field `name` on the wire — keep the Rust field
+  `client_name` (closer to the domain model) but rename for serde.
+     * @nullable
+     */
+  name?: string | null;
+  redirect_uris: string[];
+  /** @nullable */
+  scopes?: string[] | null;
+  /** @nullable */
+  token_endpoint_auth_method?: string | null;
+}
+
+/**
+ * Response for `GET /oauth2/clients` (list banned). Mirrors yauth-go's
+`Oauth2BannedClientsResponse`.
+ */
+export interface Oauth2BannedClientsResponse {
+  banned: Oauth2ClientView[];
+}
+
+/**
+ * Body for `POST /oauth2/clients`. Admin-scoped client creation; mirrors
+yauth-go's `Oauth2CreateClientRequest`.
+ */
+export interface Oauth2CreateClientRequest {
+  grant_types?: string[];
+  is_public?: boolean;
+  /** @nullable */
+  jwks_uri?: string | null;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  public_key_pem?: string | null;
+  redirect_uris?: string[];
+  scopes?: string[];
+  /**
+     * Explicit `token_endpoint_auth_method` override. When omitted the
+  server picks one based on `is_public` / whether `public_key_pem` or
+  `jwks_uri` is set.
+     * @nullable
+     */
+  token_endpoint_auth_method?: string | null;
+}
+
+/**
+ * Response for `POST /oauth2/clients`. Mirrors yauth-go's
+`Oauth2CreateClientResponse`.
+ */
+export interface Oauth2CreateClientResponse {
+  client: Oauth2ClientView;
+  /**
+     * Plaintext secret returned exactly once on creation. Empty for public
+  clients (where `is_public=true` or `private_key_jwt` is in use).
+     * @nullable
+     */
+  client_secret?: string | null;
+}
+
+/**
+ * Body for `PATCH /oauth2/clients/{id}`. Mirrors yauth-go's
+`Oauth2PatchClientRequest`. Each field is optional; omitting a field
+leaves it unchanged.
+ */
+export interface Oauth2PatchClientRequest {
+  /** @nullable */
+  banned?: boolean | null;
+  /** @nullable */
+  banned_reason?: string | null;
+  /** @nullable */
+  public_key_pem?: string | null;
+}
+
+/**
  * Response type for `GET /admin/sessions` (schema-only, used for OpenAPI spec).
  */
 export interface PaginatedSessionsResponse {
@@ -1889,6 +1978,114 @@ export const oauthLink = async (provider: string, options?: RequestInit): Promis
     method: 'POST'
 
 
+  }
+);}
+
+
+
+export const getOauth2AdminListClientsUrl = () => {
+
+
+
+
+  return `/oauth2/clients`
+}
+
+export const oauth2AdminListClients = async ( options?: RequestInit): Promise<Oauth2BannedClientsResponse> => {
+
+  return customFetch<Oauth2BannedClientsResponse>(getOauth2AdminListClientsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOauth2AdminCreateClientUrl = () => {
+
+
+
+
+  return `/oauth2/clients`
+}
+
+export const oauth2AdminCreateClient = async (oauth2CreateClientRequest: Oauth2CreateClientRequest, options?: RequestInit): Promise<Oauth2CreateClientResponse> => {
+
+  return customFetch<Oauth2CreateClientResponse>(getOauth2AdminCreateClientUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      oauth2CreateClientRequest,)
+  }
+);}
+
+
+
+export const getOauth2AdminGetClientUrl = (id: string,) => {
+
+
+
+
+  return `/oauth2/clients/${id}`
+}
+
+export const oauth2AdminGetClient = async (id: string, options?: RequestInit): Promise<Oauth2ClientView> => {
+
+  return customFetch<Oauth2ClientView>(getOauth2AdminGetClientUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOauth2AdminDeleteClientUrl = (id: string,) => {
+
+
+
+
+  return `/oauth2/clients/${id}`
+}
+
+export const oauth2AdminDeleteClient = async (id: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOauth2AdminDeleteClientUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getOauth2AdminPatchClientUrl = (id: string,) => {
+
+
+
+
+  return `/oauth2/clients/${id}`
+}
+
+export const oauth2AdminPatchClient = async (id: string,
+    oauth2PatchClientRequest: Oauth2PatchClientRequest, options?: RequestInit): Promise<Oauth2ClientView> => {
+
+  return customFetch<Oauth2ClientView>(getOauth2AdminPatchClientUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      oauth2PatchClientRequest,)
   }
 );}
 

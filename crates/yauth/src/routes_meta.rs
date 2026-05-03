@@ -251,6 +251,17 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<ClientRegistrationResponse>();
     }
 
+    #[cfg(all(feature = "admin", feature = "oauth2-server"))]
+    {
+        use crate::plugins::oauth2_admin::*;
+        b = b
+            .schema_from::<Oauth2ClientView>()
+            .schema_from::<Oauth2BannedClientsResponse>()
+            .schema_from::<Oauth2CreateClientRequest>()
+            .schema_from::<Oauth2CreateClientResponse>()
+            .schema_from::<Oauth2PatchClientRequest>();
+    }
+
     #[cfg(feature = "status")]
     {
         use crate::plugins::status::*;
@@ -1349,6 +1360,77 @@ fn oidc_paths(builder: PathsBuilder) -> PathsBuilder {
         )
 }
 
+/// OAuth2 admin paths (yauth-go convergence — `/oauth2/clients{,/{id}}`).
+#[cfg(all(feature = "admin", feature = "oauth2-server"))]
+fn oauth2_admin_paths(builder: PathsBuilder) -> PathsBuilder {
+    let auth_req = || {
+        utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
+            "sessionCookie",
+            [],
+        )
+    };
+
+    builder
+        .path(
+            "/oauth2/clients",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    op("oauth2Admin_listClients", "oauth2-server")
+                        .pipe(|b| with_response(b, "Oauth2BannedClientsResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .operation(
+                    HttpMethod::Post,
+                    with_body(
+                        with_response(
+                            op("oauth2Admin_createClient", "oauth2-server"),
+                            "Oauth2CreateClientResponse",
+                        ),
+                        "Oauth2CreateClientRequest",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/oauth2/clients/{id}",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("oauth2Admin_getClient", "oauth2-server"), "id")
+                        .pipe(|b| with_response(b, "Oauth2ClientView"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_body(
+                            with_response(
+                                op("oauth2Admin_patchClient", "oauth2-server"),
+                                "Oauth2ClientView",
+                            ),
+                            "Oauth2PatchClientRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Delete,
+                    with_path_param(op("oauth2Admin_deleteClient", "oauth2-server"), "id")
+                        .pipe(with_empty_response)
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+}
+
 /// Status plugin paths.
 #[cfg(feature = "status")]
 fn status_paths(builder: PathsBuilder) -> PathsBuilder {
@@ -1449,6 +1531,11 @@ pub fn build_openapi_spec() -> utoipa::openapi::OpenApi {
     #[cfg(feature = "oauth2-server")]
     {
         paths = oauth2_server_paths(paths);
+    }
+
+    #[cfg(all(feature = "admin", feature = "oauth2-server"))]
+    {
+        paths = oauth2_admin_paths(paths);
     }
 
     #[cfg(feature = "webhooks")]

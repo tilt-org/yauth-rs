@@ -1462,6 +1462,168 @@
         ]
       }
     },
+    "/oauth2/clients": {
+      "get": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Admin_listClients",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Oauth2BannedClientsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Admin_createClient",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Oauth2CreateClientRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Oauth2CreateClientResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/oauth2/clients/{id}": {
+      "get": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Admin_getClient",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Oauth2ClientView"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Admin_deleteClient",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Admin_patchClient",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Oauth2PatchClientRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Oauth2ClientView"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/passkey/login/begin": {
       "post": {
         "tags": [
@@ -3343,6 +3505,196 @@
         "properties": {
           "user": {
             "$ref": "#/components/schemas/AuthUser"
+          }
+        }
+      },
+      "Oauth2BannedClientsResponse": {
+        "type": "object",
+        "description": "Response for `GET /oauth2/clients` (list banned). Mirrors yauth-go's\n`Oauth2BannedClientsResponse`.",
+        "required": [
+          "banned"
+        ],
+        "properties": {
+          "banned": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Oauth2ClientView"
+            }
+          }
+        }
+      },
+      "Oauth2ClientView": {
+        "type": "object",
+        "description": "Public-facing serialization of an OAuth2 client. Matches yauth-go's\n`Oauth2ClientJSON`.",
+        "required": [
+          "id",
+          "client_id",
+          "redirect_uris",
+          "grant_types",
+          "is_public",
+          "has_public_key",
+          "banned",
+          "created_at"
+        ],
+        "properties": {
+          "banned": {
+            "type": "boolean"
+          },
+          "banned_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "has_public_key": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_public": {
+            "type": "boolean"
+          },
+          "jwks_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "yauth-go calls this field `name` on the wire — keep the Rust field\n`client_name` (closer to the domain model) but rename for serde."
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Oauth2CreateClientRequest": {
+        "type": "object",
+        "description": "Body for `POST /oauth2/clients`. Admin-scoped client creation; mirrors\nyauth-go's `Oauth2CreateClientRequest`.",
+        "properties": {
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_public": {
+            "type": "boolean"
+          },
+          "jwks_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_key_pem": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Explicit `token_endpoint_auth_method` override. When omitted the\nserver picks one based on `is_public` / whether `public_key_pem` or\n`jwks_uri` is set."
+          }
+        }
+      },
+      "Oauth2CreateClientResponse": {
+        "type": "object",
+        "description": "Response for `POST /oauth2/clients`. Mirrors yauth-go's\n`Oauth2CreateClientResponse`.",
+        "required": [
+          "client"
+        ],
+        "properties": {
+          "client": {
+            "$ref": "#/components/schemas/Oauth2ClientView"
+          },
+          "client_secret": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Plaintext secret returned exactly once on creation. Empty for public\nclients (where `is_public=true` or `private_key_jwt` is in use)."
+          }
+        }
+      },
+      "Oauth2PatchClientRequest": {
+        "type": "object",
+        "description": "Body for `PATCH /oauth2/clients/{id}`. Mirrors yauth-go's\n`Oauth2PatchClientRequest`. Each field is optional; omitting a field\nleaves it unchanged.",
+        "properties": {
+          "banned": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "banned_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_key_pem": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
