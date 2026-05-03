@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     middleware as axum_mw,
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
 };
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -33,6 +33,7 @@ impl YAuthPlugin for AdminPlugin {
             .route("/admin/users", get(list_users))
             .route("/admin/users/{id}", get(get_user))
             .route("/admin/users/{id}", put(update_user))
+            .route("/admin/users/{id}", patch(update_user))
             .route("/admin/users/{id}", delete(delete_user))
             .route("/admin/users/{id}/ban", post(ban_user))
             .route("/admin/users/{id}/unban", post(unban_user))

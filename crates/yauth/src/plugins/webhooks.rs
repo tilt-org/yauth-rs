@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     middleware as axum_mw,
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
 };
 use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
@@ -47,6 +47,7 @@ impl YAuthPlugin for WebhookPlugin {
                 .route("/webhooks", get(list_webhooks))
                 .route("/webhooks/{id}", get(get_webhook))
                 .route("/webhooks/{id}", put(update_webhook))
+                .route("/webhooks/{id}", patch(update_webhook))
                 .route("/webhooks/{id}", delete(delete_webhook))
                 .route("/webhooks/{id}/test", post(test_webhook))
                 .route("/webhooks/{id}/deliveries", get(list_webhook_deliveries))

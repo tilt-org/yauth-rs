@@ -1,4 +1,5 @@
 use axum::{Json, Router, extract::State, routing::get};
+use serde::Serialize;
 
 use crate::plugin::{PluginContext, YAuthPlugin};
 use crate::state::YAuthState;
@@ -19,10 +20,18 @@ impl YAuthPlugin for StatusPlugin {
     }
 }
 
-async fn get_status(State(state): State<YAuthState>) -> Json<serde_json::Value> {
-    let plugins: Vec<&str> = state.plugins.iter().map(|p| p.name()).collect();
-    Json(serde_json::json!({
-        "plugins": plugins,
-        "allow_signups": state.config.allow_signups,
-    }))
+/// Response for `GET /status`. Mirrors yauth-go's `StatusResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct StatusResponse {
+    pub plugins: Vec<String>,
+    pub version: String,
+}
+
+async fn get_status(State(state): State<YAuthState>) -> Json<StatusResponse> {
+    let plugins: Vec<String> = state.plugins.iter().map(|p| p.name().to_string()).collect();
+    Json(StatusResponse {
+        plugins,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    })
 }

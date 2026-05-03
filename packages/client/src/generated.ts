@@ -564,6 +564,14 @@ export interface SetupTotpResponse {
   secret: string;
 }
 
+/**
+ * Response for `GET /status`. Mirrors yauth-go's `StatusResponse`.
+ */
+export interface StatusResponse {
+  plugins: string[];
+  version: string;
+}
+
 export interface TokenRequest {
   email: string;
   password: string;
@@ -657,6 +665,11 @@ per_page?: string;
 export type OauthAccountsParams = {
 page?: string;
 per_page?: string;
+};
+
+export type OauthCallbackGetParams = {
+code?: string;
+state?: string;
 };
 
 export type PasskeyListParams = {
@@ -918,6 +931,29 @@ export const adminDeleteUser = async (id: string, options?: RequestInit): Promis
     method: 'DELETE'
 
 
+  }
+);}
+
+
+
+export const getAdminPatchUserUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}`
+}
+
+export const adminPatchUser = async (id: string,
+    updateUserRequest: UpdateUserRequest, options?: RequestInit): Promise<AdminUserInfo> => {
+
+  return customFetch<AdminUserInfo>(getAdminPatchUserUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateUserRequest,)
   }
 );}
 
@@ -1642,6 +1678,36 @@ export const oauthAuthorize = async (provider: string, options?: RequestInit): P
 
 
 
+export const getOauthCallbackGetUrl = (provider: string,
+    params?: OauthCallbackGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/oauth/${provider}/callback?${stringifiedParams}` : `/oauth/${provider}/callback`
+}
+
+export const oauthCallbackGet = async (provider: string,
+    params?: OauthCallbackGetParams, options?: RequestInit): Promise<OAuthAuthResponse> => {
+
+  return customFetch<OAuthAuthResponse>(getOauthCallbackGetUrl(provider,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getOauthCallbackUrl = (provider: string,) => {
 
 
@@ -1909,6 +1975,27 @@ export const getSession = async ( options?: RequestInit): Promise<SessionRespons
 
 
 
+export const getStatusGetUrl = () => {
+
+
+
+
+  return `/status`
+}
+
+export const statusGet = async ( options?: RequestInit): Promise<StatusResponse> => {
+
+  return customFetch<StatusResponse>(getStatusGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getBearerGetTokenUrl = () => {
 
 
@@ -2128,6 +2215,29 @@ export const webhooksDelete = async (id: string, options?: RequestInit): Promise
     method: 'DELETE'
 
 
+  }
+);}
+
+
+
+export const getWebhooksPatchUrl = (id: string,) => {
+
+
+
+
+  return `/webhooks/${id}`
+}
+
+export const webhooksPatch = async (id: string,
+    updateWebhookRequest: UpdateWebhookRequest, options?: RequestInit): Promise<WebhookResponse> => {
+
+  return customFetch<WebhookResponse>(getWebhooksPatchUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateWebhookRequest,)
   }
 );}
 

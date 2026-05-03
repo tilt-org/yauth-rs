@@ -329,6 +329,49 @@
             "sessionCookie": []
           }
         ]
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_patchUser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserInfo"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
       }
     },
     "/admin/users/{id}/ban": {
@@ -1182,6 +1225,50 @@
       }
     },
     "/oauth/{provider}/callback": {
+      "get": {
+        "tags": [
+          "oauth"
+        ],
+        "operationId": "oauth_callbackGet",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthAuthResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "oauth"
@@ -1534,6 +1621,31 @@
         ]
       }
     },
+    "/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "operationId": "status_get",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/token": {
       "post": {
         "tags": [
@@ -1841,6 +1953,49 @@
         "responses": {
           "200": {
             "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "webhooks"
+        ],
+        "operationId": "webhooks_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWebhookRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3213,6 +3368,25 @@
             "description": "Server-rendered QR code as a `data:image/png;base64,...` URL. CLI/mobile\nclients render this directly; web clients can fall back to building\ntheir own from `otpauth_url`. Empty string if rendering failed."
           },
           "secret": {
+            "type": "string"
+          }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "description": "Response for `GET /status`. Mirrors yauth-go's `StatusResponse`.",
+        "required": [
+          "plugins",
+          "version"
+        ],
+        "properties": {
+          "plugins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
             "type": "string"
           }
         }

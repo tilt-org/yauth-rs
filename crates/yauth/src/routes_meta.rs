@@ -245,6 +245,12 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<ClientRegistrationResponse>();
     }
 
+    #[cfg(feature = "status")]
+    {
+        use crate::plugins::status::*;
+        b = b.schema_from::<StatusResponse>();
+    }
+
     b
 }
 
@@ -639,6 +645,13 @@ fn oauth_paths(builder: PathsBuilder) -> PathsBuilder {
             "/oauth/{provider}/callback",
             PathItemBuilder::new()
                 .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("oauth_callbackGet", "oauth"), "provider")
+                        .pipe(|b| with_query_params(b, &[("code", false), ("state", false)]))
+                        .pipe(|b| with_response(b, "OAuthAuthResponse"))
+                        .build(),
+                )
+                .operation(
                     HttpMethod::Post,
                     with_path_param(
                         with_body(
@@ -870,6 +883,18 @@ fn admin_paths(builder: PathsBuilder) -> PathsBuilder {
                     with_path_param(
                         with_body(
                             with_response(op("admin_updateUser", "admin"), "AdminUserInfo"),
+                            "UpdateUserRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_body(
+                            with_response(op("admin_patchUser", "admin"), "AdminUserInfo"),
                             "UpdateUserRequest",
                         ),
                         "id",
@@ -1125,6 +1150,18 @@ fn webhook_paths(builder: PathsBuilder) -> PathsBuilder {
                     .build(),
                 )
                 .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_body(
+                            with_response(op("webhooks_patch", "webhooks"), "WebhookResponse"),
+                            "UpdateWebhookRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
                     HttpMethod::Delete,
                     with_path_param(op("webhooks_delete", "webhooks"), "id")
                         .pipe(with_empty_response)
@@ -1262,6 +1299,30 @@ fn oidc_paths(builder: PathsBuilder) -> PathsBuilder {
         )
 }
 
+/// Status plugin paths.
+#[cfg(feature = "status")]
+fn status_paths(builder: PathsBuilder) -> PathsBuilder {
+    let auth_req = || {
+        utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
+            "sessionCookie",
+            [],
+        )
+    };
+
+    builder.path(
+        "/status",
+        PathItemBuilder::new()
+            .operation(
+                HttpMethod::Get,
+                op("status_get", "status")
+                    .pipe(|b| with_response(b, "StatusResponse"))
+                    .security(auth_req())
+                    .build(),
+            )
+            .build(),
+    )
+}
+
 /// Build the complete OpenAPI specification for yauth.
 #[allow(unused_mut)]
 pub fn build_openapi_spec() -> utoipa::openapi::OpenApi {
@@ -1353,6 +1414,11 @@ pub fn build_openapi_spec() -> utoipa::openapi::OpenApi {
     #[cfg(feature = "oidc")]
     {
         paths = oidc_paths(paths);
+    }
+
+    #[cfg(feature = "status")]
+    {
+        paths = status_paths(paths);
     }
 
     OpenApiBuilder::new()
