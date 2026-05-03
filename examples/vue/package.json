@@ -3,8 +3,8 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "vite",
-		"build": "vite build",
+		"dev": "vp dev",
+		"build": "vp build",
 		"start:backend": "DATABASE_URL=postgres://yauth:yauth@127.0.0.1:5433/yauth_test cargo run --example server --features full --manifest-path ../../Cargo.toml"
 	},
 	"dependencies": {
@@ -15,8 +15,8 @@
 		"vue-router": "^4.5.0"
 	},
 	"devDependencies": {
-		"@vitejs/plugin-vue": "^5.0.0",
+		"@vitejs/plugin-vue": "^5.2.0",
 		"typescript": "^5.9.0",
-		"vite": "^6.0.0"
+		"vite": "^7.3.1"
 	}
 }
