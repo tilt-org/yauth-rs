@@ -290,6 +290,43 @@ export interface ListUsersQuery {
   search?: string | null;
 }
 
+export interface ListWebhookDeliveriesQuery {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  page?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  per_page?: number | null;
+}
+
+export interface WebhookDeliveryResponse {
+  attempt: number;
+  created_at: string;
+  event_type: string;
+  id: string;
+  /** @nullable */
+  status_code?: number | null;
+  success: boolean;
+}
+
+/**
+ * Paginated response for `GET /webhooks/{id}/deliveries`. Mirrors yauth-go's
+`WebhookListDeliveriesResponse`.
+ */
+export interface ListWebhookDeliveriesResponse {
+  items: WebhookDeliveryResponse[];
+  /** @minimum 0 */
+  page: number;
+  /** @minimum 0 */
+  per_page: number;
+  /** @minimum 0 */
+  total: number;
+}
+
 export interface ListWebhooksQuery {
   /**
      * @minimum 0
@@ -538,19 +575,22 @@ export interface VerifyMfaRequest {
   pending_session_id: string;
 }
 
-export interface WebhookDeliveryResponse {
-  attempt: number;
-  created_at: string;
-  event_type: string;
-  id: string;
-  /** @nullable */
-  status_code?: number | null;
-  success: boolean;
+/**
+ * Response envelope for `GET /webhooks/{id}` — wraps just the webhook.
+Recent deliveries moved to the dedicated paginated
+`GET /webhooks/{id}/deliveries` endpoint to mirror yauth-go.
+ */
+export interface WebhookDetailResponse {
+  webhook: WebhookResponse;
 }
 
-export interface WebhookDetailResponse {
-  recent_deliveries: WebhookDeliveryResponse[];
-  webhook: WebhookResponse;
+/**
+ * Response for `POST /webhooks/{id}/test`. Carries the queued delivery's id
+so the caller can poll `/webhooks/{id}/deliveries` for the result. Mirrors
+yauth-go's `WebhookTestResponse`.
+ */
+export interface WebhookTestResponse {
+  delivery_queued: string;
 }
 
 export type AdminListSessionsParams = {
@@ -580,6 +620,11 @@ per_page?: string;
 };
 
 export type WebhooksListParams = {
+page?: string;
+per_page?: string;
+};
+
+export type WebhooksListDeliveriesParams = {
 page?: string;
 per_page?: string;
 };
@@ -2042,6 +2087,36 @@ export const webhooksDelete = async (id: string, options?: RequestInit): Promise
 
 
 
+export const getWebhooksListDeliveriesUrl = (id: string,
+    params?: WebhooksListDeliveriesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/webhooks/${id}/deliveries?${stringifiedParams}` : `/webhooks/${id}/deliveries`
+}
+
+export const webhooksListDeliveries = async (id: string,
+    params?: WebhooksListDeliveriesParams, options?: RequestInit): Promise<ListWebhookDeliveriesResponse> => {
+
+  return customFetch<ListWebhookDeliveriesResponse>(getWebhooksListDeliveriesUrl(id,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getWebhooksTestUrl = (id: string,) => {
 
 
@@ -2050,9 +2125,9 @@ export const getWebhooksTestUrl = (id: string,) => {
   return `/webhooks/${id}/test`
 }
 
-export const webhooksTest = async (id: string, options?: RequestInit): Promise<void> => {
+export const webhooksTest = async (id: string, options?: RequestInit): Promise<WebhookTestResponse> => {
 
-  return customFetch<void>(getWebhooksTestUrl(id),
+  return customFetch<WebhookTestResponse>(getWebhooksTestUrl(id),
   {
     ...options,
     method: 'POST'
@@ -2132,9 +2207,13 @@ export const getWebhooksListResponseMock = (overrideResponse: Partial<Extract<Li
 
 export const getWebhooksCreateResponseMock = (overrideResponse: Partial<Extract<WebhookResponse, object>> = {}): WebhookResponse => ({active: faker.datatype.boolean(), created_at: faker.string.alpha({length: {min: 10, max: 20}}), events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), id: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getWebhooksGetResponseMock = (overrideResponse: Partial<Extract<WebhookDetailResponse, object>> = {}): WebhookDetailResponse => ({recent_deliveries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({attempt: faker.number.int(), created_at: faker.string.alpha({length: {min: 10, max: 20}}), event_type: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), status_code: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), success: faker.datatype.boolean()})), webhook: {active: faker.datatype.boolean(), created_at: faker.string.alpha({length: {min: 10, max: 20}}), events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), id: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), url: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
+export const getWebhooksGetResponseMock = (overrideResponse: Partial<Extract<WebhookDetailResponse, object>> = {}): WebhookDetailResponse => ({webhook: {active: faker.datatype.boolean(), created_at: faker.string.alpha({length: {min: 10, max: 20}}), events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), id: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), url: faker.string.alpha({length: {min: 10, max: 20}})}, ...overrideResponse})
 
 export const getWebhooksUpdateResponseMock = (overrideResponse: Partial<Extract<WebhookResponse, object>> = {}): WebhookResponse => ({active: faker.datatype.boolean(), created_at: faker.string.alpha({length: {min: 10, max: 20}}), events: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), id: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getWebhooksListDeliveriesResponseMock = (overrideResponse: Partial<Extract<ListWebhookDeliveriesResponse, object>> = {}): ListWebhookDeliveriesResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({attempt: faker.number.int(), created_at: faker.string.alpha({length: {min: 10, max: 20}}), event_type: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), status_code: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), success: faker.datatype.boolean()})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
+
+export const getWebhooksTestResponseMock = (overrideResponse: Partial<Extract<WebhookTestResponse, object>> = {}): WebhookTestResponse => ({delivery_queued: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 
 export const getOidcJwksMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
@@ -2871,11 +2950,25 @@ export const getWebhooksDeleteMockHandler = (overrideResponse?: void | ((info: P
   }, options)
 }
 
-export const getWebhooksTestMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
-  return http.post('*/webhooks/:id/test', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+export const getWebhooksListDeliveriesMockHandler = (overrideResponse?: ListWebhookDeliveriesResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ListWebhookDeliveriesResponse> | ListWebhookDeliveriesResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/webhooks/:id/deliveries', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
-    return new HttpResponse(null,
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getWebhooksListDeliveriesResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getWebhooksTestMockHandler = (overrideResponse?: WebhookTestResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<WebhookTestResponse> | WebhookTestResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/webhooks/:id/test', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getWebhooksTestResponseMock(),
       { status: 200
       })
   }, options)
@@ -2947,5 +3040,6 @@ export const getYauthMock = () => [
   getWebhooksGetMockHandler(),
   getWebhooksUpdateMockHandler(),
   getWebhooksDeleteMockHandler(),
+  getWebhooksListDeliveriesMockHandler(),
   getWebhooksTestMockHandler()
 ]

@@ -1833,6 +1833,57 @@
         ]
       }
     },
+    "/webhooks/{id}/deliveries": {
+      "get": {
+        "tags": [
+          "webhooks"
+        ],
+        "operationId": "webhooks_listDeliveries",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWebhookDeliveriesResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/webhooks/{id}/test": {
       "post": {
         "tags": [
@@ -1851,7 +1902,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTestResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2477,6 +2535,60 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ListWebhookDeliveriesQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ListWebhookDeliveriesResponse": {
+        "type": "object",
+        "description": "Paginated response for `GET /webhooks/{id}/deliveries`. Mirrors yauth-go's\n`WebhookListDeliveriesResponse`.",
+        "required": [
+          "items",
+          "page",
+          "per_page",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookDeliveryResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -3137,17 +3249,11 @@
       },
       "WebhookDetailResponse": {
         "type": "object",
+        "description": "Response envelope for `GET /webhooks/{id}` — wraps just the webhook.\nRecent deliveries moved to the dedicated paginated\n`GET /webhooks/{id}/deliveries` endpoint to mirror yauth-go.",
         "required": [
-          "webhook",
-          "recent_deliveries"
+          "webhook"
         ],
         "properties": {
-          "recent_deliveries": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WebhookDeliveryResponse"
-            }
-          },
           "webhook": {
             "$ref": "#/components/schemas/WebhookResponse"
           }
@@ -3183,6 +3289,18 @@
             "type": "string"
           },
           "url": {
+            "type": "string"
+          }
+        }
+      },
+      "WebhookTestResponse": {
+        "type": "object",
+        "description": "Response for `POST /webhooks/{id}/test`. Carries the queued delivery's id\nso the caller can poll `/webhooks/{id}/deliveries` for the result. Mirrors\nyauth-go's `WebhookTestResponse`.",
+        "required": [
+          "delivery_queued"
+        ],
+        "properties": {
+          "delivery_queued": {
             "type": "string"
           }
         }

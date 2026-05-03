@@ -221,8 +221,11 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<WebhookResponse>()
             .schema_from::<WebhookDetailResponse>()
             .schema_from::<WebhookDeliveryResponse>()
+            .schema_from::<WebhookTestResponse>()
             .schema_from::<ListWebhooksQuery>()
-            .schema_from::<ListWebhooksResponse>();
+            .schema_from::<ListWebhooksResponse>()
+            .schema_from::<ListWebhookDeliveriesQuery>()
+            .schema_from::<ListWebhookDeliveriesResponse>();
     }
 
     #[cfg(feature = "account-lockout")]
@@ -1123,7 +1126,20 @@ fn webhook_paths(builder: PathsBuilder) -> PathsBuilder {
                 .operation(
                     HttpMethod::Post,
                     with_path_param(op("webhooks_test", "webhooks"), "id")
-                        .pipe(with_empty_response)
+                        .pipe(|b| with_response(b, "WebhookTestResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/webhooks/{id}/deliveries",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("webhooks_listDeliveries", "webhooks"), "id")
+                        .pipe(|b| with_query_params(b, &[("page", false), ("per_page", false)]))
+                        .pipe(|b| with_response(b, "ListWebhookDeliveriesResponse"))
                         .security(auth_req())
                         .build(),
                 )

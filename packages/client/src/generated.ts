@@ -278,6 +278,43 @@ export interface ListUsersQuery {
   search?: string | null;
 }
 
+export interface ListWebhookDeliveriesQuery {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  page?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  per_page?: number | null;
+}
+
+export interface WebhookDeliveryResponse {
+  attempt: number;
+  created_at: string;
+  event_type: string;
+  id: string;
+  /** @nullable */
+  status_code?: number | null;
+  success: boolean;
+}
+
+/**
+ * Paginated response for `GET /webhooks/{id}/deliveries`. Mirrors yauth-go's
+`WebhookListDeliveriesResponse`.
+ */
+export interface ListWebhookDeliveriesResponse {
+  items: WebhookDeliveryResponse[];
+  /** @minimum 0 */
+  page: number;
+  /** @minimum 0 */
+  per_page: number;
+  /** @minimum 0 */
+  total: number;
+}
+
 export interface ListWebhooksQuery {
   /**
      * @minimum 0
@@ -526,19 +563,22 @@ export interface VerifyMfaRequest {
   pending_session_id: string;
 }
 
-export interface WebhookDeliveryResponse {
-  attempt: number;
-  created_at: string;
-  event_type: string;
-  id: string;
-  /** @nullable */
-  status_code?: number | null;
-  success: boolean;
+/**
+ * Response envelope for `GET /webhooks/{id}` — wraps just the webhook.
+Recent deliveries moved to the dedicated paginated
+`GET /webhooks/{id}/deliveries` endpoint to mirror yauth-go.
+ */
+export interface WebhookDetailResponse {
+  webhook: WebhookResponse;
 }
 
-export interface WebhookDetailResponse {
-  recent_deliveries: WebhookDeliveryResponse[];
-  webhook: WebhookResponse;
+/**
+ * Response for `POST /webhooks/{id}/test`. Carries the queued delivery's id
+so the caller can poll `/webhooks/{id}/deliveries` for the result. Mirrors
+yauth-go's `WebhookTestResponse`.
+ */
+export interface WebhookTestResponse {
+  delivery_queued: string;
 }
 
 export type AdminListSessionsParams = {
@@ -568,6 +608,11 @@ per_page?: string;
 };
 
 export type WebhooksListParams = {
+page?: string;
+per_page?: string;
+};
+
+export type WebhooksListDeliveriesParams = {
 page?: string;
 per_page?: string;
 };
@@ -2030,6 +2075,36 @@ export const webhooksDelete = async (id: string, options?: RequestInit): Promise
 
 
 
+export const getWebhooksListDeliveriesUrl = (id: string,
+    params?: WebhooksListDeliveriesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/webhooks/${id}/deliveries?${stringifiedParams}` : `/webhooks/${id}/deliveries`
+}
+
+export const webhooksListDeliveries = async (id: string,
+    params?: WebhooksListDeliveriesParams, options?: RequestInit): Promise<ListWebhookDeliveriesResponse> => {
+
+  return customFetch<ListWebhookDeliveriesResponse>(getWebhooksListDeliveriesUrl(id,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getWebhooksTestUrl = (id: string,) => {
 
 
@@ -2038,9 +2113,9 @@ export const getWebhooksTestUrl = (id: string,) => {
   return `/webhooks/${id}/test`
 }
 
-export const webhooksTest = async (id: string, options?: RequestInit): Promise<void> => {
+export const webhooksTest = async (id: string, options?: RequestInit): Promise<WebhookTestResponse> => {
 
-  return customFetch<void>(getWebhooksTestUrl(id),
+  return customFetch<WebhookTestResponse>(getWebhooksTestUrl(id),
   {
     ...options,
     method: 'POST'
