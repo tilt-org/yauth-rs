@@ -1,10 +1,11 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test, vi } from "vitest";
+import type { Mock } from "vitest";
 import { createYAuthClient, YAuthError } from "./index";
 
-type MockFetch = ReturnType<typeof mock<(...args: unknown[]) => unknown>>;
+type MockFetch = Mock<(...args: unknown[]) => unknown>;
 
 function mockFetch(status: number, body: unknown = {}) {
-	return mock(async () => ({
+	return vi.fn(async () => ({
 		ok: status >= 200 && status < 300,
 		status,
 		text: async () => JSON.stringify(body),
@@ -131,7 +132,7 @@ describe("createYAuthClient", () => {
 
 	test("onError callback is called on error", async () => {
 		const fetchFn = mockFetch(500, { error: "Internal" });
-		const onError = mock(() => {});
+		const onError = vi.fn(() => {});
 		const client = createYAuthClient({
 			baseUrl: "http://localhost:3000/auth",
 			fetch: fetchFn,
@@ -324,7 +325,7 @@ describe("YAuthError", () => {
 
 describe("empty response handling", () => {
 	test("handles empty response body", async () => {
-		const fetchFn = mock(async () => ({
+		const fetchFn = vi.fn(async () => ({
 			ok: true,
 			status: 204,
 			text: async () => "",

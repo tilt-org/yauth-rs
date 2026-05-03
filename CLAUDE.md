@@ -70,18 +70,18 @@ cargo test --features full,all-backends          # Run all unit tests
 cargo fmt --check                                 # Format check
 cargo clippy --features full,all-backends -- -D warnings  # Lint
 
-# TypeScript
-bun install                          # Install dependencies
-bun run build                        # Build all TS packages
-bun run lint                         # Biome lint check
-bun run lint:fix                     # Biome lint + fix
-bun run typecheck                    # TypeScript type check
-bun validate                         # lint:fix + typecheck + build
-bun validate:ci                      # lint + typecheck + build + generate:check (strict)
+# TypeScript (Vite+ toolchain — `vp` CLI, pnpm package manager)
+pnpm install                         # Install dependencies (corepack bootstraps pnpm)
+vp run build                         # Build all TS packages
+vp lint                              # Oxlint check
+vp lint --fix                        # Oxlint with autofix
+vp run typecheck                     # TypeScript type check across workspace
+vp run validate                      # lint:fix + typecheck + build
+vp run validate:ci                   # lint + typecheck + build + generate:check (strict)
 
 # Client generation
-bun generate                         # Regenerate TS client from Rust types + routes
-bun generate:check                   # Fail if generated client is out of date (CI)
+vp run generate                      # Regenerate TS client from Rust types + routes
+vp run generate:check                # Fail if generated client is out of date (CI)
 
 # Integration / Pentest (all parallel-safe — no --test-threads=1 needed)
 docker compose up -d                 # Start PostgreSQL + MySQL + Redis + Mailpit
@@ -296,10 +296,10 @@ This project uses `utoipa` (OpenAPI 3.1 spec generation) + `orval` (TypeScript c
 **When modifying any API endpoint or request/response type:**
 1. Update the route metadata in `crates/yauth/src/routes_meta.rs`
 2. Ensure request/response types have `#[derive(TS)] #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))] #[ts(export)]`
-3. Run `bun generate` to regenerate `openapi.json` and the TypeScript client
+3. Run `vp run generate` to regenerate `openapi.json` and the TypeScript client
 4. Commit the regenerated `openapi.json` and `packages/client/src/generated.ts` alongside Rust changes
 
-**CI check:** `bun generate:check` (part of `bun validate:ci`) fails if the OpenAPI spec is out of date.
+**CI check:** `vp run generate:check` (part of `vp run validate:ci`) fails if the OpenAPI spec is out of date.
 
 ## Versioning
 
@@ -329,10 +329,10 @@ If CI publishes to crates.io/npm but fails before pushing the version commit and
 
 ## Conventions
 
-- **Always use Bun** — `bun install`, `bun run`, etc. Never use npm or yarn for running scripts
-- **npm publish uses npm CLI** — the release workflow uses `npm publish --provenance` (not `bun publish`) because only the npm CLI supports OIDC trusted publishing; no NPM_TOKEN is required
+- **Vite+ toolchain (`vp`)** — `vp lint` (Oxlint), `vp fmt` (Oxfmt), `vp test` (Vitest), `vp build`/`vp pack`, `vp run X` for tasks. Underlying package manager is **pnpm** (declared via `packageManager` field). Never use npm/yarn/bun for running scripts.
+- **npm publish uses npm CLI** — the release workflow uses `npm publish --provenance` because only the npm CLI supports OIDC trusted publishing; no NPM_TOKEN is required
 - **Conventional commits** for all commit messages — this directly drives automated versioning
-- **Biome** for TypeScript linting/formatting (not ESLint)
+- **Oxlint + Oxfmt** for TypeScript linting/formatting (configured via `.oxlintrc.json` and `vite.config.ts`); not ESLint or Biome
 - **`cargo fmt` + `cargo clippy`** for Rust
 - **UUIDv7 for all IDs** — use `Uuid::now_v7()` (not v4). Gives time-sortable IDs with better B-tree locality. DB defaults still use `gen_random_uuid()` (v4) as a fallback since PG <18 has no native v7; the Rust side is authoritative.
 - **`yauth_` table prefix** on all database tables

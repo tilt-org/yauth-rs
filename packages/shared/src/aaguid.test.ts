@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { AAGUID_MAP, resolveAAGUID } from "./aaguid";
 
 describe("AAGUID_MAP", () => {

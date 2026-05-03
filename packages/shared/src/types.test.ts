@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { AuthEvent, AuthSession, AuthUser, EventResponse } from "./types";
 
 describe("AuthUser type", () => {

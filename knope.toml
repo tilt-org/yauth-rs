@@ -20,7 +20,7 @@ versioned_files = [
 ]
 # Note: examples/ and pentest/ use workspace resolution for yauth deps.
 # Their package.json versions are pinned but don't need auto-bumping —
-# bun resolves them from the workspace, not npm.
+# pnpm resolves them from the workspace, not npm.
 changelog = "CHANGELOG.md"
 
 [github]
@@ -44,13 +44,13 @@ type = "PrepareRelease"
 # Regenerate OpenAPI spec + TS client (version field comes from Cargo.toml)
 [[workflows.steps]]
 type = "Command"
-command = "bun generate"
+command = "vp run generate"
 shell = true
 
-# Reformat knope's 2-space JSON to match Biome tab convention
+# Reformat knope's 2-space JSON to match project tab convention
 [[workflows.steps]]
 type = "Command"
-command = "bun biome format --write packages/shared/package.json packages/client/package.json packages/ui-solidjs/package.json packages/ui-vue/package.json"
+command = "vp fmt --write packages/shared/package.json packages/client/package.json packages/ui-solidjs/package.json packages/ui-vue/package.json"
 shell = true
 
 # Stage regenerated files and commit
@@ -92,7 +92,7 @@ name = "release"
 # Build TS packages before publishing
 [[workflows.steps]]
 type = "Command"
-command = "bun run build"
+command = "vp run build"
 shell = true
 
 # Publish Rust crates to crates.io (dependency order: yauth-migration -> yauth-entity -> yauth -> cargo-yauth)

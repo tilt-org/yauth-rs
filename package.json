@@ -1,33 +1,30 @@
 {
-	"name": "yauth",
-	"private": true,
-	"type": "module",
-	"workspaces": [
-		"packages/*",
-		"examples/*"
-	],
-	"scripts": {
-		"build": "bun run --filter '*' build",
-		"lint": "biome check .",
-		"lint:fix": "biome check --write .",
-		"format": "biome format --write .",
-		"typecheck": "bun run --filter '*' typecheck",
-		"test": "bun run --filter '*' test",
-		"validate": "bun run lint:fix && bun run typecheck && bun run build",
-		"validate:ci": "bun run lint && bun run typecheck && bun run build && bun run generate:check",
-		"generate": "SQLX_OFFLINE=true cargo test --features full,memory-backend -p yauth --test generate_client -- generate_openapi_spec --exact --nocapture --include-ignored && bunx orval",
-		"generate:check": "SQLX_OFFLINE=true cargo test --features full,memory-backend -p yauth --test generate_client -- check_openapi_spec_up_to_date --exact --nocapture && bunx orval && git diff --exit-code packages/client/src/generated.ts packages/client/src/generated.msw.ts",
-		"clean": "rm -rf node_modules packages/*/node_modules packages/*/dist"
-	},
-	"devDependencies": {
-		"@biomejs/biome": "^2.4.11",
-		"@faker-js/faker": "^10.4.0",
-		"@types/bun": "^1.3.11",
-		"msw": "^2.13.2",
-		"orval": "^8.7.0",
-		"typescript": "^5.9.3"
-	},
-	"engines": {
-		"node": ">=20"
-	}
+  "name": "yauth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp run -r build",
+    "lint": "vp lint",
+    "lint:fix": "vp lint --fix && vp fmt --write",
+    "format": "vp fmt --write",
+    "typecheck": "vp run -r typecheck",
+    "test": "vp run -r test",
+    "validate": "vp run lint:fix && vp run typecheck && vp run build",
+    "validate:ci": "vp run lint && vp run typecheck && vp run build && vp run generate:check",
+    "generate": "SQLX_OFFLINE=true cargo test --features full,memory-backend -p yauth --test generate_client -- generate_openapi_spec --exact --nocapture --include-ignored && vp exec orval",
+    "generate:check": "SQLX_OFFLINE=true cargo test --features full,memory-backend -p yauth --test generate_client -- check_openapi_spec_up_to_date --exact --nocapture && vp exec orval && git diff --exit-code packages/client/src/generated.ts packages/client/src/generated.msw.ts",
+    "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "^10.4.0",
+    "msw": "^2.13.2",
+    "orval": "^8.7.0",
+    "typescript": "^5.9.3",
+    "vite-plus": "^0.1.20",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.4"
 }

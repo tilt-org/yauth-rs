@@ -26,9 +26,9 @@
 		"src"
 	],
 	"scripts": {
-		"build": "vite build",
+		"build": "vp build",
 		"typecheck": "vue-tsc --noEmit",
-		"test": "vitest run"
+		"test": "vp test run"
 	},
 	"dependencies": {
 		"@simplewebauthn/browser": "^13.0.0",

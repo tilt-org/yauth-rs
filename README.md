@@ -197,7 +197,7 @@ async fn main() {
 ### 4. Add a frontend (optional)
 
 ```bash
-bun add @yackey-labs/yauth-client
+pnpm add @yackey-labs/yauth-client
 ```
 
 ```typescript
@@ -298,11 +298,11 @@ cargo test --workspace --features full,all-backends --lib   # Unit tests
 cargo clippy --workspace --features full,all-backends -- -D warnings
 cargo fmt --check
 
-# TypeScript
-bun install
-bun validate          # lint:fix + typecheck + build
-bun generate          # regenerate TS client from Rust types
-bun generate:check    # CI: fail if client is out of date
+# TypeScript (Vite+ toolchain — `vp` CLI, pnpm package manager)
+pnpm install                    # corepack bootstraps pnpm from package.json
+vp run validate                 # lint:fix + typecheck + build
+vp run generate                 # regenerate TS client from Rust types
+vp run generate:check           # CI: fail if client is out of date
 
 # Integration testing (requires docker compose up -d)
 docker compose up -d

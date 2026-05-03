@@ -15,7 +15,7 @@
  * The fix uses createEffect to resolve only after the resource signal
  * has been updated by SolidJS.
  */
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { createEffect, createResource, createRoot } from "solid-js";
 
 // Minimal AuthUser shape for testing
