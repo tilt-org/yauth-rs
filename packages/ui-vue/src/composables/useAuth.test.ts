@@ -146,9 +146,9 @@ describe("useAuth", () => {
 
 		const result = await auth!.changePassword("old", "new");
 		expect(result).toBe(true);
-		expect(ctx.client.emailPassword.changePassword).toHaveBeenCalledWith(
-			"old",
-			"new",
-		);
+		expect(ctx.client.emailPassword.changePassword).toHaveBeenCalledWith({
+			current_password: "old",
+			new_password: "new",
+		});
 	});
 });
