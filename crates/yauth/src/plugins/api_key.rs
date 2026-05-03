@@ -45,13 +45,8 @@ pub struct CreateApiKeyRequest {
 #[derive(Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreateApiKeyResponse {
-    pub id: Uuid,
-    pub key: String,
-    pub name: String,
-    pub prefix: String,
-    pub scopes: Option<Vec<String>>,
-    pub expires_at: Option<chrono::DateTime<chrono::FixedOffset>>,
-    pub created_at: chrono::DateTime<chrono::FixedOffset>,
+    pub api_key: ApiKeyResponse,
+    pub secret: String,
 }
 
 #[derive(Serialize)]
@@ -136,13 +131,16 @@ async fn create_api_key(
     Ok((
         StatusCode::CREATED,
         Json(CreateApiKeyResponse {
-            id: api_key_id,
-            key: full_key,
-            name,
-            prefix,
-            scopes: input.scopes,
-            expires_at: expires_at_fixed,
-            created_at: created_at_fixed,
+            api_key: ApiKeyResponse {
+                id: api_key_id,
+                name,
+                prefix,
+                scopes: input.scopes,
+                last_used_at: None,
+                expires_at: expires_at_fixed,
+                created_at: created_at_fixed,
+            },
+            secret: full_key,
         }),
     ))
 }
