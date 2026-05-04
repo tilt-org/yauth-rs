@@ -517,6 +517,14 @@ export interface OAuthAuthResponse {
 }
 
 /**
+ * Response for `POST /oauth2/consent` (and the inline-mint branch of
+`GET /oauth/authorize`). Mirrors yauth-go's `Oauth2AuthorizeRedirect`.
+ */
+export interface Oauth2AuthorizeRedirect {
+  redirect_url: string;
+}
+
+/**
  * Public-facing serialization of an OAuth2 client. Matches yauth-go's
 `Oauth2ClientJSON`.
  */
@@ -551,6 +559,22 @@ export interface Oauth2ClientView {
  */
 export interface Oauth2BannedClientsResponse {
   banned: Oauth2ClientView[];
+}
+
+/**
+ * Body for `POST /oauth2/consent`. Mirrors yauth-go's
+`Oauth2ConsentRequest`.
+ */
+export interface Oauth2ConsentRequest {
+  /** `true` to mint an authorization code and redirect with `?code=...`;
+  `false` to deny and redirect with `?error=access_denied`. */
+  approved: boolean;
+  /** CSRF token issued alongside `request_id`. Constant-time-compared with
+  the stored value to prevent cross-site approve/deny attacks. */
+  csrf_token: string;
+  /** Opaque id returned by `GET /oauth/authorize` identifying the pending
+  authorization request to finalize. */
+  request_id: string;
 }
 
 /**
@@ -2086,6 +2110,28 @@ export const oauth2AdminPatchClient = async (id: string,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       oauth2PatchClientRequest,)
+  }
+);}
+
+
+
+export const getOauth2ServerConsentUrl = () => {
+
+
+
+
+  return `/oauth2/consent`
+}
+
+export const oauth2ServerConsent = async (oauth2ConsentRequest: Oauth2ConsentRequest, options?: RequestInit): Promise<Oauth2AuthorizeRedirect> => {
+
+  return customFetch<Oauth2AuthorizeRedirect>(getOauth2ServerConsentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      oauth2ConsentRequest,)
   }
 );}
 

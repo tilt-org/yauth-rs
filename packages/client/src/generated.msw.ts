@@ -529,6 +529,14 @@ export interface OAuthAuthResponse {
 }
 
 /**
+ * Response for `POST /oauth2/consent` (and the inline-mint branch of
+`GET /oauth/authorize`). Mirrors yauth-go's `Oauth2AuthorizeRedirect`.
+ */
+export interface Oauth2AuthorizeRedirect {
+  redirect_url: string;
+}
+
+/**
  * Public-facing serialization of an OAuth2 client. Matches yauth-go's
 `Oauth2ClientJSON`.
  */
@@ -563,6 +571,22 @@ export interface Oauth2ClientView {
  */
 export interface Oauth2BannedClientsResponse {
   banned: Oauth2ClientView[];
+}
+
+/**
+ * Body for `POST /oauth2/consent`. Mirrors yauth-go's
+`Oauth2ConsentRequest`.
+ */
+export interface Oauth2ConsentRequest {
+  /** `true` to mint an authorization code and redirect with `?code=...`;
+  `false` to deny and redirect with `?error=access_denied`. */
+  approved: boolean;
+  /** CSRF token issued alongside `request_id`. Constant-time-compared with
+  the stored value to prevent cross-site approve/deny attacks. */
+  csrf_token: string;
+  /** Opaque id returned by `GET /oauth/authorize` identifying the pending
+  authorization request to finalize. */
+  request_id: string;
 }
 
 /**
@@ -2103,6 +2127,28 @@ export const oauth2AdminPatchClient = async (id: string,
 
 
 
+export const getOauth2ServerConsentUrl = () => {
+
+
+
+
+  return `/oauth2/consent`
+}
+
+export const oauth2ServerConsent = async (oauth2ConsentRequest: Oauth2ConsentRequest, options?: RequestInit): Promise<Oauth2AuthorizeRedirect> => {
+
+  return customFetch<Oauth2AuthorizeRedirect>(getOauth2ServerConsentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      oauth2ConsentRequest,)
+  }
+);}
+
+
+
 export const getPasskeyLoginBeginUrl = () => {
 
 
@@ -2713,6 +2759,8 @@ export const getOauth2AdminCreateClientResponseMock = (overrideResponse: Partial
 export const getOauth2AdminGetClientResponseMock = (overrideResponse: Partial<Extract<Oauth2ClientView, object>> = {}): Oauth2ClientView => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
 
 export const getOauth2AdminPatchClientResponseMock = (overrideResponse: Partial<Extract<Oauth2ClientView, object>> = {}): Oauth2ClientView => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
+
+export const getOauth2ServerConsentResponseMock = (overrideResponse: Partial<Extract<Oauth2AuthorizeRedirect, object>> = {}): Oauth2AuthorizeRedirect => ({redirect_url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getPasskeyListResponseMock = (overrideResponse: Partial<Extract<ListPasskeysResponse, object>> = {}): ListPasskeysResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}})})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
@@ -3377,6 +3425,18 @@ export const getOauth2AdminPatchClientMockHandler = (overrideResponse?: Oauth2Cl
   }, options)
 }
 
+export const getOauth2ServerConsentMockHandler = (overrideResponse?: Oauth2AuthorizeRedirect | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<Oauth2AuthorizeRedirect> | Oauth2AuthorizeRedirect), options?: RequestHandlerOptions) => {
+  return http.post('*/oauth2/consent', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOauth2ServerConsentResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getPasskeyLoginBeginMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.post('*/passkey/login/begin', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
@@ -3705,6 +3765,7 @@ export const getYauthMock = () => [
   getOauth2AdminGetClientMockHandler(),
   getOauth2AdminDeleteClientMockHandler(),
   getOauth2AdminPatchClientMockHandler(),
+  getOauth2ServerConsentMockHandler(),
   getPasskeyLoginBeginMockHandler(),
   getPasskeyLoginFinishMockHandler(),
   getPasskeyListMockHandler(),

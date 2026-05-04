@@ -1624,6 +1624,41 @@
         ]
       }
     },
+    "/oauth2/consent": {
+      "post": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Server_consent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Oauth2ConsentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Oauth2AuthorizeRedirect"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/passkey/login/begin": {
       "post": {
         "tags": [
@@ -3501,6 +3536,18 @@
           }
         }
       },
+      "Oauth2AuthorizeRedirect": {
+        "type": "object",
+        "description": "Response for `POST /oauth2/consent` (and the inline-mint branch of\n`GET /oauth/authorize`). Mirrors yauth-go's `Oauth2AuthorizeRedirect`.",
+        "required": [
+          "redirect_url"
+        ],
+        "properties": {
+          "redirect_url": {
+            "type": "string"
+          }
+        }
+      },
       "Oauth2BannedClientsResponse": {
         "type": "object",
         "description": "Response for `GET /oauth2/clients` (list banned). Mirrors yauth-go's\n`Oauth2BannedClientsResponse`.",
@@ -3593,6 +3640,29 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "Oauth2ConsentRequest": {
+        "type": "object",
+        "description": "Body for `POST /oauth2/consent`. Mirrors yauth-go's\n`Oauth2ConsentRequest`.",
+        "required": [
+          "request_id",
+          "csrf_token",
+          "approved"
+        ],
+        "properties": {
+          "approved": {
+            "type": "boolean",
+            "description": "`true` to mint an authorization code and redirect with `?code=...`;\n`false` to deny and redirect with `?error=access_denied`."
+          },
+          "csrf_token": {
+            "type": "string",
+            "description": "CSRF token issued alongside `request_id`. Constant-time-compared with\nthe stored value to prevent cross-site approve/deny attacks."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Opaque id returned by `GET /oauth/authorize` identifying the pending\nauthorization request to finalize."
           }
         }
       },

@@ -248,7 +248,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
         use crate::plugins::oauth2_server::*;
         b = b
             .schema_from::<ClientRegistrationRequest>()
-            .schema_from::<ClientRegistrationResponse>();
+            .schema_from::<ClientRegistrationResponse>()
+            .schema_from::<Oauth2ConsentRequest>()
+            .schema_from::<Oauth2AuthorizeRedirect>();
     }
 
     #[cfg(all(feature = "admin", feature = "oauth2-server"))]
@@ -1107,6 +1109,27 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
                         ),
                         "ClientRegistrationRequest",
                     )
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/oauth2/consent",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_body(
+                        with_response(
+                            op("oauth2Server_consent", "oauth2-server"),
+                            "Oauth2AuthorizeRedirect",
+                        ),
+                        "Oauth2ConsentRequest",
+                    )
+                    .security(utoipa::openapi::security::SecurityRequirement::new::<
+                        &str,
+                        [&str; 0],
+                        &str,
+                    >("sessionCookie", []))
                     .build(),
                 )
                 .build(),
