@@ -32,7 +32,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 22+ has native TS-config loading; vp/oxlint can't parse vite.config.ts
+          # under Node 20 even though 20.19+ would otherwise satisfy the engines
+          # range — the actual blocker is Node 20's lack of `.ts` loader support.
+          node-version: "22"
 
       - name: Enable corepack
         run: corepack enable
