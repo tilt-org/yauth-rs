@@ -115,22 +115,22 @@ command = "cargo publish -p cargo-yauth"
 # Publish npm packages to npmjs.com
 [[workflows.steps]]
 type = "Command"
-command = "cd packages/shared && npm publish --access public --provenance"
+command = "cd packages/shared && pnpm publish --access public --provenance --no-git-checks"
 shell = true
 
 [[workflows.steps]]
 type = "Command"
-command = "cd packages/client && npm publish --access public --provenance"
+command = "cd packages/client && pnpm publish --access public --provenance --no-git-checks"
 shell = true
 
 [[workflows.steps]]
 type = "Command"
-command = "cd packages/ui-solidjs && npm publish --access public --provenance"
+command = "cd packages/ui-solidjs && pnpm publish --access public --provenance --no-git-checks"
 shell = true
 
 [[workflows.steps]]
 type = "Command"
-command = "cd packages/ui-vue && npm publish --access public --provenance"
+command = "cd packages/ui-vue && pnpm publish --access public --provenance --no-git-checks"
 shell = true
 
 # Create GitHub release + tag
