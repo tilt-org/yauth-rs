@@ -1,40 +1,40 @@
 {
-	"name": "@yackey-labs/yauth-ui-solidjs",
-	"version": "0.12.0",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/yackey-labs/yauth"
-	},
-	"type": "module",
-	"main": "dist/index.js",
-	"module": "dist/index.js",
-	"types": "src/index.ts",
-	"exports": {
-		".": {
-			"import": "./dist/index.js",
-			"types": "./src/index.ts",
-			"default": "./src/index.ts"
-		}
-	},
-	"files": [
-		"dist",
-		"src"
-	],
-	"scripts": {
-		"build": "vp build",
-		"typecheck": "tsc --noEmit",
-		"test": "vp test run"
-	},
-	"dependencies": {
-		"@simplewebauthn/browser": "^13.0.0",
-		"@yackey-labs/yauth-client": "workspace:*",
-		"@yackey-labs/yauth-shared": "workspace:*",
-		"solid-js": "^1.9.5"
-	},
-	"devDependencies": {
-		"happy-dom": "^20.9.0",
-		"typescript": "^5.7.2",
-		"vite": "^7.3.1",
-		"vite-plugin-solid": "^2.11.10"
-	}
+  "name": "@yackey-labs/yauth-ui-solidjs",
+  "version": "0.12.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yackey-labs/yauth"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "vp build",
+    "typecheck": "tsc --noEmit",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "^13.0.0",
+    "@yackey-labs/yauth-client": "workspace:*",
+    "@yackey-labs/yauth-shared": "workspace:*",
+    "solid-js": "^1.9.5"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.9.0",
+    "typescript": "^5.7.2",
+    "vite": "^7.3.1",
+    "vite-plugin-solid": "^2.11.10"
+  }
 }
