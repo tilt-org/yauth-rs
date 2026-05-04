@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::backends::sqlx_common::{naive_to_utc, sqlx_err};
 use crate::domain;
-use crate::repo::{AuditLogRepository, RepoFuture, sealed};
+use crate::repo::{AuditLogFilter, AuditLogRepository, RepoFuture, sealed};
 
 pub(crate) struct SqlxPgAuditLogRepo {
     pool: PgPool,
@@ -34,6 +34,45 @@ impl AuditLogRepository for SqlxPgAuditLogRepo {
             .await
             .map_err(sqlx_err)?;
             Ok(())
+        })
+    }
+
+    fn list(
+        &self,
+        filter: AuditLogFilter,
+        limit: i64,
+        offset: i64,
+    ) -> RepoFuture<'_, Vec<domain::AuditLog>> {
+        Box::pin(async move {
+            // `$1::uuid IS NULL OR user_id = $1::uuid` lets the same prepared
+            // statement carry an optional filter without sqlx::query! losing
+            // the macro's compile-time check.
+            let rows = sqlx::query!(
+                "SELECT id, user_id, event_type, metadata, ip_address, created_at \
+                 FROM yauth_audit_log \
+                 WHERE ($1::uuid IS NULL OR user_id = $1::uuid) \
+                   AND ($2::text IS NULL OR event_type = $2::text) \
+                 ORDER BY created_at DESC \
+                 LIMIT $3 OFFSET $4",
+                filter.user_id as Option<Uuid>,
+                filter.event_type as Option<String>,
+                limit,
+                offset,
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(rows
+                .into_iter()
+                .map(|r| domain::AuditLog {
+                    id: r.id,
+                    user_id: r.user_id,
+                    event_type: r.event_type,
+                    metadata: r.metadata,
+                    ip_address: r.ip_address,
+                    created_at: r.created_at.naive_utc(),
+                })
+                .collect())
         })
     }
 }

@@ -1,10 +1,12 @@
 use sea_orm::prelude::*;
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 
 use super::entities::audit_log;
 use super::sea_err;
 use crate::domain;
-use crate::repo::{AuditLogRepository, RepoFuture, sealed};
+use crate::repo::{AuditLogFilter, AuditLogRepository, RepoFuture, sealed};
 
 pub(crate) struct SeaOrmAuditLogRepo {
     db: DatabaseConnection,
@@ -31,6 +33,41 @@ impl AuditLogRepository for SeaOrmAuditLogRepo {
             };
             model.insert(&self.db).await.map_err(sea_err)?;
             Ok(())
+        })
+    }
+
+    fn list(
+        &self,
+        filter: AuditLogFilter,
+        limit: i64,
+        offset: i64,
+    ) -> RepoFuture<'_, Vec<domain::AuditLog>> {
+        Box::pin(async move {
+            let mut q = audit_log::Entity::find();
+            if let Some(uid) = filter.user_id {
+                q = q.filter(audit_log::Column::UserId.eq(uid.to_string()));
+            }
+            if let Some(t) = filter.event_type {
+                q = q.filter(audit_log::Column::EventType.eq(t));
+            }
+            let rows = q
+                .order_by_desc(audit_log::Column::CreatedAt)
+                .limit(limit as u64)
+                .offset(offset as u64)
+                .all(&self.db)
+                .await
+                .map_err(sea_err)?;
+            Ok(rows
+                .into_iter()
+                .map(|m| domain::AuditLog {
+                    id: m.id.parse().unwrap_or_default(),
+                    user_id: m.user_id.and_then(|s| s.parse().ok()),
+                    event_type: m.event_type,
+                    metadata: m.metadata,
+                    ip_address: m.ip_address,
+                    created_at: m.created_at.naive_utc(),
+                })
+                .collect())
         })
     }
 }

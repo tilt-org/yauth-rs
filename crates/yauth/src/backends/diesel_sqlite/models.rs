@@ -269,6 +269,31 @@ impl SqliteNewAuditLog {
     }
 }
 
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
+#[diesel(table_name = yauth_audit_log)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub(crate) struct SqliteAuditLog {
+    pub id: String,
+    pub user_id: Option<String>,
+    pub event_type: String,
+    pub metadata: Option<String>,
+    pub ip_address: Option<String>,
+    pub created_at: String,
+}
+
+impl SqliteAuditLog {
+    pub(crate) fn into_domain(self) -> crate::domain::AuditLog {
+        crate::domain::AuditLog {
+            id: str_to_uuid(&self.id),
+            user_id: opt_str_to_uuid(self.user_id),
+            event_type: self.event_type,
+            metadata: opt_str_to_json(self.metadata),
+            ip_address: self.ip_address,
+            created_at: str_to_dt(&self.created_at),
+        }
+    }
+}
+
 // ──────────────────────────────────────────────
 // email-password: yauth_passwords
 // ──────────────────────────────────────────────

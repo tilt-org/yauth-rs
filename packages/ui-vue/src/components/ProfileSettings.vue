@@ -34,7 +34,7 @@ const fetchPasskeys = async () => {
 	}
 	passkeysLoading.value = true;
 	try {
-		passkeys.value = await client.passkey.list();
+		passkeys.value = (await client.passkey.list()).items;
 	} catch {
 		passkeys.value = [];
 	} finally {
@@ -49,7 +49,7 @@ const fetchOAuthAccounts = async () => {
 	}
 	oauthLoading.value = true;
 	try {
-		oauthAccounts.value = await client.oauth.accounts();
+		oauthAccounts.value = (await client.oauth.accounts()).items;
 	} catch {
 		oauthAccounts.value = [];
 	} finally {

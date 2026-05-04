@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at FROM yauth_oauth2_clients WHERE client_id = ? /* sqlite */",
+  "query": "SELECT id, user_id, failed_count, locked_until, lock_count, locked_reason, created_at, updated_at FROM yauth_account_locks WHERE locked_until IS NOT NULL AND locked_until > ? ORDER BY locked_until DESC /* sqlite */",
   "describe": {
     "columns": [
       {
@@ -9,43 +9,38 @@
         "type_info": "Text"
       },
       {
-        "name": "client_id",
+        "name": "user_id",
         "ordinal": 1,
         "type_info": "Text"
       },
       {
-        "name": "client_secret_hash",
+        "name": "failed_count",
         "ordinal": 2,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "redirect_uris",
+        "name": "locked_until",
         "ordinal": 3,
         "type_info": "Text"
       },
       {
-        "name": "client_name",
+        "name": "lock_count",
         "ordinal": 4,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
-        "name": "grant_types",
+        "name": "locked_reason",
         "ordinal": 5,
         "type_info": "Text"
       },
       {
-        "name": "scopes",
+        "name": "created_at",
         "ordinal": 6,
         "type_info": "Text"
       },
       {
-        "name": "is_public",
+        "name": "updated_at",
         "ordinal": 7,
-        "type_info": "Integer"
-      },
-      {
-        "name": "created_at",
-        "ordinal": 8,
         "type_info": "Text"
       }
     ],
@@ -54,7 +49,6 @@
     },
     "nullable": [
       true,
-      false,
       true,
       false,
       true,
@@ -64,5 +58,5 @@
       false
     ]
   },
-  "hash": "4a3f97828c54bf3d8e5997d232a8723e029726dd2f837e722a85e3805078c005"
+  "hash": "69636196bcc1d8760e1a73fcd1428cd487efc61d58f0b5bf70511b364a33e2ad"
 }

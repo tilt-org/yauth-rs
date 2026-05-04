@@ -30,12 +30,18 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component rustfmt --component clippy
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          # 22+ has native TS-config loading; vp/oxlint can't parse vite.config.ts
+          # under Node 20 even though 20.19+ would otherwise satisfy the engines
+          # range — the actual blocker is Node 20's lack of `.ts` loader support.
+          node-version: "22"
+
+      - name: Enable corepack
+        run: corepack enable
 
       - name: Install JS dependencies
-        run: bun install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: cargo fmt
         run: cargo fmt --check
@@ -46,17 +52,17 @@ jobs:
       - name: Verify sqlx offline cache is complete
         run: SQLX_OFFLINE=true cargo check --workspace --features full,all-backends
 
-      - name: Biome lint
-        run: bun run lint
+      - name: Lint
+        run: pnpm run lint
 
       - name: TypeScript typecheck
-        run: bun run typecheck
+        run: pnpm run typecheck
 
       - name: Check generated client is up to date
-        run: bun run generate:check
+        run: pnpm run generate:check
 
       - name: Build TS packages
-        run: bun run build
+        run: pnpm run build
 
   test:
     name: Test
@@ -208,6 +214,45 @@ jobs:
       - name: Test (migrations — sqlite only)
         if: matrix.backend == 'sqlite'
         run: cargo test --manifest-path crates/yauth-toasty/Cargo.toml --features full,sqlite --test migrations
+
+  openapi-conformance:
+    name: OpenAPI conformance (Rust ↔ Go)
+    runs-on: ubuntu-latest
+    # Hard-gated: any BREAKING / MISSING / SHAPE / GO-EXTRA divergence
+    # against yauth-go fails the build. Phase 1 of the convergence plan
+    # closed all four categories — any new drift is a real regression.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify openapi.json is up to date
+        # The Rust spec is committed; the test below regenerates it and
+        # asserts byte-equality.
+        run: SQLX_OFFLINE=true cargo test --features full,memory-backend -p yauth --test generate_client -- check_openapi_spec_up_to_date --exact --nocapture
+
+      - name: Fetch yauth-go openapi.json from main
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          curl -fsSL -o tmp/go-openapi.json \
+            https://raw.githubusercontent.com/yackey-labs/yauth-go/main/openapi.json
+
+      - name: Strict conformance gate
+        run: |
+          # Scripts are vendored from yauth-go/scripts/ — keeping them
+          # local means the CI gate works even when yauth-go's main has
+          # not yet been pushed. The two copies are kept in sync; if they
+          # drift, regenerate from the canonical yauth-go versions.
+          python3 scripts/openapi-conformance.py \
+            openapi.json tmp/go-openapi.json
 
   codeql:
     name: CodeQL (${{ matrix.language }})

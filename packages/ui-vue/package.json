@@ -26,14 +26,14 @@
 		"src"
 	],
 	"scripts": {
-		"build": "vite build",
+		"build": "vp build",
 		"typecheck": "vue-tsc --noEmit",
-		"test": "vitest run"
+		"test": "vp test run"
 	},
 	"dependencies": {
 		"@simplewebauthn/browser": "^13.0.0",
-		"@yackey-labs/yauth-client": "0.12.0",
-		"@yackey-labs/yauth-shared": "0.12.0",
+		"@yackey-labs/yauth-client": "workspace:*",
+		"@yackey-labs/yauth-shared": "workspace:*",
 		"vue": "^3.5.0"
 	},
 	"devDependencies": {

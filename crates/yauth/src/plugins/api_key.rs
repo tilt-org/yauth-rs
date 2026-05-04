@@ -1,6 +1,6 @@
 use axum::{
     Extension, Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
@@ -45,13 +45,8 @@ pub struct CreateApiKeyRequest {
 #[derive(Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreateApiKeyResponse {
-    pub id: Uuid,
-    pub key: String,
-    pub name: String,
-    pub prefix: String,
-    pub scopes: Option<Vec<String>>,
-    pub expires_at: Option<chrono::DateTime<chrono::FixedOffset>>,
-    pub created_at: chrono::DateTime<chrono::FixedOffset>,
+    pub api_key: ApiKeyResponse,
+    pub secret: String,
 }
 
 #[derive(Serialize)]
@@ -64,6 +59,24 @@ pub struct ApiKeyResponse {
     pub last_used_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     pub expires_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     pub created_at: chrono::DateTime<chrono::FixedOffset>,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListApiKeysQuery {
+    pub page: Option<u64>,
+    pub per_page: Option<u64>,
+}
+
+/// Paginated response for `GET /api-keys`. Mirrors yauth-go's
+/// `ApiKeyListResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListApiKeysResponse {
+    pub items: Vec<ApiKeyResponse>,
+    pub page: u64,
+    pub per_page: u64,
+    pub total: u64,
 }
 
 async fn create_api_key(
@@ -136,13 +149,16 @@ async fn create_api_key(
     Ok((
         StatusCode::CREATED,
         Json(CreateApiKeyResponse {
-            id: api_key_id,
-            key: full_key,
-            name,
-            prefix,
-            scopes: input.scopes,
-            expires_at: expires_at_fixed,
-            created_at: created_at_fixed,
+            api_key: ApiKeyResponse {
+                id: api_key_id,
+                name,
+                prefix,
+                scopes: input.scopes,
+                last_used_at: None,
+                expires_at: expires_at_fixed,
+                created_at: created_at_fixed,
+            },
+            secret: full_key,
         }),
     ))
 }
@@ -150,8 +166,11 @@ async fn create_api_key(
 async fn list_api_keys(
     State(state): State<YAuthState>,
     Extension(user): Extension<AuthUser>,
-) -> Result<Json<Vec<ApiKeyResponse>>, (StatusCode, Json<serde_json::Value>)> {
+    Query(params): Query<ListApiKeysQuery>,
+) -> Result<Json<ListApiKeysResponse>, (StatusCode, Json<serde_json::Value>)> {
     let err = |status: StatusCode, msg: &str| (status, Json(serde_json::json!({ "error": msg })));
+
+    let (page, per_page) = super::paginate(params.page, params.per_page, 200);
 
     let keys = state
         .repos
@@ -163,7 +182,7 @@ async fn list_api_keys(
             err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?;
 
-    let response: Vec<ApiKeyResponse> = keys
+    let mapped: Vec<ApiKeyResponse> = keys
         .into_iter()
         .map(|k| {
             let scopes = k
@@ -181,7 +200,14 @@ async fn list_api_keys(
         })
         .collect();
 
-    Ok(Json(response))
+    let (items, total) = super::paginate_vec(mapped, page, per_page);
+
+    Ok(Json(ListApiKeysResponse {
+        items,
+        page,
+        per_page,
+        total,
+    }))
 }
 
 async fn delete_api_key(

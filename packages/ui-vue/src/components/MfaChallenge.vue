@@ -30,7 +30,7 @@ const handleSubmit = async (e: Event) => {
 			code: code.value,
 		});
 		const session = await client.getSession();
-		props.onSuccess?.(session as unknown as AuthUser);
+		props.onSuccess?.(session.user as unknown as AuthUser);
 	} catch (err) {
 		const e = err instanceof Error ? err : new Error(String(err));
 		error.value = e.message;

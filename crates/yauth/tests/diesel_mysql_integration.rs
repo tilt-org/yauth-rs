@@ -201,7 +201,7 @@ async fn mysql_register_login_session_logout_flow() {
         request(&app, "GET", "/api/auth/session", None, Some(cookie_value)).await;
     assert_eq!(status, StatusCode::OK, "Session check failed: {}", body);
     let session_data: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(session_data["email"].as_str().unwrap(), &email);
+    assert_eq!(session_data["user"]["email"].as_str().unwrap(), &email);
 
     // 4. Logout and confirm session is invalidated
     let (status, _, _) = request(&app, "POST", "/api/auth/logout", None, Some(cookie_value)).await;

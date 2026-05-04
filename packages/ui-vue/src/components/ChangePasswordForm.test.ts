@@ -74,7 +74,10 @@ describe("ChangePasswordForm", () => {
 		await wrapper.find("form").trigger("submit");
 
 		await vi.waitFor(() => {
-			expect(changeMock).toHaveBeenCalledWith("oldpw", "newpw");
+			expect(changeMock).toHaveBeenCalledWith({
+				current_password: "oldpw",
+				new_password: "newpw",
+			});
 			expect(wrapper.text()).toContain("Password changed successfully");
 		});
 	});

@@ -212,6 +212,22 @@ impl AccountLockRepository for LibsqlAccountLockRepo {
             Ok(())
         })
     }
+
+    fn list_active_locked(&self, now: NaiveDateTime) -> RepoFuture<'_, Vec<domain::AccountLock>> {
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            let now_s = dt_to_str(now);
+            let rows: Vec<Lal> = yauth_account_locks::table
+                .filter(yauth_account_locks::locked_until.is_not_null())
+                .filter(yauth_account_locks::locked_until.gt(&now_s))
+                .order(yauth_account_locks::locked_until.desc())
+                .select(Lal::as_select())
+                .load(&mut *c)
+                .await
+                .map_err(diesel_err)?;
+            Ok(rows.into_iter().map(|r| r.d()).collect())
+        })
+    }
 }
 
 pub(crate) struct LibsqlUnlockTokenRepo {

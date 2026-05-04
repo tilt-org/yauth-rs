@@ -353,4 +353,42 @@ impl AuditLogRepository for InMemoryAuditLogRepo {
             Ok(())
         })
     }
+
+    fn list(
+        &self,
+        filter: crate::repo::AuditLogFilter,
+        limit: i64,
+        offset: i64,
+    ) -> RepoFuture<'_, Vec<domain::AuditLog>> {
+        Box::pin(async move {
+            let logs = self.logs.read().unwrap();
+            let mut matched: Vec<&domain::NewAuditLog> = logs
+                .iter()
+                .filter(|l| filter.user_id.is_none_or(|u| l.user_id == Some(u)))
+                .filter(|l| {
+                    filter
+                        .event_type
+                        .as_deref()
+                        .is_none_or(|t| l.event_type == t)
+                })
+                .collect();
+            // Newest first.
+            matched.sort_by_key(|r| std::cmp::Reverse(r.created_at));
+            let start = offset.max(0) as usize;
+            let take = limit.max(0) as usize;
+            Ok(matched
+                .into_iter()
+                .skip(start)
+                .take(take)
+                .map(|l| domain::AuditLog {
+                    id: l.id,
+                    user_id: l.user_id,
+                    event_type: l.event_type.clone(),
+                    metadata: l.metadata.clone(),
+                    ip_address: l.ip_address.clone(),
+                    created_at: l.created_at,
+                })
+                .collect())
+        })
+    }
 }

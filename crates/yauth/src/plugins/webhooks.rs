@@ -1,10 +1,10 @@
 use axum::{
     Extension, Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     middleware as axum_mw,
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
 };
 use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
@@ -47,8 +47,10 @@ impl YAuthPlugin for WebhookPlugin {
                 .route("/webhooks", get(list_webhooks))
                 .route("/webhooks/{id}", get(get_webhook))
                 .route("/webhooks/{id}", put(update_webhook))
+                .route("/webhooks/{id}", patch(update_webhook))
                 .route("/webhooks/{id}", delete(delete_webhook))
                 .route("/webhooks/{id}/test", post(test_webhook))
+                .route("/webhooks/{id}/deliveries", get(list_webhook_deliveries))
                 .layer(axum_mw::from_fn_with_state(
                     ctx.state.clone(),
                     require_admin,
@@ -298,11 +300,58 @@ pub struct WebhookResponse {
     pub updated_at: String,
 }
 
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListWebhooksQuery {
+    pub page: Option<u64>,
+    pub per_page: Option<u64>,
+}
+
+/// Paginated response for `GET /webhooks`. Mirrors yauth-go's
+/// `WebhookListResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListWebhooksResponse {
+    pub items: Vec<WebhookResponse>,
+    pub page: u64,
+    pub per_page: u64,
+    pub total: u64,
+}
+
+/// Response envelope for `GET /webhooks/{id}` — wraps just the webhook.
+/// Recent deliveries moved to the dedicated paginated
+/// `GET /webhooks/{id}/deliveries` endpoint to mirror yauth-go.
 #[derive(Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WebhookDetailResponse {
     pub webhook: WebhookResponse,
-    pub recent_deliveries: Vec<WebhookDeliveryResponse>,
+}
+
+/// Response for `POST /webhooks/{id}/test`. Carries the queued delivery's id
+/// so the caller can poll `/webhooks/{id}/deliveries` for the result. Mirrors
+/// yauth-go's `WebhookTestResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct WebhookTestResponse {
+    pub delivery_queued: String,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListWebhookDeliveriesQuery {
+    pub page: Option<u64>,
+    pub per_page: Option<u64>,
+}
+
+/// Paginated response for `GET /webhooks/{id}/deliveries`. Mirrors yauth-go's
+/// `WebhookListDeliveriesResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListWebhookDeliveriesResponse {
+    pub items: Vec<WebhookDeliveryResponse>,
+    pub page: u64,
+    pub per_page: u64,
+    pub total: u64,
 }
 
 #[derive(Serialize)]
@@ -509,15 +558,24 @@ async fn create_webhook(
 async fn list_webhooks(
     State(state): State<YAuthState>,
     Extension(_admin): Extension<AuthUser>,
-) -> Result<impl IntoResponse, ApiError> {
+    Query(params): Query<ListWebhooksQuery>,
+) -> Result<Json<ListWebhooksResponse>, ApiError> {
+    let (page, per_page) = super::paginate(params.page, params.per_page, 200);
+
     let webhooks = state.repos.webhooks_repo.find_all().await.map_err(|e| {
         crate::otel::record_error("webhook_list_db_error", &e);
         api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
     })?;
 
-    let responses: Vec<WebhookResponse> = webhooks.into_iter().map(Into::into).collect();
+    let mapped: Vec<WebhookResponse> = webhooks.into_iter().map(Into::into).collect();
+    let (items, total) = super::paginate_vec(mapped, page, per_page);
 
-    Ok(Json(serde_json::json!({ "webhooks": responses })))
+    Ok(Json(ListWebhooksResponse {
+        items,
+        page,
+        per_page,
+        total,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -540,25 +598,55 @@ async fn get_webhook(
         })?
         .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "Webhook not found"))?;
 
+    Ok(Json(WebhookDetailResponse {
+        webhook: webhook.into(),
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// GET /webhooks/{id}/deliveries -- paginated delivery history
+// ---------------------------------------------------------------------------
+
+async fn list_webhook_deliveries(
+    State(state): State<YAuthState>,
+    Extension(_admin): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+    Query(params): Query<ListWebhookDeliveriesQuery>,
+) -> Result<Json<ListWebhookDeliveriesResponse>, ApiError> {
+    let (page, per_page) = super::paginate(params.page, params.per_page, 200);
+
+    state
+        .repos
+        .webhooks_repo
+        .find_by_id(id)
+        .await
+        .map_err(|e| {
+            crate::otel::record_error("webhook_fetch_db_error", &e);
+            api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+        })?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "Webhook not found"))?;
+
+    // Repo lacks an offset/total query, so pull a generous window and slice.
+    // Per-webhook delivery histories rarely exceed a few thousand rows.
     let deliveries = state
         .repos
         .webhook_deliveries
-        .find_by_webhook_id(id, 50)
+        .find_by_webhook_id(id, 10_000)
         .await
         .map_err(|e| {
             crate::otel::record_error("webhook_deliveries_fetch_db_error", &e);
             api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?;
 
-    let delivery_responses: Vec<WebhookDeliveryResponse> =
-        deliveries.into_iter().map(Into::into).collect();
+    let mapped: Vec<WebhookDeliveryResponse> = deliveries.into_iter().map(Into::into).collect();
+    let (items, total) = super::paginate_vec(mapped, page, per_page);
 
-    let detail = WebhookDetailResponse {
-        webhook: webhook.into(),
-        recent_deliveries: delivery_responses,
-    };
-
-    Ok(Json(detail))
+    Ok(Json(ListWebhookDeliveriesResponse {
+        items,
+        page,
+        per_page,
+        total,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -744,8 +832,9 @@ async fn test_webhook(
     };
 
     // Record delivery
+    let delivery_id = Uuid::now_v7();
     let new_delivery = crate::domain::NewWebhookDelivery {
-        id: Uuid::now_v7(),
+        id: delivery_id,
         webhook_id: webhook.id,
         event_type: "test".to_string(),
         payload: body,
@@ -766,11 +855,9 @@ async fn test_webhook(
             api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?;
 
-    Ok(Json(serde_json::json!({
-        "success": success,
-        "status_code": status_code,
-        "response_body": response_body,
-    })))
+    Ok(Json(WebhookTestResponse {
+        delivery_queued: delivery_id.to_string(),
+    }))
 }
 
 #[cfg(test)]

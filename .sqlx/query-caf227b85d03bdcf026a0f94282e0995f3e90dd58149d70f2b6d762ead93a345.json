@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, user_id as \"user_id!\", failed_count, locked_until, lock_count, locked_reason, created_at, updated_at\n                   FROM yauth_account_locks\n                   WHERE locked_until IS NOT NULL AND locked_until > $1\n                   ORDER BY locked_until DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "failed_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "locked_until",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "lock_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "locked_reason",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "caf227b85d03bdcf026a0f94282e0995f3e90dd58149d70f2b6d762ead93a345"
+}

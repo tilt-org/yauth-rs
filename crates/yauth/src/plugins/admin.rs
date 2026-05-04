@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     middleware as axum_mw,
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
 };
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -33,10 +33,13 @@ impl YAuthPlugin for AdminPlugin {
             .route("/admin/users", get(list_users))
             .route("/admin/users/{id}", get(get_user))
             .route("/admin/users/{id}", put(update_user))
+            .route("/admin/users/{id}", patch(update_user))
             .route("/admin/users/{id}", delete(delete_user))
             .route("/admin/users/{id}/ban", post(ban_user))
             .route("/admin/users/{id}/unban", post(unban_user))
             .route("/admin/users/{id}/impersonate", post(impersonate_user))
+            .route("/admin/users/{id}/sessions", delete(delete_user_sessions))
+            .route("/admin/audit", get(list_audit))
             .route("/admin/sessions", get(list_sessions))
             .route("/admin/sessions/{id}", delete(delete_session));
 
@@ -54,6 +57,21 @@ impl YAuthPlugin for AdminPlugin {
                 .route(
                     "/admin/oauth2/clients",
                     get(super::oauth2_admin::list_banned_clients),
+                )
+                // /oauth2/clients{,/{id}} mirrors yauth-go's surface 1:1.
+                // The /admin/oauth2/clients/{id}/{action} routes above stay
+                // for backward compat — call sites can migrate to the
+                // converged paths over time.
+                .route(
+                    "/oauth2/clients",
+                    get(super::oauth2_admin::list_oauth2_clients)
+                        .post(super::oauth2_admin::create_oauth2_client),
+                )
+                .route(
+                    "/oauth2/clients/{client_id}",
+                    get(super::oauth2_admin::get_oauth2_client)
+                        .patch(super::oauth2_admin::patch_oauth2_client)
+                        .delete(super::oauth2_admin::delete_oauth2_client),
                 );
             #[cfg(feature = "asymmetric-jwt")]
             {
@@ -158,6 +176,44 @@ pub struct PaginatedSessionsResponse {
     pub per_page: u64,
 }
 
+/// Response for `DELETE /admin/users/{id}/sessions`. Mirrors yauth-go's
+/// `AdminDeleteSessionsResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DeleteUserSessionsResponse {
+    pub deleted: u64,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListAuditQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub user_id: Option<Uuid>,
+    /// Event type filter — corresponds to yauth-go's `?type=` query param.
+    #[serde(rename = "type")]
+    pub event_type: Option<String>,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AdminAuditEntry {
+    pub id: String,
+    pub user_id: Option<String>,
+    pub event_type: String,
+    pub metadata: Option<serde_json::Value>,
+    pub ip_address: Option<String>,
+    pub created_at: String,
+}
+
+/// Response for `GET /admin/audit`. Mirrors yauth-go's
+/// `AdminListAuditResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListAuditResponse {
+    pub entries: Vec<AdminAuditEntry>,
+}
+
 /// Session info returned by admin list endpoint.
 #[derive(Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -199,9 +255,7 @@ impl From<crate::domain::Session> for SessionInfo {
 // ---------------------------------------------------------------------------
 
 fn paginate_params(page: Option<u64>, per_page: Option<u64>) -> (u64, u64) {
-    let per_page = per_page.unwrap_or(50).clamp(1, 100);
-    let page = page.unwrap_or(1).max(1);
-    (page, per_page)
+    super::paginate(page, per_page, 100)
 }
 
 // ---------------------------------------------------------------------------
@@ -605,6 +659,90 @@ async fn impersonate_user(
         "session_id": session_id,
         "expires_at": expires_at,
     })))
+}
+
+// ---------------------------------------------------------------------------
+// GET /admin/audit
+// ---------------------------------------------------------------------------
+
+async fn list_audit(
+    State(state): State<YAuthState>,
+    Extension(_admin): Extension<AuthUser>,
+    Query(params): Query<ListAuditQuery>,
+) -> Result<Json<ListAuditResponse>, ApiError> {
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+    let offset = params.offset.unwrap_or(0).max(0);
+    let filter = crate::repo::AuditLogFilter {
+        user_id: params.user_id,
+        event_type: params.event_type,
+    };
+
+    let rows = state
+        .repos
+        .audit
+        .list(filter, limit, offset)
+        .await
+        .map_err(|e| {
+            crate::otel::record_error("admin_db_list_audit_error", &e);
+            api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+        })?;
+
+    let entries = rows
+        .into_iter()
+        .map(|r| AdminAuditEntry {
+            id: r.id.to_string(),
+            user_id: r.user_id.map(|u| u.to_string()),
+            event_type: r.event_type,
+            metadata: r.metadata,
+            ip_address: r.ip_address,
+            created_at: r.created_at.and_utc().to_rfc3339(),
+        })
+        .collect();
+
+    Ok(Json(ListAuditResponse { entries }))
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /admin/users/{id}/sessions
+// ---------------------------------------------------------------------------
+
+async fn delete_user_sessions(
+    State(state): State<YAuthState>,
+    Extension(admin): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<DeleteUserSessionsResponse>, ApiError> {
+    state
+        .repos
+        .users
+        .find_by_id(id)
+        .await
+        .map_err(|e| {
+            crate::otel::record_error("admin_db_fetch_user_error", &e);
+            api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+        })?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "User not found"))?;
+
+    let deleted = crate::auth::session::delete_all_user_sessions(&state, id)
+        .await
+        .map_err(|e| {
+            crate::otel::record_error("admin_db_delete_user_sessions_error", &e);
+            api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+        })?;
+
+    state
+        .write_audit_log(
+            Some(admin.id),
+            "admin_revoke_user_sessions",
+            Some(serde_json::json!({
+                "admin_user_id": admin.id,
+                "target_user_id": id,
+                "deleted": deleted,
+            })),
+            None,
+        )
+        .await;
+
+    Ok(Json(DeleteUserSessionsResponse { deleted }))
 }
 
 // ---------------------------------------------------------------------------

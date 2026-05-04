@@ -75,6 +75,17 @@ pub struct MessageResponse {
     pub message: String,
 }
 
+/// Envelope returned by `POST /register` — wraps the newly-created user and
+/// carries an optional human-readable message. Matches yauth-go's
+/// `EmailPasswordRegisterResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RegisterResponse {
+    pub user: crate::middleware::AuthUser,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct VerifyEmailRequest {
@@ -319,8 +330,18 @@ async fn register(
 
     Ok((
         StatusCode::CREATED,
-        Json(MessageResponse {
-            message: message.to_string(),
+        Json(RegisterResponse {
+            user: crate::middleware::AuthUser {
+                id: user_id,
+                email: email.clone(),
+                display_name: input.display_name.as_ref().map(|n| input::sanitize(n)),
+                email_verified: !ep_config.require_email_verification,
+                role,
+                banned: false,
+                auth_method: crate::middleware::AuthMethod::Session,
+                scopes: None,
+            },
+            message: Some(message.to_string()),
         }),
     ))
 }

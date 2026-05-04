@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, user_id, event_type, metadata, ip_address, created_at FROM yauth_audit_log WHERE (?1 IS NULL OR user_id = ?1) AND (?2 IS NULL OR event_type = ?2) ORDER BY created_at DESC LIMIT ?3 OFFSET ?4 /* sqlite */",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "event_type",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "metadata",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "ip_address",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "ad70f713780177255c8b3fb538275353ecba684822d64f4abb044eabc6653152"
+}

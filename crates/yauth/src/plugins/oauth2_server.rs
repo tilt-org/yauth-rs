@@ -77,6 +77,7 @@ impl YAuthPlugin for OAuth2ServerPlugin {
             Router::new()
                 .route("/.well-known/oauth-authorization-server", get(as_metadata))
                 .route("/oauth/authorize", get(authorize_get).post(authorize_post))
+                .route("/oauth2/consent", post(oauth2_consent))
                 .route("/oauth/token", post(token_endpoint))
                 .route("/oauth/introspect", post(introspect_endpoint))
                 .route("/oauth/revoke", post(revoke_endpoint))
@@ -200,9 +201,17 @@ pub struct AuthorizeParams {
     pub code_challenge_method: String,
 }
 
+/// TTL for a pending /oauth2/consent entry. Mirrors yauth-go's pendingTTL.
+const CONSENT_PENDING_TTL_SECS: u64 = 600; // 10 minutes
+
+fn consent_pending_key(request_id: &str) -> String {
+    format!("oauth2_consent_pending:{}", request_id)
+}
+
 /// GET /oauth/authorize — returns JSON describing what the user needs to consent to.
 async fn authorize_get(
     State(state): State<YAuthState>,
+    jar: axum_extra::extract::cookie::CookieJar,
     headers: axum::http::HeaderMap,
     Query(params): Query<AuthorizeParams>,
 ) -> Response {
@@ -247,6 +256,37 @@ async fn authorize_get(
         return Redirect::to(url.as_str()).into_response();
     }
 
+    // Stash a pending-consent entry so the caller can submit POST /oauth2/consent
+    // with `{request_id, csrf_token, approved}` (yauth-go's flow). The full
+    // authorize params live in the challenges repo with a 10-minute TTL.
+    // If the caller is unauthenticated we still emit the entry — the consent
+    // POST re-checks user-id at consume time.
+    let user_id = authenticate_user(&state, &jar, &headers)
+        .await
+        .map(|u| u.id)
+        .ok();
+    let request_id = Uuid::now_v7().to_string();
+    let csrf_token = crypto::generate_token();
+    let pending = serde_json::json!({
+        "user_id": user_id.map(|id| id.to_string()),
+        "client_id": params.client_id,
+        "redirect_uri": redirect_uri,
+        "scope": params.scope,
+        "state": params.state,
+        "code_challenge": params.code_challenge,
+        "code_challenge_method": params.code_challenge_method,
+        "csrf_token": csrf_token,
+    });
+    let _ = state
+        .repos
+        .challenges
+        .set_challenge(
+            &consent_pending_key(&request_id),
+            pending,
+            CONSENT_PENDING_TTL_SECS,
+        )
+        .await;
+
     Json(serde_json::json!({
         "type": "authorization_request",
         "client_id": client.client_id,
@@ -258,6 +298,8 @@ async fn authorize_get(
         "code_challenge_method": params.code_challenge_method,
         "login_endpoint": format!("{}/login", state.config.base_url),
         "consent_endpoint": format!("{}/oauth/authorize", state.config.base_url),
+        "request_id": request_id,
+        "csrf_token": csrf_token,
     }))
     .into_response()
 }
@@ -390,6 +432,174 @@ async fn authorize_post(
     Redirect::to(redirect_url.as_str()).into_response()
 }
 
+/// POST /oauth2/consent — finalize a pending authorize request.
+///
+/// Looks up the pending entry by `request_id`, verifies the CSRF token in
+/// constant time, then either mints an authorization code (on approval) or
+/// builds an `access_denied` redirect (on denial). Returns
+/// `Oauth2AuthorizeRedirect { redirect_url }` either way so the caller can
+/// redirect the user-agent. Mirrors yauth-go's `handleConsent`.
+async fn oauth2_consent(
+    State(state): State<YAuthState>,
+    jar: axum_extra::extract::cookie::CookieJar,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<Oauth2ConsentRequest>,
+) -> Response {
+    let auth_user = match authenticate_user(&state, &jar, &headers).await {
+        Ok(u) => u,
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({
+                    "error": "login_required",
+                    "error_description": "User must be authenticated to consent",
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let key = consent_pending_key(&req.request_id);
+    let pending = match state.repos.challenges.get_challenge(&key).await {
+        Ok(Some(v)) => v,
+        Ok(None) => {
+            return api_err(StatusCode::BAD_REQUEST, "request_id not found or expired")
+                .into_response();
+        }
+        Err(e) => {
+            crate::otel::record_error("oauth2_consent_lookup_failed", &e);
+            return api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response();
+        }
+    };
+    // Single-use entry — drop regardless of outcome.
+    let _ = state.repos.challenges.delete_challenge(&key).await;
+
+    let stored_csrf = pending
+        .get("csrf_token")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !crypto::constant_time_eq(stored_csrf.as_bytes(), req.csrf_token.as_bytes()) {
+        return api_err(StatusCode::BAD_REQUEST, "csrf token mismatch").into_response();
+    }
+
+    // If the pending entry was created with a known user, ensure the same
+    // user is finalizing it. Pending entries created without a user (e.g.,
+    // an unauthenticated GET /oauth/authorize) accept the first authenticated
+    // consenter.
+    if let Some(stored_user) = pending.get("user_id").and_then(|v| v.as_str())
+        && stored_user != auth_user.id.to_string()
+    {
+        return api_err(StatusCode::BAD_REQUEST, "user mismatch").into_response();
+    }
+
+    let client_id = pending
+        .get("client_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let redirect_uri = pending
+        .get("redirect_uri")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let scope = pending
+        .get("scope")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let state_param = pending
+        .get("state")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let code_challenge = pending
+        .get("code_challenge")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let code_challenge_method = pending
+        .get("code_challenge_method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("S256")
+        .to_string();
+
+    if !req.approved {
+        let mut url = url::Url::parse(&redirect_uri)
+            .unwrap_or_else(|_| url::Url::parse("http://localhost").unwrap());
+        url.query_pairs_mut()
+            .append_pair("error", "access_denied")
+            .append_pair("error_description", "User denied the authorization request");
+        if let Some(ref s) = state_param {
+            url.query_pairs_mut().append_pair("state", s);
+        }
+        return Json(Oauth2AuthorizeRedirect {
+            redirect_url: url.to_string(),
+        })
+        .into_response();
+    }
+
+    // Look up client (banned / unknown clients fail consent here too).
+    let client = match lookup_client(&state, &client_id).await {
+        Ok(c) => c,
+        Err(e) => return e.into_response(),
+    };
+    if let Err(e) = validate_redirect_uri(&client, &redirect_uri) {
+        return e.into_response();
+    }
+
+    let scopes_json = scope
+        .as_ref()
+        .map(|s| serde_json::json!(s.split_whitespace().collect::<Vec<_>>()));
+    save_consent(&state, auth_user.id, &client_id, scopes_json.clone()).await;
+
+    let raw_code = crypto::generate_token();
+    let code_hash = crypto::hash_token(&raw_code);
+    let now = Utc::now();
+    let expires_at = now
+        + chrono::Duration::from_std(state.oauth2_server_config.authorization_code_ttl)
+            .unwrap_or(chrono::Duration::seconds(60));
+    let new_code = crate::domain::NewAuthorizationCode {
+        id: Uuid::now_v7(),
+        code_hash,
+        client_id: client_id.clone(),
+        user_id: auth_user.id,
+        scopes: scopes_json,
+        redirect_uri: redirect_uri.clone(),
+        code_challenge,
+        code_challenge_method,
+        expires_at: expires_at.naive_utc(),
+        used: false,
+        nonce: None,
+        created_at: now.naive_utc(),
+    };
+    if let Err(e) = state.repos.authorization_codes.create(new_code).await {
+        crate::otel::record_error("oauth2_auth_code_store_failed", &e);
+        return api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response();
+    }
+
+    state
+        .write_audit_log(
+            Some(auth_user.id),
+            "oauth2_consent_approved",
+            Some(serde_json::json!({
+                "client_id": client_id,
+                "scope": scope,
+                "via": "oauth2_consent",
+            })),
+            None,
+        )
+        .await;
+
+    let mut url = url::Url::parse(&redirect_uri)
+        .unwrap_or_else(|_| url::Url::parse("http://localhost").unwrap());
+    url.query_pairs_mut().append_pair("code", &raw_code);
+    if let Some(ref s) = state_param {
+        url.query_pairs_mut().append_pair("state", s);
+    }
+    Json(Oauth2AuthorizeRedirect {
+        redirect_url: url.to_string(),
+    })
+    .into_response()
+}
+
 fn deserialize_bool_or_string<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -434,6 +644,30 @@ pub struct AuthorizeConsentRequest {
     pub state: Option<String>,
     #[serde(deserialize_with = "deserialize_bool_or_string")]
     pub approved: bool,
+}
+
+/// Body for `POST /oauth2/consent`. Mirrors yauth-go's
+/// `Oauth2ConsentRequest`.
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct Oauth2ConsentRequest {
+    /// Opaque id returned by `GET /oauth/authorize` identifying the pending
+    /// authorization request to finalize.
+    pub request_id: String,
+    /// CSRF token issued alongside `request_id`. Constant-time-compared with
+    /// the stored value to prevent cross-site approve/deny attacks.
+    pub csrf_token: String,
+    /// `true` to mint an authorization code and redirect with `?code=...`;
+    /// `false` to deny and redirect with `?error=access_denied`.
+    pub approved: bool,
+}
+
+/// Response for `POST /oauth2/consent` (and the inline-mint branch of
+/// `GET /oauth/authorize`). Mirrors yauth-go's `Oauth2AuthorizeRedirect`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct Oauth2AuthorizeRedirect {
+    pub redirect_url: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -1060,7 +1294,16 @@ async fn handle_oauth2_refresh_token(
 // Dynamic Client Registration (RFC 7591) — POST /register
 // ---------------------------------------------------------------------------
 
+/// RFC 7591 §2 Dynamic Client Registration request body. Matches yauth-go's
+/// `dcrRegisterRequest` exactly so the TS client serves both backends.
+///
+/// `private_key_jwt` clients can register a `public_key_pem` value via this
+/// endpoint, but the field is intentionally **not** part of the typed schema
+/// — yauth-go does not accept it, and we'd rather keep the spec converged
+/// than add a Rust-only extension. Instead, the handler reads the raw JSON
+/// body and pulls `public_key_pem` out alongside the typed parse.
 #[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ClientRegistrationRequest {
     pub redirect_uris: Vec<String>,
     #[serde(default)]
@@ -1068,36 +1311,64 @@ pub struct ClientRegistrationRequest {
     #[serde(default)]
     pub grant_types: Option<Vec<String>>,
     #[serde(default)]
+    pub response_types: Option<Vec<String>>,
+    #[serde(default)]
     pub token_endpoint_auth_method: Option<String>,
     #[serde(default)]
     pub scope: Option<String>,
-    /// Client's public signing key for `private_key_jwt` (RFC 7523). Required
-    /// when `token_endpoint_auth_method = "private_key_jwt"` unless `jwks_uri`
-    /// is supplied instead.
-    #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
-    #[serde(default)]
-    pub public_key_pem: Option<String>,
     /// Reserved for the runtime JWKS-URI fetch path (not yet implemented).
-    #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
     #[serde(default)]
     pub jwks_uri: Option<String>,
 }
 
+/// RFC 7591 §3.2.1 Dynamic Client Registration success body. Mirrors
+/// yauth-go's `dcrRegisterResponse` so a single TS client can drive both
+/// backends.
 #[derive(Serialize)]
-struct ClientRegistrationResponse {
-    client_id: String,
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ClientRegistrationResponse {
+    pub client_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    client_secret: Option<String>,
-    redirect_uris: Vec<String>,
-    client_name: Option<String>,
-    grant_types: Vec<String>,
-    token_endpoint_auth_method: String,
+    pub client_secret: Option<String>,
+    pub client_id_issued_at: i64,
+    /// Unix seconds. `0` means the secret never expires (or there is no secret).
+    pub client_secret_expires_at: i64,
+    pub redirect_uris: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_name: Option<String>,
+    pub grant_types: Vec<String>,
+    pub response_types: Vec<String>,
+    /// Space-separated scope list, echoed back per RFC 7591 §3.2.1. Empty
+    /// when the client did not request any scopes.
+    pub scope: String,
+    pub token_endpoint_auth_method: String,
+    /// JWT scoped to registration management of `client_id`. RFC 7592 §2
+    /// management endpoints are not yet implemented; the token is emitted
+    /// for forward compatibility.
+    pub registration_access_token: String,
+    pub registration_client_uri: String,
 }
 
 async fn dynamic_client_registration(
     State(state): State<YAuthState>,
-    Json(input): Json<ClientRegistrationRequest>,
+    Json(raw): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Parse the typed (Go-aligned) shape first; extract any Rust-only
+    // extension fields directly from the raw map. See `ClientRegistrationRequest`
+    // for why `public_key_pem` lives outside the typed struct.
+    let input: ClientRegistrationRequest = serde_json::from_value(raw.clone()).map_err(|e| {
+        api_err(
+            StatusCode::BAD_REQUEST,
+            &format!("Invalid request body: {e}"),
+        )
+    })?;
+
+    #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
+    let extra_public_key_pem: Option<String> = raw
+        .as_object()
+        .and_then(|m| m.get("public_key_pem"))
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+
     let config = &state.oauth2_server_config;
 
     if !config.allow_dynamic_registration {
@@ -1125,7 +1396,13 @@ async fn dynamic_client_registration(
 
     let grant_types = input
         .grant_types
+        .clone()
         .unwrap_or_else(|| vec!["authorization_code".into()]);
+    let response_types = input
+        .response_types
+        .clone()
+        .unwrap_or_else(|| vec!["code".into()]);
+    let scope_echo = input.scope.clone().unwrap_or_default();
     let auth_method = input
         .token_endpoint_auth_method
         .as_deref()
@@ -1150,7 +1427,7 @@ async fn dynamic_client_registration(
 
     #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
     if using_private_key_jwt {
-        let pem = input.public_key_pem.as_deref().ok_or_else(|| {
+        let pem = extra_public_key_pem.as_deref().ok_or_else(|| {
             api_err(
                 StatusCode::BAD_REQUEST,
                 "token_endpoint_auth_method=private_key_jwt requires public_key_pem",
@@ -1169,13 +1446,10 @@ async fn dynamic_client_registration(
     let now = Utc::now();
 
     #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
-    let public_key_pem = input.public_key_pem.clone();
+    let public_key_pem = extra_public_key_pem.clone();
     #[cfg(not(all(feature = "asymmetric-jwt", feature = "oauth2-server")))]
     let public_key_pem: Option<String> = None;
-    #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
     let jwks_uri = input.jwks_uri.clone();
-    #[cfg(not(all(feature = "asymmetric-jwt", feature = "oauth2-server")))]
-    let jwks_uri: Option<String> = None;
 
     let new_client = crate::domain::NewOauth2Client {
         id: Uuid::now_v7(),
@@ -1216,15 +1490,30 @@ async fn dynamic_client_registration(
         vec![],
     );
 
+    let issuer = config.issuer.trim_end_matches('/');
+    let registration_client_uri = format!("{}/oauth/register/{}", issuer, client_id);
+
     Ok((
         StatusCode::CREATED,
         Json(ClientRegistrationResponse {
-            client_id,
+            client_id: client_id.clone(),
             client_secret,
+            client_id_issued_at: now.timestamp(),
+            // RFC 7591 §3.2.1: 0 means no expiry. yauth doesn't rotate client
+            // secrets on a schedule today.
+            client_secret_expires_at: 0,
             redirect_uris: input.redirect_uris,
             client_name: input.client_name,
             grant_types,
+            response_types,
+            scope: scope_echo,
             token_endpoint_auth_method: auth_method.to_string(),
+            // RFC 7592 management endpoints are not implemented yet — the
+            // token is a UUID placeholder so the field is non-empty and
+            // forward-compatible. See yauth-go's signRegistrationAccessToken
+            // for the JWT shape we'll mirror once mgmt endpoints land.
+            registration_access_token: Uuid::now_v7().to_string(),
+            registration_client_uri,
         }),
     ))
 }

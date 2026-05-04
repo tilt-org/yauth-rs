@@ -173,6 +173,24 @@ impl AccountLockRepository for SqlxSqliteAccountLockRepo {
             Ok(())
         })
     }
+
+    fn list_active_locked(&self, now: NaiveDateTime) -> RepoFuture<'_, Vec<domain::AccountLock>> {
+        Box::pin(async move {
+            let now_s = dt_to_str(now);
+            let rows = sqlx::query_as!(
+                AccountLockRow,
+                "SELECT id, user_id, failed_count, locked_until, lock_count, locked_reason, created_at, updated_at \
+                 FROM yauth_account_locks \
+                 WHERE locked_until IS NOT NULL AND locked_until > ? \
+                 ORDER BY locked_until DESC /* sqlite */",
+                now_s,
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(rows.into_iter().map(|r| r.into_domain()).collect())
+        })
+    }
 }
 
 pub(crate) struct SqlxSqliteUnlockTokenRepo {

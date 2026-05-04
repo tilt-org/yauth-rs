@@ -1,6 +1,6 @@
 use axum::{
     Extension, Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{StatusCode, header::SET_COOKIE},
     response::IntoResponse,
     routing::{delete, get, post},
@@ -591,10 +591,31 @@ pub struct PasskeyInfo {
     pub last_used_at: Option<chrono::DateTime<chrono::FixedOffset>>,
 }
 
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListPasskeysQuery {
+    pub page: Option<u64>,
+    pub per_page: Option<u64>,
+}
+
+/// Paginated response for `GET /passkeys`. Mirrors yauth-go's
+/// `PasskeyListResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ListPasskeysResponse {
+    pub items: Vec<PasskeyInfo>,
+    pub page: u64,
+    pub per_page: u64,
+    pub total: u64,
+}
+
 async fn list_passkeys(
     State(state): State<YAuthState>,
     Extension(auth_user): Extension<AuthUser>,
-) -> Result<Json<Vec<PasskeyInfo>>, ApiError> {
+    Query(params): Query<ListPasskeysQuery>,
+) -> Result<Json<ListPasskeysResponse>, ApiError> {
+    let (page, per_page) = super::paginate(params.page, params.per_page, 200);
+
     let creds = state
         .repos
         .passkeys
@@ -620,7 +641,14 @@ async fn list_passkeys(
         })
         .collect::<Vec<_>>();
 
-    Ok(Json(passkeys))
+    let (items, total) = super::paginate_vec(passkeys, page, per_page);
+
+    Ok(Json(ListPasskeysResponse {
+        items,
+        page,
+        per_page,
+        total,
+    }))
 }
 
 async fn delete_passkey(

@@ -6,22 +6,22 @@
 		"url": "https://github.com/yackey-labs/yauth"
 	},
 	"type": "module",
-	"main": "dist/index.js",
-	"module": "dist/index.js",
+	"main": "dist/index.mjs",
+	"module": "dist/index.mjs",
 	"types": "src/index.ts",
 	"exports": {
 		".": {
-			"import": "./dist/index.js",
 			"types": "./src/index.ts",
-			"default": "./src/index.ts"
+			"import": "./dist/index.mjs",
+			"default": "./dist/index.mjs"
 		},
 		"./types": {
-			"import": "./src/types.ts",
-			"types": "./src/types.ts"
+			"types": "./src/types.ts",
+			"import": "./dist/types.mjs"
 		},
 		"./aaguid": {
-			"import": "./src/aaguid.ts",
-			"types": "./src/aaguid.ts"
+			"types": "./src/aaguid.ts",
+			"import": "./dist/aaguid.mjs"
 		}
 	},
 	"files": [
@@ -29,9 +29,9 @@
 		"src"
 	],
 	"scripts": {
-		"build": "bun build src/index.ts --outdir dist --target bun",
+		"build": "vp pack src/index.ts src/types.ts src/aaguid.ts --dts",
 		"typecheck": "tsc --noEmit",
-		"test": "bun test"
+		"test": "vp test run"
 	},
 	"devDependencies": {
 		"typescript": "^5.7.2"

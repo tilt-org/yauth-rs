@@ -45,10 +45,12 @@ use axum::{
     http::StatusCode,
     routing::{get, patch, post},
 };
-use chrono::Utc;
+use axum_extra::extract::cookie::CookieJar;
+use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::middleware::AuthUser;
+use crate::auth::crypto;
+use crate::middleware::{AuthMethod, AuthUser};
 use crate::plugin::PluginContext;
 use crate::state::YAuthState;
 
@@ -77,6 +79,48 @@ pub struct AuthConfigResponse {
     pub require_email_verification: bool,
 }
 
+/// Envelope returned by `GET /session` — wraps the authenticated user and
+/// surfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`
+/// shape so a single TypeScript client serves both backends.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SessionResponse {
+    pub user: AuthUser,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// Envelope returned by `PATCH /me`. Mirrors yauth-go's
+/// `EmailPasswordPatchMeResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PatchMeResponse {
+    pub user: AuthUser,
+}
+
+/// 1-based pagination clamp shared by list endpoints. `max_per_page` differs
+/// between admin (100) and per-user lists (200) to mirror yauth-go.
+pub(crate) fn paginate(page: Option<u64>, per_page: Option<u64>, max_per_page: u64) -> (u64, u64) {
+    let per_page = per_page.unwrap_or(50).clamp(1, max_per_page);
+    let page = page.unwrap_or(1).max(1);
+    (page, per_page)
+}
+
+/// Slice an in-memory `Vec<T>` for a 1-based `(page, per_page)` window.
+/// Returned tuple is `(items, total)`. Used by list endpoints whose repo
+/// trait does not expose a paginated query.
+pub(crate) fn paginate_vec<T>(items: Vec<T>, page: u64, per_page: u64) -> (Vec<T>, u64) {
+    let total = items.len() as u64;
+    let start = (page.saturating_sub(1) * per_page) as usize;
+    let end = (start + per_page as usize).min(items.len());
+    let window = if start >= items.len() {
+        Vec::new()
+    } else {
+        items.into_iter().skip(start).take(end - start).collect()
+    };
+    (window, total)
+}
+
 async fn get_config(State(state): State<YAuthState>) -> Json<AuthConfigResponse> {
     #[cfg(feature = "email-password")]
     let require_email_verification = state.email_password_config.require_email_verification;
@@ -89,16 +133,28 @@ async fn get_config(State(state): State<YAuthState>) -> Json<AuthConfigResponse>
     })
 }
 
-async fn get_session(Extension(user): Extension<AuthUser>) -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "id": user.id,
-        "email": user.email,
-        "display_name": user.display_name,
-        "email_verified": user.email_verified,
-        "role": user.role,
-        "banned": user.banned,
-        "auth_method": format!("{:?}", user.auth_method).to_lowercase(),
-    }))
+async fn get_session(
+    State(state): State<YAuthState>,
+    jar: CookieJar,
+    Extension(user): Extension<AuthUser>,
+) -> Json<SessionResponse> {
+    let expires_at = match user.auth_method {
+        AuthMethod::Session => session_expires_at(&state, &jar).await,
+        _ => None,
+    };
+    Json(SessionResponse { user, expires_at })
+}
+
+async fn session_expires_at(state: &YAuthState, jar: &CookieJar) -> Option<DateTime<Utc>> {
+    let cookie = jar.get(&state.config.session_cookie_name)?;
+    let token_hash = crypto::hash_token(cookie.value());
+    let session = state
+        .repos
+        .session_ops
+        .validate_session(&token_hash)
+        .await
+        .ok()??;
+    Some(Utc.from_utc_datetime(&session.expires_at))
 }
 
 #[derive(Deserialize)]
@@ -126,16 +182,21 @@ async fn update_profile(
     match state.repos.users.update(user.id, changes).await {
         Ok(updated) => (
             StatusCode::OK,
-            Json(serde_json::json!({
-                "user": {
-                    "id": updated.id,
-                    "email": updated.email,
-                    "display_name": updated.display_name,
-                    "email_verified": updated.email_verified,
-                    "role": updated.role,
-                    "banned": updated.banned,
-                }
-            })),
+            Json(
+                serde_json::to_value(PatchMeResponse {
+                    user: AuthUser {
+                        id: updated.id,
+                        email: updated.email,
+                        display_name: updated.display_name,
+                        email_verified: updated.email_verified,
+                        role: updated.role,
+                        banned: updated.banned,
+                        auth_method: user.auth_method,
+                        scopes: user.scopes,
+                    },
+                })
+                .unwrap_or_else(|_| serde_json::json!({})),
+            ),
         ),
         Err(e) => {
             crate::otel::record_error("profile_update_db_error", &e);

@@ -10,6 +10,7 @@ use utoipa::openapi::path::{
 };
 use utoipa::openapi::request_body::RequestBodyBuilder;
 use utoipa::openapi::response::ResponseBuilder;
+use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::openapi::{
     ComponentsBuilder, ContentBuilder, InfoBuilder, OpenApiBuilder, PathsBuilder, RefOr,
 };
@@ -69,28 +70,6 @@ fn with_response(builder: OperationBuilder, schema_name: &str) -> OperationBuild
 }
 
 /// Adds a 200 response with an array of schema components.
-fn with_array_response(builder: OperationBuilder, schema_name: &str) -> OperationBuilder {
-    builder.response(
-        "200",
-        ResponseBuilder::new()
-            .description("Success")
-            .content(
-                "application/json",
-                ContentBuilder::new()
-                    .schema(Some(RefOr::T(
-                        utoipa::openapi::ArrayBuilder::new()
-                            .items(RefOr::Ref(utoipa::openapi::Ref::new(format!(
-                                "#/components/schemas/{schema_name}"
-                            ))))
-                            .build()
-                            .into(),
-                    )))
-                    .build(),
-            )
-            .build(),
-    )
-}
-
 /// Adds a 200 response with no body.
 fn with_empty_response(builder: OperationBuilder) -> OperationBuilder {
     builder.response("200", ResponseBuilder::new().description("Success").build())
@@ -124,13 +103,17 @@ fn with_query_params(builder: OperationBuilder, params: &[(&str, bool)]) -> Oper
 /// Register all schema components from `ToSchema` derives.
 fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
     use crate::middleware::{AuthMethod, AuthUser};
-    use crate::plugins::{AuthConfigResponse, UpdateProfileRequest};
+    use crate::plugins::{
+        AuthConfigResponse, PatchMeResponse, SessionResponse, UpdateProfileRequest,
+    };
 
     let mut b = builder
         .schema_from::<AuthUser>()
         .schema_from::<AuthMethod>()
         .schema_from::<AuthConfigResponse>()
-        .schema_from::<UpdateProfileRequest>();
+        .schema_from::<UpdateProfileRequest>()
+        .schema_from::<SessionResponse>()
+        .schema_from::<PatchMeResponse>();
 
     #[cfg(feature = "email-password")]
     {
@@ -139,6 +122,7 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<RegisterRequest>()
             .schema_from::<LoginRequest>()
             .schema_from::<MessageResponse>()
+            .schema_from::<RegisterResponse>()
             .schema_from::<VerifyEmailRequest>()
             .schema_from::<ResendVerificationRequest>()
             .schema_from::<ForgotPasswordRequest>()
@@ -153,7 +137,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<PasskeyLoginBeginRequest>()
             .schema_from::<PasskeyLoginFinishRequest>()
             .schema_from::<RegisterFinishRequest>()
-            .schema_from::<PasskeyInfo>();
+            .schema_from::<PasskeyInfo>()
+            .schema_from::<ListPasskeysQuery>()
+            .schema_from::<ListPasskeysResponse>();
     }
 
     #[cfg(feature = "mfa")]
@@ -177,7 +163,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<CallbackBody>()
             .schema_from::<OAuthAuthResponse>()
             .schema_from::<OAuthAccountResponse>()
-            .schema_from::<AuthorizeResponse>();
+            .schema_from::<AuthorizeResponse>()
+            .schema_from::<ListOAuthAccountsQuery>()
+            .schema_from::<ListOAuthAccountsResponse>();
     }
 
     #[cfg(feature = "bearer")]
@@ -196,7 +184,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
         b = b
             .schema_from::<CreateApiKeyRequest>()
             .schema_from::<CreateApiKeyResponse>()
-            .schema_from::<ApiKeyResponse>();
+            .schema_from::<ApiKeyResponse>()
+            .schema_from::<ListApiKeysQuery>()
+            .schema_from::<ListApiKeysResponse>();
     }
 
     #[cfg(feature = "magic-link")]
@@ -216,6 +206,10 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<ListSessionsQuery>()
             .schema_from::<UpdateUserRequest>()
             .schema_from::<BanRequest>()
+            .schema_from::<DeleteUserSessionsResponse>()
+            .schema_from::<ListAuditQuery>()
+            .schema_from::<ListAuditResponse>()
+            .schema_from::<AdminAuditEntry>()
             .schema_from::<PaginatedUsersResponse>()
             .schema_from::<AdminUserInfo>()
             .schema_from::<PaginatedSessionsResponse>()
@@ -230,7 +224,12 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<UpdateWebhookRequest>()
             .schema_from::<WebhookResponse>()
             .schema_from::<WebhookDetailResponse>()
-            .schema_from::<WebhookDeliveryResponse>();
+            .schema_from::<WebhookDeliveryResponse>()
+            .schema_from::<WebhookTestResponse>()
+            .schema_from::<ListWebhooksQuery>()
+            .schema_from::<ListWebhooksResponse>()
+            .schema_from::<ListWebhookDeliveriesQuery>()
+            .schema_from::<ListWebhookDeliveriesResponse>();
     }
 
     #[cfg(feature = "account-lockout")]
@@ -239,7 +238,36 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
         b = b
             .schema_from::<RequestUnlockRequest>()
             .schema_from::<UnlockAccountRequest>()
-            .schema_from::<AccountLockoutMessageResponse>();
+            .schema_from::<AccountLockoutMessageResponse>()
+            .schema_from::<LockoutLockedAccount>()
+            .schema_from::<LockoutStateResponse>();
+    }
+
+    #[cfg(feature = "oauth2-server")]
+    {
+        use crate::plugins::oauth2_server::*;
+        b = b
+            .schema_from::<ClientRegistrationRequest>()
+            .schema_from::<ClientRegistrationResponse>()
+            .schema_from::<Oauth2ConsentRequest>()
+            .schema_from::<Oauth2AuthorizeRedirect>();
+    }
+
+    #[cfg(all(feature = "admin", feature = "oauth2-server"))]
+    {
+        use crate::plugins::oauth2_admin::*;
+        b = b
+            .schema_from::<Oauth2ClientView>()
+            .schema_from::<Oauth2BannedClientsResponse>()
+            .schema_from::<Oauth2CreateClientRequest>()
+            .schema_from::<Oauth2CreateClientResponse>()
+            .schema_from::<Oauth2PatchClientRequest>();
+    }
+
+    #[cfg(feature = "status")]
+    {
+        use crate::plugins::status::*;
+        b = b.schema_from::<StatusResponse>();
     }
 
     b
@@ -253,7 +281,7 @@ fn core_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Get,
-                    op("getConfig", "core")
+                    op("getConfig", "admin")
                         .pipe(|b| with_response(b, "AuthConfigResponse"))
                         .build(),
                 )
@@ -264,13 +292,13 @@ fn core_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Get,
-                    op("getSession", "core")
-                        .pipe(|b| with_response(b, "AuthUser"))
+                    op("getSession", "email-password")
+                        .pipe(|b| with_response(b, "SessionResponse"))
                         .security(utoipa::openapi::security::SecurityRequirement::new::<
                             &str,
                             [&str; 0],
                             &str,
-                        >("cookieAuth", []))
+                        >("sessionCookie", []))
                         .build(),
                 )
                 .build(),
@@ -280,13 +308,13 @@ fn core_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Post,
-                    op("logout", "core")
+                    op("logout", "email-password")
                         .pipe(with_empty_response)
                         .security(utoipa::openapi::security::SecurityRequirement::new::<
                             &str,
                             [&str; 0],
                             &str,
-                        >("cookieAuth", []))
+                        >("sessionCookie", []))
                         .build(),
                 )
                 .build(),
@@ -296,14 +324,14 @@ fn core_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Patch,
-                    op("updateProfile", "core")
+                    op("updateProfile", "email-password")
                         .pipe(|b| with_body(b, "UpdateProfileRequest"))
-                        .pipe(|b| with_response(b, "AuthUser"))
+                        .pipe(|b| with_response(b, "PatchMeResponse"))
                         .security(utoipa::openapi::security::SecurityRequirement::new::<
                             &str,
                             [&str; 0],
                             &str,
-                        >("cookieAuth", []))
+                        >("sessionCookie", []))
                         .build(),
                 )
                 .build(),
@@ -321,8 +349,8 @@ fn email_password_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_body(
                         with_response(
-                            op("emailPassword_register", "emailPassword"),
-                            "MessageResponse",
+                            op("emailPassword_register", "email-password"),
+                            "RegisterResponse",
                         ),
                         "RegisterRequest",
                     )
@@ -336,7 +364,7 @@ fn email_password_paths(builder: PathsBuilder) -> PathsBuilder {
                 .operation(
                     HttpMethod::Post,
                     with_body(
-                        with_empty_response(op("emailPassword_login", "emailPassword")),
+                        with_empty_response(op("emailPassword_login", "email-password")),
                         "LoginRequest",
                     )
                     .build(),
@@ -350,7 +378,7 @@ fn email_password_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_body(
                         with_response(
-                            op("emailPassword_verifyEmail", "emailPassword"),
+                            op("emailPassword_verifyEmail", "email-password"),
                             "MessageResponse",
                         ),
                         "VerifyEmailRequest",
@@ -366,7 +394,7 @@ fn email_password_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_body(
                         with_response(
-                            op("emailPassword_resendVerification", "emailPassword"),
+                            op("emailPassword_resendVerification", "email-password"),
                             "MessageResponse",
                         ),
                         "ResendVerificationRequest",
@@ -382,7 +410,7 @@ fn email_password_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_body(
                         with_response(
-                            op("emailPassword_forgotPassword", "emailPassword"),
+                            op("emailPassword_forgotPassword", "email-password"),
                             "MessageResponse",
                         ),
                         "ForgotPasswordRequest",
@@ -398,7 +426,7 @@ fn email_password_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_body(
                         with_response(
-                            op("emailPassword_resetPassword", "emailPassword"),
+                            op("emailPassword_resetPassword", "email-password"),
                             "MessageResponse",
                         ),
                         "ResetPasswordRequest",
@@ -414,7 +442,7 @@ fn email_password_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_body(
                         with_response(
-                            op("emailPassword_changePassword", "emailPassword"),
+                            op("emailPassword_changePassword", "email-password"),
                             "MessageResponse",
                         ),
                         "ChangePasswordRequest",
@@ -423,7 +451,7 @@ fn email_password_paths(builder: PathsBuilder) -> PathsBuilder {
                         &str,
                         [&str; 0],
                         &str,
-                    >("cookieAuth", []))
+                    >("sessionCookie", []))
                     .build(),
                 )
                 .build(),
@@ -435,7 +463,7 @@ fn email_password_paths(builder: PathsBuilder) -> PathsBuilder {
 fn passkey_paths(builder: PathsBuilder) -> PathsBuilder {
     let auth_req = || {
         utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
-            "cookieAuth",
+            "sessionCookie",
             [],
         )
     };
@@ -498,10 +526,13 @@ fn passkey_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Get,
-                    op("passkey_list", "passkey")
-                        .pipe(|b| with_array_response(b, "PasskeyInfo"))
-                        .security(auth_req())
-                        .build(),
+                    with_query_params(
+                        op("passkey_list", "passkey"),
+                        &[("page", false), ("per_page", false)],
+                    )
+                    .pipe(|b| with_response(b, "ListPasskeysResponse"))
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
@@ -524,7 +555,7 @@ fn passkey_paths(builder: PathsBuilder) -> PathsBuilder {
 fn mfa_paths(builder: PathsBuilder) -> PathsBuilder {
     let auth_req = || {
         utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
-            "cookieAuth",
+            "sessionCookie",
             [],
         )
     };
@@ -612,7 +643,7 @@ fn mfa_paths(builder: PathsBuilder) -> PathsBuilder {
 fn oauth_paths(builder: PathsBuilder) -> PathsBuilder {
     let auth_req = || {
         utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
-            "cookieAuth",
+            "sessionCookie",
             [],
         )
     };
@@ -633,6 +664,13 @@ fn oauth_paths(builder: PathsBuilder) -> PathsBuilder {
             "/oauth/{provider}/callback",
             PathItemBuilder::new()
                 .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("oauth_callbackGet", "oauth"), "provider")
+                        .pipe(|b| with_query_params(b, &[("code", false), ("state", false)]))
+                        .pipe(|b| with_response(b, "OAuthAuthResponse"))
+                        .build(),
+                )
+                .operation(
                     HttpMethod::Post,
                     with_path_param(
                         with_body(
@@ -650,10 +688,13 @@ fn oauth_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Get,
-                    op("oauth_accounts", "oauth")
-                        .pipe(|b| with_array_response(b, "OAuthAccountResponse"))
-                        .security(auth_req())
-                        .build(),
+                    with_query_params(
+                        op("oauth_accounts", "oauth"),
+                        &[("page", false), ("per_page", false)],
+                    )
+                    .pipe(|b| with_response(b, "ListOAuthAccountsResponse"))
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
@@ -688,7 +729,7 @@ fn oauth_paths(builder: PathsBuilder) -> PathsBuilder {
 fn bearer_paths(builder: PathsBuilder) -> PathsBuilder {
     let auth_req = || {
         utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
-            "cookieAuth",
+            "sessionCookie",
             [],
         )
     };
@@ -741,7 +782,7 @@ fn bearer_paths(builder: PathsBuilder) -> PathsBuilder {
 fn api_key_paths(builder: PathsBuilder) -> PathsBuilder {
     let auth_req = || {
         utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
-            "cookieAuth",
+            "sessionCookie",
             [],
         )
     };
@@ -753,7 +794,7 @@ fn api_key_paths(builder: PathsBuilder) -> PathsBuilder {
                 .operation(
                     HttpMethod::Post,
                     with_body(
-                        with_response(op("apiKeys_create", "apiKeys"), "CreateApiKeyResponse"),
+                        with_response(op("apiKeys_create", "api-key"), "CreateApiKeyResponse"),
                         "CreateApiKeyRequest",
                     )
                     .security(auth_req())
@@ -761,10 +802,13 @@ fn api_key_paths(builder: PathsBuilder) -> PathsBuilder {
                 )
                 .operation(
                     HttpMethod::Get,
-                    op("apiKeys_list", "apiKeys")
-                        .pipe(|b| with_array_response(b, "ApiKeyResponse"))
-                        .security(auth_req())
-                        .build(),
+                    with_query_params(
+                        op("apiKeys_list", "api-key"),
+                        &[("page", false), ("per_page", false)],
+                    )
+                    .pipe(|b| with_response(b, "ListApiKeysResponse"))
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
@@ -773,7 +817,7 @@ fn api_key_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Delete,
-                    with_path_param(op("apiKeys_delete", "apiKeys"), "id")
+                    with_path_param(op("apiKeys_delete", "api-key"), "id")
                         .pipe(with_empty_response)
                         .security(auth_req())
                         .build(),
@@ -793,7 +837,7 @@ fn magic_link_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_body(
                         with_response(
-                            op("magicLink_send", "magicLink"),
+                            op("magicLink_send", "magic-link"),
                             "MagicLinkMessageResponse",
                         ),
                         "MagicLinkSendRequest",
@@ -808,7 +852,7 @@ fn magic_link_paths(builder: PathsBuilder) -> PathsBuilder {
                 .operation(
                     HttpMethod::Post,
                     with_body(
-                        with_empty_response(op("magicLink_verify", "magicLink")),
+                        with_empty_response(op("magicLink_verify", "magic-link")),
                         "MagicLinkVerifyRequest",
                     )
                     .build(),
@@ -822,7 +866,7 @@ fn magic_link_paths(builder: PathsBuilder) -> PathsBuilder {
 fn admin_paths(builder: PathsBuilder) -> PathsBuilder {
     let auth_req = || {
         utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
-            "cookieAuth",
+            "sessionCookie",
             [],
         )
     };
@@ -858,6 +902,18 @@ fn admin_paths(builder: PathsBuilder) -> PathsBuilder {
                     with_path_param(
                         with_body(
                             with_response(op("admin_updateUser", "admin"), "AdminUserInfo"),
+                            "UpdateUserRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_body(
+                            with_response(op("admin_patchUser", "admin"), "AdminUserInfo"),
                             "UpdateUserRequest",
                         ),
                         "id",
@@ -916,6 +972,38 @@ fn admin_paths(builder: PathsBuilder) -> PathsBuilder {
                 .build(),
         )
         .path(
+            "/admin/users/{id}/sessions",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Delete,
+                    with_path_param(op("admin_deleteUserSessions", "admin"), "id")
+                        .pipe(|b| with_response(b, "DeleteUserSessionsResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/admin/audit",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_query_params(
+                        op("admin_listAudit", "admin"),
+                        &[
+                            ("limit", false),
+                            ("offset", false),
+                            ("user_id", false),
+                            ("type", false),
+                        ],
+                    )
+                    .pipe(|b| with_response(b, "ListAuditResponse"))
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
             "/admin/sessions",
             PathItemBuilder::new()
                 .operation(
@@ -953,7 +1041,7 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Get,
-                    op("oauth2Server_metadata", "oauth2Server")
+                    op("oauth2Server_metadata", "oauth2-server")
                         .pipe(with_empty_response)
                         .build(),
                 )
@@ -964,13 +1052,13 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Get,
-                    op("oauth2Server_authorize", "oauth2Server")
+                    op("oauth2Server_authorize", "oauth2-server")
                         .pipe(with_empty_response)
                         .build(),
                 )
                 .operation(
                     HttpMethod::Post,
-                    op("oauth2Server_authorizeConsent", "oauth2Server")
+                    op("oauth2Server_authorizeConsent", "oauth2-server")
                         .pipe(with_empty_response)
                         .build(),
                 )
@@ -981,7 +1069,7 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Post,
-                    op("oauth2Server_token", "oauth2Server")
+                    op("oauth2Server_token", "oauth2-server")
                         .pipe(with_empty_response)
                         .build(),
                 )
@@ -992,7 +1080,7 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Post,
-                    op("oauth2Server_introspect", "oauth2Server")
+                    op("oauth2Server_introspect", "oauth2-server")
                         .pipe(with_empty_response)
                         .build(),
                 )
@@ -1003,7 +1091,7 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Post,
-                    op("oauth2Server_revoke", "oauth2Server")
+                    op("oauth2Server_revoke", "oauth2-server")
                         .pipe(with_empty_response)
                         .build(),
                 )
@@ -1014,9 +1102,35 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Post,
-                    op("oauth2Server_register", "oauth2Server")
-                        .pipe(with_empty_response)
-                        .build(),
+                    with_body(
+                        with_response(
+                            op("oauth2Server_register", "oauth2-server"),
+                            "ClientRegistrationResponse",
+                        ),
+                        "ClientRegistrationRequest",
+                    )
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/oauth2/consent",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_body(
+                        with_response(
+                            op("oauth2Server_consent", "oauth2-server"),
+                            "Oauth2AuthorizeRedirect",
+                        ),
+                        "Oauth2ConsentRequest",
+                    )
+                    .security(utoipa::openapi::security::SecurityRequirement::new::<
+                        &str,
+                        [&str; 0],
+                        &str,
+                    >("sessionCookie", []))
+                    .build(),
                 )
                 .build(),
         )
@@ -1025,7 +1139,7 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Post,
-                    op("oauth2Server_deviceAuthorize", "oauth2Server")
+                    op("oauth2Server_deviceAuthorize", "oauth2-server")
                         .pipe(with_empty_response)
                         .build(),
                 )
@@ -1036,13 +1150,13 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Get,
-                    op("oauth2Server_deviceVerify", "oauth2Server")
+                    op("oauth2Server_deviceVerify", "oauth2-server")
                         .pipe(with_empty_response)
                         .build(),
                 )
                 .operation(
                     HttpMethod::Post,
-                    op("oauth2Server_deviceApprove", "oauth2Server")
+                    op("oauth2Server_deviceApprove", "oauth2-server")
                         .pipe(with_empty_response)
                         .build(),
                 )
@@ -1055,7 +1169,7 @@ fn oauth2_server_paths(builder: PathsBuilder) -> PathsBuilder {
 fn webhook_paths(builder: PathsBuilder) -> PathsBuilder {
     let auth_req = || {
         utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
-            "cookieAuth",
+            "sessionCookie",
             [],
         )
     };
@@ -1075,10 +1189,13 @@ fn webhook_paths(builder: PathsBuilder) -> PathsBuilder {
                 )
                 .operation(
                     HttpMethod::Get,
-                    op("webhooks_list", "webhooks")
-                        .pipe(|b| with_array_response(b, "WebhookResponse"))
-                        .security(auth_req())
-                        .build(),
+                    with_query_params(
+                        op("webhooks_list", "webhooks"),
+                        &[("page", false), ("per_page", false)],
+                    )
+                    .pipe(|b| with_response(b, "ListWebhooksResponse"))
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
@@ -1105,6 +1222,18 @@ fn webhook_paths(builder: PathsBuilder) -> PathsBuilder {
                     .build(),
                 )
                 .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_body(
+                            with_response(op("webhooks_patch", "webhooks"), "WebhookResponse"),
+                            "UpdateWebhookRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
                     HttpMethod::Delete,
                     with_path_param(op("webhooks_delete", "webhooks"), "id")
                         .pipe(with_empty_response)
@@ -1119,7 +1248,20 @@ fn webhook_paths(builder: PathsBuilder) -> PathsBuilder {
                 .operation(
                     HttpMethod::Post,
                     with_path_param(op("webhooks_test", "webhooks"), "id")
-                        .pipe(with_empty_response)
+                        .pipe(|b| with_response(b, "WebhookTestResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/webhooks/{id}/deliveries",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("webhooks_listDeliveries", "webhooks"), "id")
+                        .pipe(|b| with_query_params(b, &[("page", false), ("per_page", false)]))
+                        .pipe(|b| with_response(b, "ListWebhookDeliveriesResponse"))
                         .security(auth_req())
                         .build(),
                 )
@@ -1132,7 +1274,7 @@ fn webhook_paths(builder: PathsBuilder) -> PathsBuilder {
 fn account_lockout_paths(builder: PathsBuilder) -> PathsBuilder {
     let auth_req = || {
         utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
-            "cookieAuth",
+            "sessionCookie",
             [],
         )
     };
@@ -1145,7 +1287,7 @@ fn account_lockout_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_body(
                         with_response(
-                            op("accountLockout_requestUnlock", "accountLockout"),
+                            op("accountLockout_requestUnlock", "lockout"),
                             "AccountLockoutMessageResponse",
                         ),
                         "RequestUnlockRequest",
@@ -1161,7 +1303,7 @@ fn account_lockout_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Post,
                     with_body(
                         with_response(
-                            op("accountLockout_unlock", "accountLockout"),
+                            op("accountLockout_unlock", "lockout"),
                             "AccountLockoutMessageResponse",
                         ),
                         "UnlockAccountRequest",
@@ -1175,8 +1317,20 @@ fn account_lockout_paths(builder: PathsBuilder) -> PathsBuilder {
             PathItemBuilder::new()
                 .operation(
                     HttpMethod::Post,
-                    with_path_param(op("accountLockout_adminUnlock", "accountLockout"), "id")
+                    with_path_param(op("accountLockout_adminUnlock", "lockout"), "id")
                         .pipe(|b| with_response(b, "AccountLockoutMessageResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/lockout/state",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    op("accountLockout_state", "lockout")
+                        .pipe(|b| with_response(b, "LockoutStateResponse"))
                         .security(auth_req())
                         .build(),
                 )
@@ -1189,7 +1343,7 @@ fn account_lockout_paths(builder: PathsBuilder) -> PathsBuilder {
 fn oidc_paths(builder: PathsBuilder) -> PathsBuilder {
     let auth_req = || {
         utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
-            "cookieAuth",
+            "sessionCookie",
             [],
         )
     };
@@ -1229,18 +1383,131 @@ fn oidc_paths(builder: PathsBuilder) -> PathsBuilder {
         )
 }
 
+/// OAuth2 admin paths (yauth-go convergence — `/oauth2/clients{,/{id}}`).
+#[cfg(all(feature = "admin", feature = "oauth2-server"))]
+fn oauth2_admin_paths(builder: PathsBuilder) -> PathsBuilder {
+    let auth_req = || {
+        utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
+            "sessionCookie",
+            [],
+        )
+    };
+
+    builder
+        .path(
+            "/oauth2/clients",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    op("oauth2Admin_listClients", "oauth2-server")
+                        .pipe(|b| with_response(b, "Oauth2BannedClientsResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .operation(
+                    HttpMethod::Post,
+                    with_body(
+                        with_response(
+                            op("oauth2Admin_createClient", "oauth2-server"),
+                            "Oauth2CreateClientResponse",
+                        ),
+                        "Oauth2CreateClientRequest",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/oauth2/clients/{id}",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("oauth2Admin_getClient", "oauth2-server"), "id")
+                        .pipe(|b| with_response(b, "Oauth2ClientView"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_body(
+                            with_response(
+                                op("oauth2Admin_patchClient", "oauth2-server"),
+                                "Oauth2ClientView",
+                            ),
+                            "Oauth2PatchClientRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Delete,
+                    with_path_param(op("oauth2Admin_deleteClient", "oauth2-server"), "id")
+                        .pipe(with_empty_response)
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+}
+
+/// Status plugin paths.
+#[cfg(feature = "status")]
+fn status_paths(builder: PathsBuilder) -> PathsBuilder {
+    let auth_req = || {
+        utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
+            "sessionCookie",
+            [],
+        )
+    };
+
+    builder.path(
+        "/status",
+        PathItemBuilder::new()
+            .operation(
+                HttpMethod::Get,
+                op("status_get", "status")
+                    .pipe(|b| with_response(b, "StatusResponse"))
+                    .security(auth_req())
+                    .build(),
+            )
+            .build(),
+    )
+}
+
 /// Build the complete OpenAPI specification for yauth.
 #[allow(unused_mut)]
 pub fn build_openapi_spec() -> utoipa::openapi::OpenApi {
     let info = InfoBuilder::new()
-        .title("yauth API")
+        .title("yauth")
         .version(env!("CARGO_PKG_VERSION"))
         .description(Some(
             "Modular, plugin-based authentication API for Axum applications.",
         ))
         .build();
 
-    let components = register_schemas(ComponentsBuilder::new()).build();
+    let components = register_schemas(ComponentsBuilder::new())
+        .security_scheme(
+            "sessionCookie",
+            SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new("yauth_session"))),
+        )
+        .security_scheme(
+            "bearer",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("JWT")
+                    .build(),
+            ),
+        )
+        .security_scheme(
+            "apiKey",
+            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("X-Api-Key"))),
+        )
+        .build();
 
     let mut paths = core_paths(PathsBuilder::new());
 
@@ -1289,6 +1556,11 @@ pub fn build_openapi_spec() -> utoipa::openapi::OpenApi {
         paths = oauth2_server_paths(paths);
     }
 
+    #[cfg(all(feature = "admin", feature = "oauth2-server"))]
+    {
+        paths = oauth2_admin_paths(paths);
+    }
+
     #[cfg(feature = "webhooks")]
     {
         paths = webhook_paths(paths);
@@ -1302,6 +1574,11 @@ pub fn build_openapi_spec() -> utoipa::openapi::OpenApi {
     #[cfg(feature = "oidc")]
     {
         paths = oidc_paths(paths);
+    }
+
+    #[cfg(feature = "status")]
+    {
+        paths = status_paths(paths);
     }
 
     OpenApiBuilder::new()

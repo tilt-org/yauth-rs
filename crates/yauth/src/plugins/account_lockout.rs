@@ -1,9 +1,9 @@
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Path, State},
     http::StatusCode,
     middleware as axum_mw,
-    routing::post,
+    routing::{get, post},
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,7 @@ impl YAuthPlugin for AccountLockoutPlugin {
         Some(
             Router::new()
                 .route("/admin/users/{id}/unlock", post(admin_unlock))
+                .route("/lockout/state", get(list_lockout_state))
                 .layer(axum_mw::from_fn_with_state(
                     ctx.state.clone(),
                     require_admin,
@@ -322,6 +323,29 @@ pub struct AccountLockoutMessageResponse {
     pub message: String,
 }
 
+/// One row in the admin lockout listing. Mirrors yauth-go's
+/// `LockoutLockedAccountJSON`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LockoutLockedAccount {
+    pub user_id: String,
+    pub email: String,
+    pub failed_count: i32,
+    pub lock_count: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locked_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locked_until: Option<String>,
+}
+
+/// Response for `GET /lockout/state`. Mirrors yauth-go's
+/// `LockoutStateResponse`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LockoutStateResponse {
+    pub locked: Vec<LockoutLockedAccount>,
+}
+
 // ---------------------------------------------------------------------------
 // Route handlers
 // ---------------------------------------------------------------------------
@@ -567,6 +591,55 @@ async fn admin_unlock(
     Ok(Json(AccountLockoutMessageResponse {
         message: "Account has been unlocked.".to_string(),
     }))
+}
+
+/// GET /lockout/state (protected, admin)
+///
+/// Returns every account currently locked. Powers the admin lockout
+/// dashboard. Mirrors yauth-go's `GET /lockout/state`.
+async fn list_lockout_state(
+    State(state): State<YAuthState>,
+    Extension(_admin): Extension<crate::middleware::AuthUser>,
+) -> Result<Json<LockoutStateResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let now = Utc::now().naive_utc();
+    let locks = state
+        .repos
+        .account_locks
+        .list_active_locked(now)
+        .await
+        .map_err(|e| {
+            crate::otel::record_error("db_error", &e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Internal error" })),
+            )
+        })?;
+
+    // N+1 user lookup for the email column. The dataset is bounded to the
+    // currently-locked subset, so this stays small in practice; if it grows
+    // we can add a JOIN-capable repo method later.
+    let mut entries = Vec::with_capacity(locks.len());
+    for lock in locks {
+        let email = state
+            .repos
+            .users
+            .find_by_id(lock.user_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|u| u.email)
+            .unwrap_or_default();
+        entries.push(LockoutLockedAccount {
+            user_id: lock.user_id.to_string(),
+            email,
+            failed_count: lock.failed_count,
+            lock_count: lock.lock_count,
+            locked_reason: lock.locked_reason,
+            locked_until: lock.locked_until.map(|dt| dt.and_utc().to_rfc3339()),
+        });
+    }
+
+    Ok(Json(LockoutStateResponse { locked: entries }))
 }
 
 // ---------------------------------------------------------------------------

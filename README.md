@@ -197,7 +197,7 @@ async fn main() {
 ### 4. Add a frontend (optional)
 
 ```bash
-bun add @yackey-labs/yauth-client
+pnpm add @yackey-labs/yauth-client
 ```
 
 ```typescript
@@ -282,6 +282,13 @@ No secrets in config -- database URLs come from environment variables only.
 | `@yackey-labs/yauth-ui-vue` | npm | Vue 3 components + composables |
 | `@yackey-labs/yauth-ui-solidjs` | npm | SolidJS components + context provider |
 
+> The npm packages drive both the Rust backend in this repo **and** the
+> Go backend in [yauth-go](https://github.com/yackey-labs/yauth-go). Both
+> generate the same `openapi.json`; CI's `openapi-conformance` job
+> (`scripts/openapi-conformance.py`) gates byte-equivalence on every PR.
+> The previously-separate `@yackey-labs/yauth-go-*` packages are
+> deprecated — drop the `-go` infix from imports.
+
 ## Reference Docs
 
 - [Backend setup guides](docs/backends.md) — detailed examples for all 14 backends + Redis caching
@@ -298,11 +305,11 @@ cargo test --workspace --features full,all-backends --lib   # Unit tests
 cargo clippy --workspace --features full,all-backends -- -D warnings
 cargo fmt --check
 
-# TypeScript
-bun install
-bun validate          # lint:fix + typecheck + build
-bun generate          # regenerate TS client from Rust types
-bun generate:check    # CI: fail if client is out of date
+# TypeScript (Vite+ toolchain — `vp` CLI, pnpm package manager)
+pnpm install                    # corepack bootstraps pnpm from package.json
+vp run validate                 # lint:fix + typecheck + build
+vp run generate                 # regenerate TS client from Rust types
+vp run generate:check           # CI: fail if client is out of date
 
 # Integration testing (requires docker compose up -d)
 docker compose up -d

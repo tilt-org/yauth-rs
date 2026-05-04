@@ -162,6 +162,24 @@ impl AccountLockRepository for SqlxPgAccountLockRepo {
             Ok(())
         })
     }
+
+    fn list_active_locked(&self, now: NaiveDateTime) -> RepoFuture<'_, Vec<domain::AccountLock>> {
+        Box::pin(async move {
+            let now_utc = naive_to_utc(now);
+            let rows = sqlx::query_as!(
+                AccountLockRow,
+                r#"SELECT id, user_id as "user_id!", failed_count, locked_until, lock_count, locked_reason, created_at, updated_at
+                   FROM yauth_account_locks
+                   WHERE locked_until IS NOT NULL AND locked_until > $1
+                   ORDER BY locked_until DESC"#,
+                now_utc,
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(rows.into_iter().map(|r| r.into_domain()).collect())
+        })
+    }
 }
 
 // ── UnlockToken ──

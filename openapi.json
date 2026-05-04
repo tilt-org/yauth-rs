@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "yauth API",
+    "title": "yauth",
     "description": "Modular, plugin-based authentication API for Axum applications.",
     "version": "0.12.0"
   },
@@ -22,7 +22,7 @@
     "/.well-known/oauth-authorization-server": {
       "get": {
         "tags": [
-          "oauth2Server"
+          "oauth2-server"
         ],
         "operationId": "oauth2Server_metadata",
         "responses": {
@@ -48,7 +48,7 @@
     "/account/request-unlock": {
       "post": {
         "tags": [
-          "accountLockout"
+          "lockout"
         ],
         "operationId": "accountLockout_requestUnlock",
         "requestBody": {
@@ -78,7 +78,7 @@
     "/account/unlock": {
       "post": {
         "tags": [
-          "accountLockout"
+          "lockout"
         ],
         "operationId": "accountLockout_unlock",
         "requestBody": {
@@ -103,6 +103,65 @@
             }
           }
         }
+      }
+    },
+    "/admin/audit": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_listAudit",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAuditResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
       }
     },
     "/admin/sessions": {
@@ -143,7 +202,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -171,7 +230,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -222,7 +281,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -257,7 +316,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       },
@@ -300,7 +359,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       },
@@ -326,7 +385,50 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_patchUser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserInfo"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
           }
         ]
       }
@@ -371,7 +473,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -399,7 +501,42 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/admin/users/{id}/sessions": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_deleteUserSessions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteUserSessionsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
           }
         ]
       }
@@ -434,7 +571,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -442,7 +579,7 @@
     "/admin/users/{id}/unlock": {
       "post": {
         "tags": [
-          "accountLockout"
+          "lockout"
         ],
         "operationId": "accountLockout_adminUnlock",
         "parameters": [
@@ -469,7 +606,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -477,19 +614,34 @@
     "/api-keys": {
       "get": {
         "tags": [
-          "apiKeys"
+          "api-key"
         ],
         "operationId": "apiKeys_list",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ApiKeyResponse"
-                  }
+                  "$ref": "#/components/schemas/ListApiKeysResponse"
                 }
               }
             }
@@ -497,13 +649,13 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       },
       "post": {
         "tags": [
-          "apiKeys"
+          "api-key"
         ],
         "operationId": "apiKeys_create",
         "requestBody": {
@@ -530,7 +682,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -538,7 +690,7 @@
     "/api-keys/{id}": {
       "delete": {
         "tags": [
-          "apiKeys"
+          "api-key"
         ],
         "operationId": "apiKeys_delete",
         "parameters": [
@@ -558,7 +710,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -566,7 +718,7 @@
     "/change-password": {
       "post": {
         "tags": [
-          "emailPassword"
+          "email-password"
         ],
         "operationId": "emailPassword_changePassword",
         "requestBody": {
@@ -593,7 +745,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -601,7 +753,7 @@
     "/config": {
       "get": {
         "tags": [
-          "core"
+          "admin"
         ],
         "operationId": "getConfig",
         "responses": {
@@ -621,7 +773,7 @@
     "/forgot-password": {
       "post": {
         "tags": [
-          "emailPassword"
+          "email-password"
         ],
         "operationId": "emailPassword_forgotPassword",
         "requestBody": {
@@ -648,10 +800,35 @@
         }
       }
     },
+    "/lockout/state": {
+      "get": {
+        "tags": [
+          "lockout"
+        ],
+        "operationId": "accountLockout_state",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LockoutStateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/login": {
       "post": {
         "tags": [
-          "emailPassword"
+          "email-password"
         ],
         "operationId": "emailPassword_login",
         "requestBody": {
@@ -674,7 +851,7 @@
     "/logout": {
       "post": {
         "tags": [
-          "core"
+          "email-password"
         ],
         "operationId": "logout",
         "responses": {
@@ -684,7 +861,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -692,7 +869,7 @@
     "/magic-link/send": {
       "post": {
         "tags": [
-          "magicLink"
+          "magic-link"
         ],
         "operationId": "magicLink_send",
         "requestBody": {
@@ -722,7 +899,7 @@
     "/magic-link/verify": {
       "post": {
         "tags": [
-          "magicLink"
+          "magic-link"
         ],
         "operationId": "magicLink_verify",
         "requestBody": {
@@ -745,7 +922,7 @@
     "/me": {
       "patch": {
         "tags": [
-          "core"
+          "email-password"
         ],
         "operationId": "updateProfile",
         "requestBody": {
@@ -764,7 +941,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuthUser"
+                  "$ref": "#/components/schemas/PatchMeResponse"
                 }
               }
             }
@@ -772,7 +949,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -797,7 +974,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -822,7 +999,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -847,7 +1024,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -882,7 +1059,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -907,7 +1084,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -948,16 +1125,31 @@
           "oauth"
         ],
         "operationId": "oauth_accounts",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/OAuthAccountResponse"
-                  }
+                  "$ref": "#/components/schemas/ListOAuthAccountsResponse"
                 }
               }
             }
@@ -965,7 +1157,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -973,7 +1165,7 @@
     "/oauth/authorize": {
       "get": {
         "tags": [
-          "oauth2Server"
+          "oauth2-server"
         ],
         "operationId": "oauth2Server_authorize",
         "responses": {
@@ -984,7 +1176,7 @@
       },
       "post": {
         "tags": [
-          "oauth2Server"
+          "oauth2-server"
         ],
         "operationId": "oauth2Server_authorizeConsent",
         "responses": {
@@ -997,7 +1189,7 @@
     "/oauth/device": {
       "get": {
         "tags": [
-          "oauth2Server"
+          "oauth2-server"
         ],
         "operationId": "oauth2Server_deviceVerify",
         "responses": {
@@ -1008,7 +1200,7 @@
       },
       "post": {
         "tags": [
-          "oauth2Server"
+          "oauth2-server"
         ],
         "operationId": "oauth2Server_deviceApprove",
         "responses": {
@@ -1021,7 +1213,7 @@
     "/oauth/device/code": {
       "post": {
         "tags": [
-          "oauth2Server"
+          "oauth2-server"
         ],
         "operationId": "oauth2Server_deviceAuthorize",
         "responses": {
@@ -1034,7 +1226,7 @@
     "/oauth/introspect": {
       "post": {
         "tags": [
-          "oauth2Server"
+          "oauth2-server"
         ],
         "operationId": "oauth2Server_introspect",
         "responses": {
@@ -1047,12 +1239,29 @@
     "/oauth/register": {
       "post": {
         "tags": [
-          "oauth2Server"
+          "oauth2-server"
         ],
         "operationId": "oauth2Server_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRegistrationRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientRegistrationResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1060,7 +1269,7 @@
     "/oauth/revoke": {
       "post": {
         "tags": [
-          "oauth2Server"
+          "oauth2-server"
         ],
         "operationId": "oauth2Server_revoke",
         "responses": {
@@ -1073,7 +1282,7 @@
     "/oauth/token": {
       "post": {
         "tags": [
-          "oauth2Server"
+          "oauth2-server"
         ],
         "operationId": "oauth2Server_token",
         "responses": {
@@ -1106,7 +1315,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -1135,6 +1344,50 @@
       }
     },
     "/oauth/{provider}/callback": {
+      "get": {
+        "tags": [
+          "oauth"
+        ],
+        "operationId": "oauth_callbackGet",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthAuthResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "oauth"
@@ -1204,7 +1457,204 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/oauth2/clients": {
+      "get": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Admin_listClients",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Oauth2BannedClientsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Admin_createClient",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Oauth2CreateClientRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Oauth2CreateClientResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/oauth2/clients/{id}": {
+      "get": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Admin_getClient",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Oauth2ClientView"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Admin_deleteClient",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Admin_patchClient",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Oauth2PatchClientRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Oauth2ClientView"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/oauth2/consent": {
+      "post": {
+        "tags": [
+          "oauth2-server"
+        ],
+        "operationId": "oauth2Server_consent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Oauth2ConsentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Oauth2AuthorizeRedirect"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
           }
         ]
       }
@@ -1261,16 +1711,31 @@
           "passkey"
         ],
         "operationId": "passkey_list",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PasskeyInfo"
-                  }
+                  "$ref": "#/components/schemas/ListPasskeysResponse"
                 }
               }
             }
@@ -1278,7 +1743,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -1296,7 +1761,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -1324,7 +1789,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -1352,7 +1817,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -1360,7 +1825,7 @@
     "/register": {
       "post": {
         "tags": [
-          "emailPassword"
+          "email-password"
         ],
         "operationId": "emailPassword_register",
         "requestBody": {
@@ -1379,7 +1844,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MessageResponse"
+                  "$ref": "#/components/schemas/RegisterResponse"
                 }
               }
             }
@@ -1390,7 +1855,7 @@
     "/resend-verification": {
       "post": {
         "tags": [
-          "emailPassword"
+          "email-password"
         ],
         "operationId": "emailPassword_resendVerification",
         "requestBody": {
@@ -1420,7 +1885,7 @@
     "/reset-password": {
       "post": {
         "tags": [
-          "emailPassword"
+          "email-password"
         ],
         "operationId": "emailPassword_resetPassword",
         "requestBody": {
@@ -1450,7 +1915,7 @@
     "/session": {
       "get": {
         "tags": [
-          "core"
+          "email-password"
         ],
         "operationId": "getSession",
         "responses": {
@@ -1459,7 +1924,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuthUser"
+                  "$ref": "#/components/schemas/SessionResponse"
                 }
               }
             }
@@ -1467,7 +1932,32 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "operationId": "status_get",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
           }
         ]
       }
@@ -1555,7 +2045,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -1573,7 +2063,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -1581,7 +2071,7 @@
     "/verify-email": {
       "post": {
         "tags": [
-          "emailPassword"
+          "email-password"
         ],
         "operationId": "emailPassword_verifyEmail",
         "requestBody": {
@@ -1614,16 +2104,31 @@
           "webhooks"
         ],
         "operationId": "webhooks_list",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/WebhookResponse"
-                  }
+                  "$ref": "#/components/schemas/ListWebhooksResponse"
                 }
               }
             }
@@ -1631,7 +2136,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       },
@@ -1664,7 +2169,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -1699,7 +2204,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       },
@@ -1742,7 +2247,7 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       },
@@ -1768,7 +2273,101 @@
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "webhooks"
+        ],
+        "operationId": "webhooks_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWebhookRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/webhooks/{id}/deliveries": {
+      "get": {
+        "tags": [
+          "webhooks"
+        ],
+        "operationId": "webhooks_listDeliveries",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWebhookDeliveriesResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
           }
         ]
       }
@@ -1791,12 +2390,19 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTestResponse"
+                }
+              }
+            }
           }
         },
         "security": [
           {
-            "cookieAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -1812,6 +2418,38 @@
         "properties": {
           "message": {
             "type": "string"
+          }
+        }
+      },
+      "AdminAuditEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "event_type",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "ip_address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {},
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -2121,6 +2759,138 @@
           }
         }
       },
+      "ClientRegistrationRequest": {
+        "type": "object",
+        "description": "RFC 7591 §2 Dynamic Client Registration request body. Matches yauth-go's\n`dcrRegisterRequest` exactly so the TS client serves both backends.\n\n`private_key_jwt` clients can register a `public_key_pem` value via this\nendpoint, but the field is intentionally **not** part of the typed schema\n— yauth-go does not accept it, and we'd rather keep the spec converged\nthan add a Rust-only extension. Instead, the handler reads the raw JSON\nbody and pulls `public_key_pem` out alongside the typed parse.",
+        "required": [
+          "redirect_uris"
+        ],
+        "properties": {
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "grant_types": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "jwks_uri": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reserved for the runtime JWKS-URI fetch path (not yet implemented)."
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "response_types": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_endpoint_auth_method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ClientRegistrationResponse": {
+        "type": "object",
+        "description": "RFC 7591 §3.2.1 Dynamic Client Registration success body. Mirrors\nyauth-go's `dcrRegisterResponse` so a single TS client can drive both\nbackends.",
+        "required": [
+          "client_id",
+          "client_id_issued_at",
+          "client_secret_expires_at",
+          "redirect_uris",
+          "grant_types",
+          "response_types",
+          "scope",
+          "token_endpoint_auth_method",
+          "registration_access_token",
+          "registration_client_uri"
+        ],
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_id_issued_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_secret": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_secret_expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix seconds. `0` means the secret never expires (or there is no secret)."
+          },
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "registration_access_token": {
+            "type": "string",
+            "description": "JWT scoped to registration management of `client_id`. RFC 7592 §2\nmanagement endpoints are not yet implemented; the token is emitted\nfor forward compatibility."
+          },
+          "registration_client_uri": {
+            "type": "string"
+          },
+          "response_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": "string",
+            "description": "Space-separated scope list, echoed back per RFC 7591 §3.2.1. Empty\nwhen the client did not request any scopes."
+          },
+          "token_endpoint_auth_method": {
+            "type": "string"
+          }
+        }
+      },
       "ConfirmTotpRequest": {
         "type": "object",
         "required": [
@@ -2163,45 +2933,15 @@
       "CreateApiKeyResponse": {
         "type": "object",
         "required": [
-          "id",
-          "key",
-          "name",
-          "prefix",
-          "created_at"
+          "api_key",
+          "secret"
         ],
         "properties": {
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
+          "api_key": {
+            "$ref": "#/components/schemas/ApiKeyResponse"
           },
-          "expires_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "key": {
+          "secret": {
             "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "prefix": {
-            "type": "string"
-          },
-          "scopes": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
           }
         }
       },
@@ -2229,6 +2969,20 @@
           }
         }
       },
+      "DeleteUserSessionsResponse": {
+        "type": "object",
+        "description": "Response for `DELETE /admin/users/{id}/sessions`. Mirrors yauth-go's\n`AdminDeleteSessionsResponse`.",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "ForgotPasswordRequest": {
         "type": "object",
         "required": [
@@ -2237,6 +2991,216 @@
         "properties": {
           "email": {
             "type": "string"
+          }
+        }
+      },
+      "ListApiKeysQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ListApiKeysResponse": {
+        "type": "object",
+        "description": "Paginated response for `GET /api-keys`. Mirrors yauth-go's\n`ApiKeyListResponse`.",
+        "required": [
+          "items",
+          "page",
+          "per_page",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiKeyResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ListAuditQuery": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Event type filter — corresponds to yauth-go's `?type=` query param."
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "ListAuditResponse": {
+        "type": "object",
+        "description": "Response for `GET /admin/audit`. Mirrors yauth-go's\n`AdminListAuditResponse`.",
+        "required": [
+          "entries"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminAuditEntry"
+            }
+          }
+        }
+      },
+      "ListOAuthAccountsQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ListOAuthAccountsResponse": {
+        "type": "object",
+        "description": "Paginated response for `GET /oauth/accounts`. Mirrors yauth-go's\n`OauthListAccountsResponse`.",
+        "required": [
+          "items",
+          "page",
+          "per_page",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OAuthAccountResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ListPasskeysQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ListPasskeysResponse": {
+        "type": "object",
+        "description": "Paginated response for `GET /passkeys`. Mirrors yauth-go's\n`PasskeyListResponse`.",
+        "required": [
+          "items",
+          "page",
+          "per_page",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PasskeyInfo"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -2285,6 +3249,167 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ListWebhookDeliveriesQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ListWebhookDeliveriesResponse": {
+        "type": "object",
+        "description": "Paginated response for `GET /webhooks/{id}/deliveries`. Mirrors yauth-go's\n`WebhookListDeliveriesResponse`.",
+        "required": [
+          "items",
+          "page",
+          "per_page",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookDeliveryResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ListWebhooksQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ListWebhooksResponse": {
+        "type": "object",
+        "description": "Paginated response for `GET /webhooks`. Mirrors yauth-go's\n`WebhookListResponse`.",
+        "required": [
+          "items",
+          "page",
+          "per_page",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "LockoutLockedAccount": {
+        "type": "object",
+        "description": "One row in the admin lockout listing. Mirrors yauth-go's\n`LockoutLockedAccountJSON`.",
+        "required": [
+          "user_id",
+          "email",
+          "failed_count",
+          "lock_count"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "failed_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lock_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "locked_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locked_until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LockoutStateResponse": {
+        "type": "object",
+        "description": "Response for `GET /lockout/state`. Mirrors yauth-go's\n`LockoutStateResponse`.",
+        "required": [
+          "locked"
+        ],
+        "properties": {
+          "locked": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LockoutLockedAccount"
+            }
           }
         }
       },
@@ -2355,26 +3480,13 @@
       },
       "MfaAuthResponse": {
         "type": "object",
+        "description": "Envelope returned by `POST /mfa/verify` after a TOTP/backup code passes.\nMatches yauth-go's `MfaVerifyResponse`.",
         "required": [
-          "user_id",
-          "email",
-          "email_verified"
+          "user"
         ],
         "properties": {
-          "display_name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "email": {
-            "type": "string"
-          },
-          "email_verified": {
-            "type": "boolean"
-          },
-          "user_id": {
-            "type": "string"
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
           }
         }
       },
@@ -2414,26 +3526,238 @@
       },
       "OAuthAuthResponse": {
         "type": "object",
+        "description": "Envelope returned by `POST|GET /oauth/{provider}/callback` after a\nsuccessful exchange. Matches yauth-go's `OauthCallbackResponse`.",
         "required": [
-          "user_id",
-          "email",
-          "email_verified"
+          "user"
         ],
         "properties": {
-          "display_name": {
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
+          }
+        }
+      },
+      "Oauth2AuthorizeRedirect": {
+        "type": "object",
+        "description": "Response for `POST /oauth2/consent` (and the inline-mint branch of\n`GET /oauth/authorize`). Mirrors yauth-go's `Oauth2AuthorizeRedirect`.",
+        "required": [
+          "redirect_url"
+        ],
+        "properties": {
+          "redirect_url": {
+            "type": "string"
+          }
+        }
+      },
+      "Oauth2BannedClientsResponse": {
+        "type": "object",
+        "description": "Response for `GET /oauth2/clients` (list banned). Mirrors yauth-go's\n`Oauth2BannedClientsResponse`.",
+        "required": [
+          "banned"
+        ],
+        "properties": {
+          "banned": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Oauth2ClientView"
+            }
+          }
+        }
+      },
+      "Oauth2ClientView": {
+        "type": "object",
+        "description": "Public-facing serialization of an OAuth2 client. Matches yauth-go's\n`Oauth2ClientJSON`.",
+        "required": [
+          "id",
+          "client_id",
+          "redirect_uris",
+          "grant_types",
+          "is_public",
+          "has_public_key",
+          "banned",
+          "created_at"
+        ],
+        "properties": {
+          "banned": {
+            "type": "boolean"
+          },
+          "banned_reason": {
             "type": [
               "string",
               "null"
             ]
           },
-          "email": {
+          "client_id": {
             "type": "string"
           },
-          "email_verified": {
+          "created_at": {
+            "type": "string"
+          },
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "has_public_key": {
             "type": "boolean"
           },
-          "user_id": {
+          "id": {
             "type": "string"
+          },
+          "is_public": {
+            "type": "boolean"
+          },
+          "jwks_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "yauth-go calls this field `name` on the wire — keep the Rust field\n`client_name` (closer to the domain model) but rename for serde."
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Oauth2ConsentRequest": {
+        "type": "object",
+        "description": "Body for `POST /oauth2/consent`. Mirrors yauth-go's\n`Oauth2ConsentRequest`.",
+        "required": [
+          "request_id",
+          "csrf_token",
+          "approved"
+        ],
+        "properties": {
+          "approved": {
+            "type": "boolean",
+            "description": "`true` to mint an authorization code and redirect with `?code=...`;\n`false` to deny and redirect with `?error=access_denied`."
+          },
+          "csrf_token": {
+            "type": "string",
+            "description": "CSRF token issued alongside `request_id`. Constant-time-compared with\nthe stored value to prevent cross-site approve/deny attacks."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Opaque id returned by `GET /oauth/authorize` identifying the pending\nauthorization request to finalize."
+          }
+        }
+      },
+      "Oauth2CreateClientRequest": {
+        "type": "object",
+        "description": "Body for `POST /oauth2/clients`. Admin-scoped client creation; mirrors\nyauth-go's `Oauth2CreateClientRequest`.",
+        "properties": {
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_public": {
+            "type": "boolean"
+          },
+          "jwks_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_key_pem": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Explicit `token_endpoint_auth_method` override. When omitted the\nserver picks one based on `is_public` / whether `public_key_pem` or\n`jwks_uri` is set."
+          }
+        }
+      },
+      "Oauth2CreateClientResponse": {
+        "type": "object",
+        "description": "Response for `POST /oauth2/clients`. Mirrors yauth-go's\n`Oauth2CreateClientResponse`.",
+        "required": [
+          "client"
+        ],
+        "properties": {
+          "client": {
+            "$ref": "#/components/schemas/Oauth2ClientView"
+          },
+          "client_secret": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Plaintext secret returned exactly once on creation. Empty for public\nclients (where `is_public=true` or `private_key_jwt` is in use)."
+          }
+        }
+      },
+      "Oauth2PatchClientRequest": {
+        "type": "object",
+        "description": "Body for `PATCH /oauth2/clients/{id}`. Mirrors yauth-go's\n`Oauth2PatchClientRequest`. Each field is optional; omitting a field\nleaves it unchanged.",
+        "properties": {
+          "banned": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "banned_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_key_pem": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -2558,6 +3882,18 @@
           }
         }
       },
+      "PatchMeResponse": {
+        "type": "object",
+        "description": "Envelope returned by `PATCH /me`. Mirrors yauth-go's\n`EmailPasswordPatchMeResponse`.",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
+          }
+        }
+      },
       "RefreshRequest": {
         "type": "object",
         "required": [
@@ -2602,6 +3938,24 @@
           },
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "RegisterResponse": {
+        "type": "object",
+        "description": "Envelope returned by `POST /register` — wraps the newly-created user and\ncarries an optional human-readable message. Matches yauth-go's\n`EmailPasswordRegisterResponse`.",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
           }
         }
       },
@@ -2653,12 +4007,32 @@
           }
         }
       },
+      "SessionResponse": {
+        "type": "object",
+        "description": "Envelope returned by `GET /session` — wraps the authenticated user and\nsurfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`\nshape so a single TypeScript client serves both backends.",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
+          }
+        }
+      },
       "SetupTotpResponse": {
         "type": "object",
         "required": [
           "otpauth_url",
           "secret",
-          "backup_codes"
+          "backup_codes",
+          "qr_code"
         ],
         "properties": {
           "backup_codes": {
@@ -2670,7 +4044,30 @@
           "otpauth_url": {
             "type": "string"
           },
+          "qr_code": {
+            "type": "string",
+            "description": "Server-rendered QR code as a `data:image/png;base64,...` URL. CLI/mobile\nclients render this directly; web clients can fall back to building\ntheir own from `otpauth_url`. Empty string if rendering failed."
+          },
           "secret": {
+            "type": "string"
+          }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "description": "Response for `GET /status`. Mirrors yauth-go's `StatusResponse`.",
+        "required": [
+          "plugins",
+          "version"
+        ],
+        "properties": {
+          "plugins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
             "type": "string"
           }
         }
@@ -2863,17 +4260,11 @@
       },
       "WebhookDetailResponse": {
         "type": "object",
+        "description": "Response envelope for `GET /webhooks/{id}` — wraps just the webhook.\nRecent deliveries moved to the dedicated paginated\n`GET /webhooks/{id}/deliveries` endpoint to mirror yauth-go.",
         "required": [
-          "webhook",
-          "recent_deliveries"
+          "webhook"
         ],
         "properties": {
-          "recent_deliveries": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WebhookDeliveryResponse"
-            }
-          },
           "webhook": {
             "$ref": "#/components/schemas/WebhookResponse"
           }
@@ -2912,6 +4303,35 @@
             "type": "string"
           }
         }
+      },
+      "WebhookTestResponse": {
+        "type": "object",
+        "description": "Response for `POST /webhooks/{id}/test`. Carries the queued delivery's id\nso the caller can poll `/webhooks/{id}/deliveries` for the result. Mirrors\nyauth-go's `WebhookTestResponse`.",
+        "required": [
+          "delivery_queued"
+        ],
+        "properties": {
+          "delivery_queued": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Api-Key"
+      },
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "yauth_session"
       }
     }
   }
