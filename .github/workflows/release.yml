@@ -29,7 +29,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Enable corepack
         run: corepack enable
@@ -86,16 +86,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Enable corepack
         run: corepack enable
-
-      - name: Pin npm for OIDC trusted publishing
-        # Node 22 ships npm 10.x; OIDC trusted publishing needs >=11.5.1.
-        # `npm@latest` was failing with MODULE_NOT_FOUND promise-retry on the
-        # runner (transient defect), so pin to a known-good major.
-        run: npm install -g npm@11
 
       - name: Install knope
         run: |
