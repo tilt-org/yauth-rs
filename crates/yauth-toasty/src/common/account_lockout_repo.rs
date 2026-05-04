@@ -127,10 +127,7 @@ impl AccountLockRepository for ToastyAccountLockRepo {
         })
     }
 
-    fn list_active_locked(
-        &self,
-        now: NaiveDateTime,
-    ) -> RepoFuture<'_, Vec<domain::AccountLock>> {
+    fn list_active_locked(&self, now: NaiveDateTime) -> RepoFuture<'_, Vec<domain::AccountLock>> {
         Box::pin(async move {
             let mut db = self.db.clone();
             // Toasty currently lacks a chained `IS NOT NULL AND > ?`

@@ -373,7 +373,7 @@ impl AuditLogRepository for InMemoryAuditLogRepo {
                 })
                 .collect();
             // Newest first.
-            matched.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            matched.sort_by_key(|r| std::cmp::Reverse(r.created_at));
             let start = offset.max(0) as usize;
             let take = limit.max(0) as usize;
             Ok(matched

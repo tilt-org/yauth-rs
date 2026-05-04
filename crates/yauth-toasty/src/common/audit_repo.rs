@@ -60,7 +60,7 @@ impl AuditLogRepository for ToastyAuditLogRepo {
                         .as_deref()
                         .is_none_or(|t| r.event_type == t)
             });
-            all.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            all.sort_by_key(|r| std::cmp::Reverse(r.created_at));
             let start = offset.max(0) as usize;
             let take = limit.max(0) as usize;
             Ok(all
