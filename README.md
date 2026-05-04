@@ -282,6 +282,13 @@ No secrets in config -- database URLs come from environment variables only.
 | `@yackey-labs/yauth-ui-vue` | npm | Vue 3 components + composables |
 | `@yackey-labs/yauth-ui-solidjs` | npm | SolidJS components + context provider |
 
+> The npm packages drive both the Rust backend in this repo **and** the
+> Go backend in [yauth-go](https://github.com/yackey-labs/yauth-go). Both
+> generate the same `openapi.json`; CI's `openapi-conformance` job
+> (`scripts/openapi-conformance.py`) gates byte-equivalence on every PR.
+> The previously-separate `@yackey-labs/yauth-go-*` packages are
+> deprecated — drop the `-go` infix from imports.
+
 ## Reference Docs
 
 - [Backend setup guides](docs/backends.md) — detailed examples for all 14 backends + Redis caching
