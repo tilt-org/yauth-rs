@@ -142,8 +142,8 @@ importers:
   packages/client:
     dependencies:
       '@yackey-labs/yauth-shared':
-        specifier: 0.12.0
-        version: 0.12.0
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       typescript:
         specifier: ^5.7.2
@@ -1498,9 +1498,6 @@ packages:
     peerDependenciesMeta:
       '@vue/server-renderer':
         optional: true
-
-  '@yackey-labs/yauth-shared@0.12.0':
-    resolution: {integrity: sha512-lX7ZhFuKqJsl5bMeEyDCvPS9ZF18Bca2M8sc8OWobQwzr3MHZxzyOpI0Iz6Bwcc7KEepUNkyJKCpRm0kHR6Q/A==}
 
   abbrev@2.0.0:
     resolution: {integrity: sha512-6/mh1E2u2YgEsCHdY0Yx5oW+61gZU+1vXaoiHHrpKeuRNNgFvS+/jrwHiQhB5apAf5oB7UB7E19ol2R2LKH8hQ==}
@@ -3905,8 +3902,6 @@ snapshots:
       vue-component-type-helpers: 3.2.7
     optionalDependencies:
       '@vue/server-renderer': 3.5.33(vue@3.5.33(typescript@5.9.3))
-
-  '@yackey-labs/yauth-shared@0.12.0': {}
 
   abbrev@2.0.0: {}
 
