@@ -1,4 +1,4 @@
-import type { YAuthClient } from "@yackey-labs/yauth-client";
+import { createYAuthClient, type YAuthClient } from "@yackey-labs/yauth-client";
 import type { AuthUser } from "@yackey-labs/yauth-shared";
 import {
 	type App,
@@ -8,7 +8,6 @@ import {
 	readonly,
 	ref,
 	shallowRef,
-	watch,
 } from "vue";
 
 export interface YAuthContext {
@@ -23,17 +22,10 @@ export const YAuthKey: InjectionKey<YAuthContext> = Symbol("yauth");
 export interface YAuthPluginOptions {
 	/** A pre-built client satisfying YAuthClient. */
 	client?: YAuthClient;
-	/** Base URL for the auth API. When provided without `client`, a default client is lazily created via `@yackey-labs/yauth-client`. */
+	/** Base URL for the auth API. When provided without `client`, a client is
+	 * built via `createYAuthClient({ baseUrl })` synchronously. */
 	baseUrl?: string;
 }
-
-/**
- * Minimal no-op client used while the real client is loading (baseUrl path).
- * All feature groups are undefined so components gracefully skip rendering.
- */
-const PENDING_CLIENT = {
-	__pending: true as const,
-} as unknown as YAuthClient;
 
 export const YAuthPlugin = {
 	install(app: App, options: YAuthPluginOptions) {
@@ -43,16 +35,14 @@ export const YAuthPlugin = {
 			);
 		}
 
-		const clientRef = shallowRef<YAuthClient>(options.client ?? PENDING_CLIENT);
+		const client =
+			options.client ??
+			(createYAuthClient({ baseUrl: options.baseUrl as string }) as YAuthClient);
+		const clientRef = shallowRef<YAuthClient>(client);
 		const user = ref<AuthUser | null>(null);
 		const loading = ref(true);
 
-		const isPending = () =>
-			(clientRef.value as unknown as { __pending?: boolean }).__pending ===
-			true;
-
 		const fetchSession = async (): Promise<AuthUser | null> => {
-			if (isPending()) return null;
 			loading.value = true;
 			try {
 				const result = await clientRef.value.getSession();
@@ -66,11 +56,8 @@ export const YAuthPlugin = {
 			}
 		};
 
-		// The context object uses a getter so `client` is always current
 		const context: YAuthContext = {
-			get client() {
-				return clientRef.value;
-			},
+			client,
 			user: readonly(user) as Readonly<Ref<AuthUser | null>>,
 			loading: readonly(loading),
 			refetch: fetchSession,
@@ -78,20 +65,7 @@ export const YAuthPlugin = {
 
 		app.provide(YAuthKey, context);
 
-		if (options.client) {
-			fetchSession();
-		} else if (options.baseUrl) {
-			const url = options.baseUrl;
-			import("@yackey-labs/yauth-client").then((mod) => {
-				clientRef.value = mod.createYAuthClient({
-					baseUrl: url,
-				}) as unknown as YAuthClient;
-			});
-			// Auto-fetch session when the real client arrives
-			watch(clientRef, (c) => {
-				if (c !== PENDING_CLIENT) fetchSession();
-			});
-		}
+		fetchSession();
 	},
 };
 
