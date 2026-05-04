@@ -3,7 +3,7 @@
  * Do not edit manually.
  * yauth
  * Modular, plugin-based authentication API for Axum applications.
- * OpenAPI spec version: 0.12.1
+ * OpenAPI spec version: 0.12.2
  */
 import { customFetch } from './mutator';
 export interface AccountLockoutMessageResponse {

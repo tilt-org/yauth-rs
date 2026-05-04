@@ -1,3 +1,9 @@
+## 0.12.2 (2026-05-04)
+
+### Fixes
+
+- use pnpm publish so workspace:* deps get rewritten (#80)
+
 ## 0.12.1 (2026-05-04)
 
 ### Features
