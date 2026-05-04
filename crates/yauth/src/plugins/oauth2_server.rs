@@ -1060,7 +1060,14 @@ async fn handle_oauth2_refresh_token(
 // Dynamic Client Registration (RFC 7591) — POST /register
 // ---------------------------------------------------------------------------
 
-/// RFC 7591 §2 Dynamic Client Registration request body.
+/// RFC 7591 §2 Dynamic Client Registration request body. Matches yauth-go's
+/// `dcrRegisterRequest` exactly so the TS client serves both backends.
+///
+/// `private_key_jwt` clients can register a `public_key_pem` value via this
+/// endpoint, but the field is intentionally **not** part of the typed schema
+/// — yauth-go does not accept it, and we'd rather keep the spec converged
+/// than add a Rust-only extension. Instead, the handler reads the raw JSON
+/// body and pulls `public_key_pem` out alongside the typed parse.
 #[derive(Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ClientRegistrationRequest {
@@ -1075,12 +1082,6 @@ pub struct ClientRegistrationRequest {
     pub token_endpoint_auth_method: Option<String>,
     #[serde(default)]
     pub scope: Option<String>,
-    /// Client's public signing key for `private_key_jwt` (RFC 7523). Required
-    /// when `token_endpoint_auth_method = "private_key_jwt"` unless `jwks_uri`
-    /// is supplied instead.
-    #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
-    #[serde(default)]
-    pub public_key_pem: Option<String>,
     /// Reserved for the runtime JWKS-URI fetch path (not yet implemented).
     #[serde(default)]
     pub jwks_uri: Option<String>,
@@ -1116,8 +1117,24 @@ pub struct ClientRegistrationResponse {
 
 async fn dynamic_client_registration(
     State(state): State<YAuthState>,
-    Json(input): Json<ClientRegistrationRequest>,
+    Json(raw): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Parse the typed (Go-aligned) shape first; extract any Rust-only
+    // extension fields directly from the raw map. See `ClientRegistrationRequest`
+    // for why `public_key_pem` lives outside the typed struct.
+    let input: ClientRegistrationRequest = serde_json::from_value(raw.clone()).map_err(|e| {
+        api_err(
+            StatusCode::BAD_REQUEST,
+            &format!("Invalid request body: {e}"),
+        )
+    })?;
+
+    #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
+    let extra_public_key_pem: Option<String> = raw
+        .as_object()
+        .and_then(|m| m.get("public_key_pem"))
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+
     let config = &state.oauth2_server_config;
 
     if !config.allow_dynamic_registration {
@@ -1176,7 +1193,7 @@ async fn dynamic_client_registration(
 
     #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
     if using_private_key_jwt {
-        let pem = input.public_key_pem.as_deref().ok_or_else(|| {
+        let pem = extra_public_key_pem.as_deref().ok_or_else(|| {
             api_err(
                 StatusCode::BAD_REQUEST,
                 "token_endpoint_auth_method=private_key_jwt requires public_key_pem",
@@ -1195,7 +1212,7 @@ async fn dynamic_client_registration(
     let now = Utc::now();
 
     #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
-    let public_key_pem = input.public_key_pem.clone();
+    let public_key_pem = extra_public_key_pem.clone();
     #[cfg(not(all(feature = "asymmetric-jwt", feature = "oauth2-server")))]
     let public_key_pem: Option<String> = None;
     let jwks_uri = input.jwks_uri.clone();

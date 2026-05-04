@@ -2726,7 +2726,7 @@
       },
       "ClientRegistrationRequest": {
         "type": "object",
-        "description": "RFC 7591 §2 Dynamic Client Registration request body.",
+        "description": "RFC 7591 §2 Dynamic Client Registration request body. Matches yauth-go's\n`dcrRegisterRequest` exactly so the TS client serves both backends.\n\n`private_key_jwt` clients can register a `public_key_pem` value via this\nendpoint, but the field is intentionally **not** part of the typed schema\n— yauth-go does not accept it, and we'd rather keep the spec converged\nthan add a Rust-only extension. Instead, the handler reads the raw JSON\nbody and pulls `public_key_pem` out alongside the typed parse.",
         "required": [
           "redirect_uris"
         ],
@@ -2752,13 +2752,6 @@
               "null"
             ],
             "description": "Reserved for the runtime JWKS-URI fetch path (not yet implemented)."
-          },
-          "public_key_pem": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Client's public signing key for `private_key_jwt` (RFC 7523). Required\nwhen `token_endpoint_auth_method = \"private_key_jwt\"` unless `jwks_uri`\nis supplied instead."
           },
           "redirect_uris": {
             "type": "array",

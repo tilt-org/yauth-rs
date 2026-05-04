@@ -135,7 +135,14 @@ export interface ChangePasswordRequest {
 }
 
 /**
- * RFC 7591 §2 Dynamic Client Registration request body.
+ * RFC 7591 §2 Dynamic Client Registration request body. Matches yauth-go's
+`dcrRegisterRequest` exactly so the TS client serves both backends.
+
+`private_key_jwt` clients can register a `public_key_pem` value via this
+endpoint, but the field is intentionally **not** part of the typed schema
+— yauth-go does not accept it, and we'd rather keep the spec converged
+than add a Rust-only extension. Instead, the handler reads the raw JSON
+body and pulls `public_key_pem` out alongside the typed parse.
  */
 export interface ClientRegistrationRequest {
   /** @nullable */
@@ -147,13 +154,6 @@ export interface ClientRegistrationRequest {
      * @nullable
      */
   jwks_uri?: string | null;
-  /**
-     * Client's public signing key for `private_key_jwt` (RFC 7523). Required
-  when `token_endpoint_auth_method = "private_key_jwt"` unless `jwks_uri`
-  is supplied instead.
-     * @nullable
-     */
-  public_key_pem?: string | null;
   redirect_uris: string[];
   /** @nullable */
   response_types?: string[] | null;
