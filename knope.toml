@@ -72,7 +72,7 @@ type = "CreatePullRequest"
 base = "main"
 
 [workflows.steps.title]
-template = "chore: release $version"
+template = "chore: prepare release $version"
 
 [workflows.steps.body]
 template = """## Release $version
