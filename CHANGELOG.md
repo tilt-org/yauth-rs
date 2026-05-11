@@ -1,3 +1,9 @@
+## 0.12.3 (2026-05-11)
+
+### Fixes
+
+- include iss claim in access tokens (#84)
+
 ## 0.12.2 (2026-05-04)
 
 ### Fixes
