@@ -2440,6 +2440,7 @@ async fn handle_client_credentials_grant(
 
         #[derive(Serialize)]
         struct ClientCredentialsClaims {
+            iss: String,
             sub: String,
             exp: usize,
             iat: usize,
@@ -2452,6 +2453,7 @@ async fn handle_client_credentials_grant(
         }
 
         let claims = ClientCredentialsClaims {
+            iss: state.oauth2_server_config.issuer.clone(),
             sub: client_id.to_string(),
             exp,
             iat,
