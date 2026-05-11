@@ -1,3 +1,28 @@
+## 0.12.3 (2026-05-11)
+
+### Fixes
+
+- include iss claim in access tokens (#84)
+
+## 0.12.2 (2026-05-04)
+
+### Fixes
+
+- use pnpm publish so workspace:* deps get rewritten (#80)
+
+## 0.12.1 (2026-05-04)
+
+### Features
+
+- rewrite yauth-toasty entities with idiomatic Toasty patterns (#61)
+- add toasty migration system (M2) (#63)
+
+### Fixes
+
+- make YAuthPlugin baseUrl path work + drop non-erasable syntax (#73)
+- put pnpm-installed binaries on PATH so knope's vp calls resolve (#74)
+- pin release workflow to Node 22 so vp can load vite.config.ts (#75)
+
 ## 0.12.0 (2026-04-18)
 
 ### Breaking Changes
