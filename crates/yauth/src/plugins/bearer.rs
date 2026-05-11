@@ -69,6 +69,7 @@ async fn jwks_endpoint(State(state): State<YAuthState>) -> Json<serde_json::Valu
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
+    iss: String,
     sub: String,
     email: String,
     role: String,
@@ -127,6 +128,22 @@ pub struct JwtUser {
     pub role: String,
 }
 
+/// Resolve the `iss` claim for tokens issued by this YAuth instance.
+///
+/// Prefers the OAuth2 authorization-server issuer when the `oauth2-server`
+/// feature is enabled (so RFC 9068 access tokens carry the same issuer that
+/// `/.well-known/openid-configuration` advertises). Falls back to
+/// `YAuthConfig::base_url` for standalone bearer deployments.
+#[cfg(feature = "oauth2-server")]
+pub(crate) fn issuer_for(state: &YAuthState) -> String {
+    state.oauth2_server_config.issuer.clone()
+}
+
+#[cfg(not(feature = "oauth2-server"))]
+pub(crate) fn issuer_for(state: &YAuthState) -> String {
+    state.config.base_url.clone()
+}
+
 /// Create a user JWT. Routes through [`crate::auth::signing::sign_jwt`] so
 /// the configured signing algorithm (HS256 by default, RS256/ES256 when
 /// `asymmetric-jwt` is enabled) applies uniformly.
@@ -142,6 +159,7 @@ pub fn create_jwt(
     let iat = now.timestamp() as usize;
 
     let claims = Claims {
+        iss: issuer_for(state),
         sub: user.id.to_string(),
         email: user.email.clone(),
         role: user.role.clone(),
