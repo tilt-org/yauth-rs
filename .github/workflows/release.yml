@@ -18,9 +18,17 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # Check out + push using INFRA_DEPLOY_TOKEN (a PAT) instead of the default
+      # GITHUB_TOKEN. GitHub deliberately does not fire downstream workflows on
+      # pushes made by GITHUB_TOKEN, which means the release branch + PR knope
+      # creates gets no CI runs — leaving the PR's "required checks" gate stuck
+      # forever. Using the PAT makes pushes look like they came from a user, so
+      # CI fires and the merge gate clears. The `publish` job below already
+      # uses this same secret for the post-merge step.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.INFRA_DEPLOY_TOKEN }}
 
       - name: Install Rust
         run: |
@@ -52,7 +60,10 @@ jobs:
 
       - name: Prepare release
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          # knope hits the GitHub API (create/update PR) with this token. Must
+          # match the checkout token above so the PR is attributed to the PAT
+          # user — that's what makes the resulting pull_request event fire CI.
+          GITHUB_TOKEN: ${{ secrets.INFRA_DEPLOY_TOKEN }}
         run: |
           OUTPUT=$(knope prepare-release 2>&1) && exit 0 || {
             EXIT_CODE=$?
