@@ -134,15 +134,14 @@ pub struct JwtUser {
 /// feature is enabled (so RFC 9068 access tokens carry the same issuer that
 /// `/.well-known/openid-configuration` advertises). Falls back to
 /// `YAuthConfig::base_url` for standalone bearer deployments.
+#[cfg(feature = "oauth2-server")]
 pub(crate) fn issuer_for(state: &YAuthState) -> String {
-    #[cfg(feature = "oauth2-server")]
-    {
-        return state.oauth2_server_config.issuer.clone();
-    }
-    #[cfg(not(feature = "oauth2-server"))]
-    {
-        state.config.base_url.clone()
-    }
+    state.oauth2_server_config.issuer.clone()
+}
+
+#[cfg(not(feature = "oauth2-server"))]
+pub(crate) fn issuer_for(state: &YAuthState) -> String {
+    state.config.base_url.clone()
 }
 
 /// Create a user JWT. Routes through [`crate::auth::signing::sign_jwt`] so
