@@ -40,7 +40,7 @@ impl ApiKeyRepository for InMemoryApiKeyRepo {
     ) -> RepoFuture<'_, Option<domain::ApiKey>> {
         Box::pin(async move {
             let map = self.keys.read().unwrap();
-            Ok(map.get(&id).filter(|k| k.user_id == user_id).cloned())
+            Ok(map.get(&id).filter(|k| k.user_id == Some(user_id)).cloned())
         })
     }
 
@@ -49,7 +49,7 @@ impl ApiKeyRepository for InMemoryApiKeyRepo {
             let map = self.keys.read().unwrap();
             Ok(map
                 .values()
-                .filter(|k| k.user_id == user_id)
+                .filter(|k| k.user_id == Some(user_id))
                 .cloned()
                 .collect())
         })
@@ -57,27 +57,50 @@ impl ApiKeyRepository for InMemoryApiKeyRepo {
 
     fn create(&self, input: domain::NewApiKey) -> RepoFuture<'_, ()> {
         Box::pin(async move {
+            // Enforce exactly-one-owner invariant (issue #91).
+            match (input.user_id, input.organization_id) {
+                (Some(_), Some(_)) => {
+                    return Err(RepoError::Conflict(
+                        "api key cannot have both user_id and organization_id".to_string(),
+                    ));
+                }
+                (None, None) => {
+                    return Err(RepoError::Conflict(
+                        "api key must have either user_id or organization_id".to_string(),
+                    ));
+                }
+                _ => {}
+            }
+
             let mut map = self.keys.write().unwrap();
-            // Enforce name uniqueness per user
-            if map
-                .values()
-                .any(|k| k.user_id == input.user_id && k.name == input.name)
-            {
+            // Enforce name uniqueness per owner (user or org).
+            let dup = map.values().any(|k| {
+                k.name == input.name
+                    && match (input.user_id, input.organization_id) {
+                        (Some(u), _) => k.user_id == Some(u),
+                        (_, Some(o)) => k.organization_id == Some(o),
+                        _ => false,
+                    }
+            });
+            if dup {
                 return Err(RepoError::Conflict(
-                    "duplicate API key name for user".to_string(),
+                    "duplicate API key name for this owner".to_string(),
                 ));
             }
 
             let key = domain::ApiKey {
                 id: input.id,
                 user_id: input.user_id,
+                organization_id: input.organization_id,
                 key_prefix: input.key_prefix,
                 key_hash: input.key_hash,
                 name: input.name,
                 scopes: input.scopes,
+                role: input.role,
                 last_used_at: None,
                 expires_at: input.expires_at,
                 created_at: input.created_at,
+                created_by_user_id: input.created_by_user_id,
             };
             map.insert(key.id, key);
             Ok(())
@@ -98,6 +121,45 @@ impl ApiKeyRepository for InMemoryApiKeyRepo {
             let mut map = self.keys.write().unwrap();
             if let Some(key) = map.get_mut(&id) {
                 key.last_used_at = Some(now);
+            }
+            Ok(())
+        })
+    }
+
+    // ── Org-scoped operations (issue #91) ───────────────────────────
+
+    fn find_by_id_and_org(
+        &self,
+        id: Uuid,
+        organization_id: Uuid,
+    ) -> RepoFuture<'_, Option<domain::ApiKey>> {
+        Box::pin(async move {
+            let map = self.keys.read().unwrap();
+            Ok(map
+                .get(&id)
+                .filter(|k| k.organization_id == Some(organization_id))
+                .cloned())
+        })
+    }
+
+    fn list_by_org_id(&self, organization_id: Uuid) -> RepoFuture<'_, Vec<domain::ApiKey>> {
+        Box::pin(async move {
+            let map = self.keys.read().unwrap();
+            let mut out: Vec<_> = map
+                .values()
+                .filter(|k| k.organization_id == Some(organization_id))
+                .cloned()
+                .collect();
+            out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            Ok(out)
+        })
+    }
+
+    fn set_expires_at(&self, id: Uuid, expires_at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        Box::pin(async move {
+            let mut map = self.keys.write().unwrap();
+            if let Some(key) = map.get_mut(&id) {
+                key.expires_at = Some(expires_at);
             }
             Ok(())
         })
