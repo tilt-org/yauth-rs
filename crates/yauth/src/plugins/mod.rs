@@ -42,6 +42,9 @@ pub mod status;
 #[cfg(feature = "organizations")]
 pub mod organizations;
 
+#[cfg(feature = "organizations")]
+pub mod sso_oidc;
+
 use axum::{
     Extension, Json, Router,
     extract::State,

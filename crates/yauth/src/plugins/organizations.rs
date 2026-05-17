@@ -63,7 +63,9 @@ impl YAuthPlugin for OrganizationsPlugin {
     }
 
     fn public_routes(&self, _ctx: &PluginContext) -> Option<Router<YAuthState>> {
-        None
+        // Issue #93 Phase B: federated `/sso/login` + `/sso/callback`
+        // ship as PUBLIC routes (user isn't authenticated yet).
+        Some(crate::plugins::sso_oidc::public_routes())
     }
 
     fn protected_routes(&self, _ctx: &PluginContext) -> Option<Router<YAuthState>> {
