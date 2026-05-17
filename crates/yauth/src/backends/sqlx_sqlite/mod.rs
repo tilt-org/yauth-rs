@@ -161,6 +161,13 @@ impl DatabaseBackend for SqlxSqliteBackend {
             organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
                 "sqlx-sqlite",
             )),
+            // Issue #93 SSO connection + external identity repos land as follow-up; stub for now.
+            #[cfg(feature = "organizations")]
+            sso_connections: Arc::new(crate::repo::StubSsoConnectionRepo::new("sqlx-sqlite")),
+            #[cfg(feature = "organizations")]
+            external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new(
+                "sqlx-sqlite",
+            )),
         }
     }
 }

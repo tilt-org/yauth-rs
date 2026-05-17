@@ -410,5 +410,10 @@ fn build_repositories(db: &DatabaseConnection) -> Repositories {
         organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
             "seaorm-mysql",
         )),
+        // Issue #93 SSO connection + external identity repos land as follow-up; stub for now.
+        #[cfg(feature = "organizations")]
+        sso_connections: Arc::new(crate::repo::StubSsoConnectionRepo::new("seaorm-mysql")),
+        #[cfg(feature = "organizations")]
+        external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new("seaorm-mysql")),
     }
 }

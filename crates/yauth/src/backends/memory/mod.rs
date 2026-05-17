@@ -153,6 +153,10 @@ pub(crate) struct Storage {
     pub(crate) organization_domains: Arc<RwLock<HashMap<Uuid, domain::OrganizationDomain>>>,
     #[cfg(feature = "organizations")]
     pub(crate) organization_policies: Arc<RwLock<HashMap<Uuid, domain::OrganizationPolicy>>>,
+    #[cfg(feature = "organizations")]
+    pub(crate) sso_connections: Arc<RwLock<HashMap<Uuid, domain::SsoConnection>>>,
+    #[cfg(feature = "organizations")]
+    pub(crate) external_identities: Arc<RwLock<HashMap<Uuid, domain::ExternalIdentity>>>,
 }
 
 impl Storage {
@@ -225,6 +229,10 @@ impl Storage {
             organization_domains: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(feature = "organizations")]
             organization_policies: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "organizations")]
+            sso_connections: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "organizations")]
+            external_identities: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -380,6 +388,7 @@ impl DatabaseBackend for InMemoryBackend {
                 self.storage.invitations.clone(),
                 self.storage.organization_domains.clone(),
                 self.storage.organization_policies.clone(),
+                self.storage.sso_connections.clone(),
             )),
             #[cfg(feature = "organizations")]
             memberships: Arc::new(organization_repo::InMemoryMembershipRepo::new(
@@ -399,6 +408,14 @@ impl DatabaseBackend for InMemoryBackend {
                     self.storage.organization_policies.clone(),
                 ),
             ),
+            #[cfg(feature = "organizations")]
+            sso_connections: Arc::new(organization_repo::InMemorySsoConnectionRepo::new(
+                self.storage.sso_connections.clone(),
+            )),
+            #[cfg(feature = "organizations")]
+            external_identities: Arc::new(organization_repo::InMemoryExternalIdentityRepo::new(
+                self.storage.external_identities.clone(),
+            )),
         }
     }
 }
