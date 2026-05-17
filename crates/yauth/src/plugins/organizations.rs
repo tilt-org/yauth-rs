@@ -28,11 +28,15 @@ use crate::plugin::{PluginContext, YAuthPlugin};
 use crate::repo::RepoError;
 use crate::state::YAuthState;
 use yauth_entity::{
-    AuthMethod as PolicyAuthMethod, DomainStatus, Invitation, Membership, MembershipStatus,
-    NewInvitation, NewMembership, NewOrganization, NewOrganizationDomain, NewOrganizationPolicy,
-    Organization, OrganizationDomain, OrganizationPolicy, SessionBinding, UpdateMembership,
-    UpdateOrganization, UpdateOrganizationDomain, UpdateOrganizationPolicy, domain_from_email,
+    AuthMethod as PolicyAuthMethod, ClaimMappings, ConnectionKind, ConnectionStatus, DomainStatus,
+    Invitation, Membership, MembershipStatus, NewInvitation, NewMembership, NewOrganization,
+    NewOrganizationDomain, NewOrganizationPolicy, NewSsoConnection, OidcConnectionConfig,
+    Organization, OrganizationDomain, OrganizationPolicy, SessionBinding, SsoConnection,
+    UpdateMembership, UpdateOrganization, UpdateOrganizationDomain, UpdateOrganizationPolicy,
+    UpdateSsoConnection, domain_from_email,
 };
+
+use crate::auth::oidc_client;
 
 use crate::auth::domain_verifier;
 
@@ -103,6 +107,19 @@ impl YAuthPlugin for OrganizationsPlugin {
                 .route(
                     "/organizations/{id}/policy",
                     get(get_policy).patch(update_policy),
+                )
+                // ── Issue #93: SSO connections (admin CRUD) ───────────
+                .route(
+                    "/organizations/{id}/sso/connections",
+                    get(list_sso_connections).post(create_sso_connection),
+                )
+                .route(
+                    "/organizations/{id}/sso/connections/{cid}",
+                    axum::routing::patch(update_sso_connection).delete(delete_sso_connection),
+                )
+                .route(
+                    "/organizations/{id}/sso/connections/{cid}/test",
+                    post(test_sso_connection),
                 )
                 // ── Issue #91: org-scoped API keys (service accounts) ──
                 // Only mount when the api-key plugin is also enabled.
@@ -2105,4 +2122,475 @@ async fn update_policy(
         .await;
 
     Ok(Json(row.into()))
+}
+
+// ──────────────────────────────────────────────
+// Issue #93: SSO connections (admin CRUD)
+// ──────────────────────────────────────────────
+
+// Rate limits on the admin CRUD surface. Inviting a new IdP is a once-or-
+// twice-per-tenant operation; even the round-trip test endpoint shouldn't
+// be hammered.
+const RATE_LIMIT_SSO_WRITE: (u32, u64) = (20, 3600); // 20 / hour / org
+const RATE_LIMIT_SSO_TEST: (u32, u64) = (60, 3600); // 60 / hour / org
+
+// ── Request/response shapes ───────────────────────────────────
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct OidcConfigInput {
+    pub discovery_url: String,
+    pub client_id: String,
+    /// Plaintext IdP client secret. yauth encrypts it at rest via the
+    /// configured `SecretCipher`. The plaintext NEVER leaves this
+    /// request boundary — list/get responses surface only the masked
+    /// form.
+    pub client_secret: String,
+    #[serde(default)]
+    pub scopes: Option<Vec<String>>,
+    #[serde(default)]
+    pub claim_mappings: Option<ClaimMappingsInput>,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ClaimMappingsInput {
+    pub email: Option<String>,
+    pub display_name: Option<Option<String>>,
+    pub external_id: Option<String>,
+    pub groups: Option<Option<String>>,
+    #[serde(default)]
+    pub group_to_role: Option<std::collections::HashMap<String, String>>,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CreateSsoConnectionRequest {
+    /// Operator-friendly name (`"Acme Okta"`).
+    pub name: String,
+    /// Protocol kind — only `"oidc_client"` accepted in #93. SAML
+    /// (`"saml_sp"`) lands in #94.
+    pub kind: String,
+    /// Protocol config. For `oidc_client` see [`OidcConfigInput`].
+    pub oidc: Option<OidcConfigInput>,
+    #[serde(default)]
+    pub jit_provisioning_enabled: Option<bool>,
+    #[serde(default)]
+    pub default_role_on_jit: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UpdateSsoConnectionRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Replaces the full OIDC config blob. PATCH-merging into a JSON
+    /// blob that holds an encrypted secret is gnarly; admins re-send
+    /// the whole document instead.
+    #[serde(default)]
+    pub oidc: Option<OidcConfigInput>,
+    #[serde(default)]
+    pub jit_provisioning_enabled: Option<bool>,
+    #[serde(default)]
+    pub default_role_on_jit: Option<String>,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ClaimMappingsResponse {
+    pub email: String,
+    pub display_name: Option<String>,
+    pub external_id: String,
+    pub groups: Option<String>,
+    pub group_to_role: std::collections::HashMap<String, String>,
+}
+
+impl From<ClaimMappings> for ClaimMappingsResponse {
+    fn from(m: ClaimMappings) -> Self {
+        Self {
+            email: m.email,
+            display_name: m.display_name,
+            external_id: m.external_id,
+            groups: m.groups,
+            group_to_role: m.group_to_role,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct OidcConfigResponse {
+    pub discovery_url: String,
+    pub client_id: String,
+    /// **Masked** — always `"********"`. The real client secret is
+    /// never returned over the wire after the original PUT/POST.
+    pub client_secret: &'static str,
+    pub scopes: Vec<String>,
+    pub claim_mappings: ClaimMappingsResponse,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SsoConnectionResponse {
+    pub id: Uuid,
+    pub organization_id: Uuid,
+    pub kind: String,
+    pub name: String,
+    pub status: String,
+    /// Present when `kind == "oidc_client"`. Always carries the
+    /// masked secret form — see [`OidcConfigResponse`].
+    pub oidc: Option<OidcConfigResponse>,
+    pub jit_provisioning_enabled: bool,
+    pub default_role_on_jit: String,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SsoConnectionTestResponse {
+    /// Whether the round-trip succeeded. Currently the test is a
+    /// structural check (config decodes, discovery URL well-formed).
+    /// Live discovery + JWKS validation lands in Phase B.
+    pub ok: bool,
+    /// Human-readable detail of what was checked / what failed.
+    pub detail: String,
+}
+
+fn mappings_from_input(input: Option<ClaimMappingsInput>) -> ClaimMappings {
+    let mut m = ClaimMappings::default();
+    if let Some(i) = input {
+        if let Some(v) = i.email {
+            m.email = v;
+        }
+        if let Some(v) = i.display_name {
+            m.display_name = v;
+        }
+        if let Some(v) = i.external_id {
+            m.external_id = v;
+        }
+        if let Some(v) = i.groups {
+            m.groups = v;
+        }
+        if let Some(v) = i.group_to_role {
+            m.group_to_role = v;
+        }
+    }
+    m
+}
+
+fn oidc_config_from_input(
+    input: OidcConfigInput,
+    cipher: &dyn oidc_client::SecretCipher,
+) -> Result<OidcConnectionConfig, ApiError> {
+    oidc_client::validate_discovery_url(&input.discovery_url)
+        .map_err(|m| api_err(StatusCode::BAD_REQUEST, m))?;
+    let scopes = OidcConnectionConfig::normalise_scopes(
+        &input
+            .scopes
+            .unwrap_or_else(OidcConnectionConfig::default_scopes),
+    );
+    oidc_client::validate_scopes(&scopes).map_err(|m| api_err(StatusCode::BAD_REQUEST, m))?;
+    let claim_mappings = mappings_from_input(input.claim_mappings);
+    oidc_client::validate_group_to_role(&claim_mappings.group_to_role)
+        .map_err(|m| api_err(StatusCode::BAD_REQUEST, m))?;
+    if input.client_id.trim().is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "client_id is required"));
+    }
+    if input.client_secret.is_empty() {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "client_secret is required",
+        ));
+    }
+    Ok(OidcConnectionConfig {
+        discovery_url: input.discovery_url,
+        client_id: input.client_id,
+        client_secret: cipher.encrypt(&input.client_secret),
+        scopes,
+        claim_mappings,
+    })
+}
+
+fn validate_default_role(s: &str) -> Result<(), ApiError> {
+    match s {
+        "owner" | "admin" | "member" => Ok(()),
+        _ => Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "default_role_on_jit must be one of: owner, admin, member",
+        )),
+    }
+}
+
+fn connection_to_response(c: SsoConnection) -> SsoConnectionResponse {
+    let oidc = c.oidc_config().map(|cfg| OidcConfigResponse {
+        discovery_url: cfg.discovery_url,
+        client_id: cfg.client_id,
+        client_secret: oidc_client::mask_secret(&cfg.client_secret),
+        scopes: cfg.scopes,
+        claim_mappings: cfg.claim_mappings.into(),
+    });
+    SsoConnectionResponse {
+        id: c.id,
+        organization_id: c.organization_id,
+        kind: c.kind.as_str().to_string(),
+        name: c.name,
+        status: c.status.as_str().to_string(),
+        oidc,
+        jit_provisioning_enabled: c.jit_provisioning_enabled,
+        default_role_on_jit: c.default_role_on_jit,
+        created_at: c.created_at,
+        updated_at: c.updated_at,
+    }
+}
+
+// ── Handlers ──────────────────────────────────────────────────
+
+async fn list_sso_connections(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<SsoConnectionResponse>>, ApiError> {
+    // Membership gate — only members may see an org's SSO posture
+    // (less sensitive than credentials, but still tenant-private).
+    state
+        .repos
+        .memberships
+        .find_by_org_user(id, user.id)
+        .await?
+        .ok_or_else(|| forbid("not a member of this organization"))?;
+    let rows = state.repos.sso_connections.list_for_org(id).await?;
+    Ok(Json(rows.into_iter().map(connection_to_response).collect()))
+}
+
+async fn create_sso_connection(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<CreateSsoConnectionRequest>,
+) -> Result<(StatusCode, Json<SsoConnectionResponse>), ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    let (limit, window) = RATE_LIMIT_SSO_WRITE;
+    enforce_rate_limit(&state, &format!("sso-write:{id}"), limit, window).await?;
+
+    if req.name.trim().is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "name is required"));
+    }
+    let kind = ConnectionKind::parse(&req.kind).ok_or_else(|| {
+        api_err(
+            StatusCode::BAD_REQUEST,
+            "kind must be one of: oidc_client, saml_sp",
+        )
+    })?;
+    if kind == ConnectionKind::SamlSp {
+        return Err(api_err(
+            StatusCode::NOT_IMPLEMENTED,
+            "SAML SP support tracked in issue #94",
+        ));
+    }
+    let oidc_input = req
+        .oidc
+        .ok_or_else(|| api_err(StatusCode::BAD_REQUEST, "oidc config is required"))?;
+    // PassthroughCipher today; KMS plug-in lands when ops actually
+    // demand it. Same encryption boundary either way.
+    let cipher = oidc_client::PassthroughCipher;
+    let cfg = oidc_config_from_input(oidc_input, &cipher)?;
+    let default_role = req
+        .default_role_on_jit
+        .unwrap_or_else(|| "member".to_string());
+    validate_default_role(&default_role)?;
+
+    let now = Utc::now().naive_utc();
+    let row = state
+        .repos
+        .sso_connections
+        .create(NewSsoConnection {
+            id: Uuid::now_v7(),
+            organization_id: id,
+            kind,
+            name: req.name,
+            status: ConnectionStatus::Draft,
+            config: serde_json::to_value(&cfg).map_err(|e| {
+                crate::otel::record_error("sso_config_encode_failed", &e);
+                api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+            })?,
+            jit_provisioning_enabled: req.jit_provisioning_enabled.unwrap_or(true),
+            default_role_on_jit: default_role,
+            created_at: now,
+            updated_at: now,
+        })
+        .await?;
+
+    state
+        .write_audit_log(
+            Some(user.id),
+            "sso_connection_created",
+            Some(serde_json::json!({
+                "organization_id": id,
+                "connection_id": row.id,
+                "kind": row.kind.as_str(),
+            })),
+            None,
+        )
+        .await;
+
+    Ok((StatusCode::CREATED, Json(connection_to_response(row))))
+}
+
+async fn update_sso_connection(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+    Json(req): Json<UpdateSsoConnectionRequest>,
+) -> Result<Json<SsoConnectionResponse>, ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    let (limit, window) = RATE_LIMIT_SSO_WRITE;
+    enforce_rate_limit(&state, &format!("sso-write:{id}"), limit, window).await?;
+
+    // Tenant-scope check: the connection must belong to this org.
+    let existing = state
+        .repos
+        .sso_connections
+        .find_by_id(cid)
+        .await?
+        .ok_or(RepoError::NotFound)?;
+    if existing.organization_id != id {
+        return Err(api_err(StatusCode::NOT_FOUND, "connection not found"));
+    }
+
+    let parsed_status = match req.status.as_deref() {
+        None => None,
+        Some(s) => Some(ConnectionStatus::parse(s).ok_or_else(|| {
+            api_err(
+                StatusCode::BAD_REQUEST,
+                "status must be one of: draft, active, disabled",
+            )
+        })?),
+    };
+
+    let cipher = oidc_client::PassthroughCipher;
+    let new_config = match req.oidc {
+        None => None,
+        Some(input) => Some(
+            serde_json::to_value(oidc_config_from_input(input, &cipher)?).map_err(|e| {
+                crate::otel::record_error("sso_config_encode_failed", &e);
+                api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+            })?,
+        ),
+    };
+    if let Some(ref default_role) = req.default_role_on_jit {
+        validate_default_role(default_role)?;
+    }
+
+    let changes = UpdateSsoConnection {
+        name: req.name,
+        status: parsed_status,
+        config: new_config,
+        jit_provisioning_enabled: req.jit_provisioning_enabled,
+        default_role_on_jit: req.default_role_on_jit,
+        updated_at: Some(Utc::now().naive_utc()),
+    };
+    let row = state.repos.sso_connections.update(cid, changes).await?;
+
+    state
+        .write_audit_log(
+            Some(user.id),
+            "sso_connection_updated",
+            Some(serde_json::json!({
+                "organization_id": id,
+                "connection_id": cid,
+                "status": row.status.as_str(),
+            })),
+            None,
+        )
+        .await;
+
+    Ok(Json(connection_to_response(row)))
+}
+
+async fn delete_sso_connection(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    let (limit, window) = RATE_LIMIT_SSO_WRITE;
+    enforce_rate_limit(&state, &format!("sso-write:{id}"), limit, window).await?;
+
+    let existing = state.repos.sso_connections.find_by_id(cid).await?;
+    if let Some(row) = existing {
+        if row.organization_id != id {
+            return Err(api_err(StatusCode::NOT_FOUND, "connection not found"));
+        }
+        state.repos.sso_connections.delete(cid).await?;
+        state
+            .write_audit_log(
+                Some(user.id),
+                "sso_connection_deleted",
+                Some(serde_json::json!({
+                    "organization_id": id,
+                    "connection_id": cid,
+                })),
+                None,
+            )
+            .await;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn test_sso_connection(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+) -> Result<Json<SsoConnectionTestResponse>, ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    let (limit, window) = RATE_LIMIT_SSO_TEST;
+    enforce_rate_limit(&state, &format!("sso-test:{id}"), limit, window).await?;
+
+    let existing = state
+        .repos
+        .sso_connections
+        .find_by_id(cid)
+        .await?
+        .ok_or(RepoError::NotFound)?;
+    if existing.organization_id != id {
+        return Err(api_err(StatusCode::NOT_FOUND, "connection not found"));
+    }
+    // Structural test only in Phase A — verify the config parses
+    // back into `OidcConnectionConfig`, validate URL + scopes, and
+    // confirm the encrypted secret round-trips through the cipher.
+    let cipher = oidc_client::PassthroughCipher;
+    let cfg = match existing.oidc_config() {
+        None => {
+            return Ok(Json(SsoConnectionTestResponse {
+                ok: false,
+                detail: "non-OIDC kind (SAML SP arrives in #94)".to_string(),
+            }));
+        }
+        Some(c) => c,
+    };
+    if oidc_client::validate_discovery_url(&cfg.discovery_url).is_err() {
+        return Ok(Json(SsoConnectionTestResponse {
+            ok: false,
+            detail: "discovery_url is not well-formed".to_string(),
+        }));
+    }
+    if oidc_client::validate_scopes(&cfg.scopes).is_err() {
+        return Ok(Json(SsoConnectionTestResponse {
+            ok: false,
+            detail: "scopes are not well-formed".to_string(),
+        }));
+    }
+    if oidc_client::SecretCipher::decrypt(&cipher, &cfg.client_secret).is_err() {
+        return Ok(Json(SsoConnectionTestResponse {
+            ok: false,
+            detail: "client_secret ciphertext failed to decrypt".to_string(),
+        }));
+    }
+    Ok(Json(SsoConnectionTestResponse {
+        ok: true,
+        detail: "config decoded; live IdP probe arrives in Phase B".to_string(),
+    }))
 }

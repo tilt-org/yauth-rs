@@ -317,7 +317,16 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<VerifyDomainResponse>()
             // Per-org policy (#92)
             .schema_from::<UpdatePolicyRequest>()
-            .schema_from::<PolicyResponse>();
+            .schema_from::<PolicyResponse>()
+            // SSO OIDC client (#93)
+            .schema_from::<CreateSsoConnectionRequest>()
+            .schema_from::<UpdateSsoConnectionRequest>()
+            .schema_from::<OidcConfigInput>()
+            .schema_from::<ClaimMappingsInput>()
+            .schema_from::<SsoConnectionResponse>()
+            .schema_from::<OidcConfigResponse>()
+            .schema_from::<ClaimMappingsResponse>()
+            .schema_from::<SsoConnectionTestResponse>();
         // Org-scoped API keys (#91) — schemas only when the api-key
         // plugin is also active.
         #[cfg(feature = "api-key")]
@@ -1865,6 +1874,93 @@ fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
                             "UpdatePolicyRequest",
                         ),
                         "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        // ── SSO OIDC connections (#93) ───────────────────────────────
+        .path(
+            "/organizations/{id}/sso/connections",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(
+                        op("organizations_listSsoConnections", "organizations"),
+                        "id",
+                    )
+                    .pipe(|b| with_array_response(b, "SsoConnectionResponse"))
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Post,
+                    with_path_param(
+                        with_body(
+                            with_response(
+                                op("organizations_createSsoConnection", "organizations"),
+                                "SsoConnectionResponse",
+                            ),
+                            "CreateSsoConnectionRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/organizations/{id}/sso/connections/{cid}",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_path_param(
+                            with_body(
+                                with_response(
+                                    op("organizations_updateSsoConnection", "organizations"),
+                                    "SsoConnectionResponse",
+                                ),
+                                "UpdateSsoConnectionRequest",
+                            ),
+                            "id",
+                        ),
+                        "cid",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Delete,
+                    with_path_param(
+                        with_path_param(
+                            op("organizations_deleteSsoConnection", "organizations"),
+                            "id",
+                        ),
+                        "cid",
+                    )
+                    .pipe(with_empty_response)
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/organizations/{id}/sso/connections/{cid}/test",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_path_param(
+                        with_path_param(
+                            with_response(
+                                op("organizations_testSsoConnection", "organizations"),
+                                "SsoConnectionTestResponse",
+                            ),
+                            "id",
+                        ),
+                        "cid",
                     )
                     .security(auth_req())
                     .build(),
