@@ -98,6 +98,9 @@ impl YAuthPlugin for OrganizationsPlugin {
                     "/organizations/{id}/domains/{did}/verify",
                     post(verify_domain_route),
                 )
+                // ── Issue #91: org-scoped API keys (service accounts) ──
+                // Only mount when the api-key plugin is also enabled.
+                .merge(api_keys_router())
                 // ── Issue #89: active-org switcher ─────────────────────
                 .route(
                     "/sessions/active-org",
@@ -1354,4 +1357,510 @@ pub async fn auto_join_verified_domain(
             Vec::new()
         }
     }
+}
+
+// ──────────────────────────────────────────────
+// Issue #91 — Org-scoped API keys (service accounts)
+// ──────────────────────────────────────────────
+
+/// Build the org-scoped API keys subrouter. When the `api-key` feature is
+/// off the router is empty — the parent route table simply gains no
+/// routes.
+fn api_keys_router() -> Router<YAuthState> {
+    #[cfg(feature = "api-key")]
+    {
+        Router::new()
+            .route(
+                "/organizations/{id}/api-keys",
+                get(list_org_api_keys).post(create_org_api_key),
+            )
+            .route(
+                "/organizations/{id}/api-keys/{key_id}",
+                axum::routing::delete(delete_org_api_key),
+            )
+            .route(
+                "/organizations/{id}/api-keys/{key_id}/rotate",
+                post(rotate_org_api_key),
+            )
+            .route(
+                "/organizations/{id}/api-keys/{key_id}/usage",
+                get(get_org_api_key_usage),
+            )
+    }
+    #[cfg(not(feature = "api-key"))]
+    {
+        Router::new()
+    }
+}
+
+#[cfg(feature = "api-key")]
+const ROTATION_GRACE_HOURS: i64 = 24;
+
+#[cfg(feature = "api-key")]
+const RATE_LIMIT_API_KEY_CREATE: (u32, u64) = (20, 3600); // 20 / hour / org
+#[cfg(feature = "api-key")]
+const RATE_LIMIT_API_KEY_ROTATE: (u32, u64) = (10, 3600); // 10 / hour / org
+
+#[cfg(feature = "api-key")]
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CreateOrgApiKeyRequest {
+    pub name: String,
+    /// Org-role the bearer acts as. Must be one of the built-in roles
+    /// except `owner` (defense-in-depth: a leaked service-account key
+    /// must not be able to delete the org). Defaults to `member`.
+    pub role: Option<String>,
+    /// Free-form permission list. The handler enforces that every
+    /// requested permission is a subset of what the caller's own role
+    /// allows by default.
+    pub permissions: Option<Vec<String>>,
+    pub expires_in_days: Option<u32>,
+}
+
+#[cfg(feature = "api-key")]
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct OrgApiKeyResponse {
+    pub id: Uuid,
+    pub organization_id: Uuid,
+    pub name: String,
+    pub prefix: String,
+    pub role: Option<String>,
+    pub permissions: Option<Vec<String>>,
+    pub created_by_user_id: Uuid,
+    pub last_used_at: Option<chrono::NaiveDateTime>,
+    pub expires_at: Option<chrono::NaiveDateTime>,
+    pub created_at: chrono::NaiveDateTime,
+}
+
+#[cfg(feature = "api-key")]
+impl OrgApiKeyResponse {
+    fn from_domain(k: yauth_entity::ApiKey) -> Self {
+        let permissions = k
+            .scopes
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        Self {
+            id: k.id,
+            organization_id: k.organization_id.unwrap_or(Uuid::nil()),
+            name: k.name,
+            prefix: k.key_prefix,
+            role: k.role,
+            permissions,
+            created_by_user_id: k.created_by_user_id,
+            last_used_at: k.last_used_at,
+            expires_at: k.expires_at,
+            created_at: k.created_at,
+        }
+    }
+}
+
+#[cfg(feature = "api-key")]
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CreateOrgApiKeyResponse {
+    pub api_key: OrgApiKeyResponse,
+    /// Plaintext secret — returned exactly once at creation.
+    pub secret: String,
+}
+
+#[cfg(feature = "api-key")]
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct OrgApiKeyUsageResponse {
+    pub id: Uuid,
+    pub last_used_at: Option<chrono::NaiveDateTime>,
+    pub expires_at: Option<chrono::NaiveDateTime>,
+    pub created_at: chrono::NaiveDateTime,
+}
+
+/// Validate a requested service-account role against the caller's role.
+///
+/// Returns `Err` if:
+///   * the requested role is empty,
+///   * the requested role is `owner` (defense-in-depth),
+///   * the caller's role does not strictly dominate the requested role.
+#[cfg(feature = "api-key")]
+fn validate_service_account_role(caller_role: &str, requested: &str) -> Result<(), ApiError> {
+    use rbac::roles;
+
+    if requested.is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "role is required"));
+    }
+    if requested == roles::OWNER {
+        return Err(api_err(
+            StatusCode::FORBIDDEN,
+            "cannot grant 'owner' to a service account",
+        ));
+    }
+    // Rank built-in roles; non-builtin custom roles always fall below
+    // admin (caller must be admin/owner to mint a service account at
+    // all, enforced separately).
+    fn rank(role: &str) -> u8 {
+        match role {
+            roles::OWNER => 5,
+            roles::ADMIN => 4,
+            roles::BILLING_ADMIN => 3,
+            roles::MEMBER => 2,
+            roles::VIEWER => 1,
+            _ => 0,
+        }
+    }
+    if rank(requested) > rank(caller_role) {
+        return Err(api_err(
+            StatusCode::FORBIDDEN,
+            "cannot grant a role higher than your own",
+        ));
+    }
+    Ok(())
+}
+
+/// Validate requested permissions against the caller's role-bounded
+/// default permission set. Every requested permission must be present
+/// in the caller's defaults (modeled as `domain:verb` strings — see
+/// [`perm_id`]). Custom permission strings the caller doesn't have
+/// access to are rejected.
+#[cfg(feature = "api-key")]
+fn validate_service_account_permissions(
+    caller_role: &str,
+    requested: &[String],
+) -> Result<(), ApiError> {
+    if requested.is_empty() {
+        return Ok(());
+    }
+    let allowed = rbac::default_permissions(caller_role);
+    // Build the set of permission ids the caller's role allows. Custom
+    // permission strings outside the yauth-shipped catalogue are
+    // accepted only when the caller is admin/owner — apps layer their
+    // own resource-level perms on top of the built-in set.
+    let yauth_perms: std::collections::HashSet<&'static str> = {
+        use rbac::{BillingPerm::*, MemberPerm::*, Permission, SettingsPerm::*};
+        [
+            Permission::Members(Invite),
+            Permission::Members(Remove),
+            Permission::Members(ChangeRole),
+            Permission::Billing(View),
+            Permission::Billing(Update),
+            Permission::Billing(Cancel),
+            Permission::Settings(Read),
+            Permission::Settings(Write),
+        ]
+        .into_iter()
+        .filter(|p| allowed.contains(*p))
+        .map(perm_id)
+        .collect()
+    };
+
+    let is_caller_admin_or_owner =
+        caller_role == rbac::roles::ADMIN || caller_role == rbac::roles::OWNER;
+    for p in requested {
+        let known = matches!(
+            p.as_str(),
+            "members:invite"
+                | "members:remove"
+                | "members:change_role"
+                | "billing:view"
+                | "billing:update"
+                | "billing:cancel"
+                | "settings:read"
+                | "settings:write"
+        );
+        if known {
+            if !yauth_perms.contains(p.as_str()) {
+                return Err(api_err(
+                    StatusCode::FORBIDDEN,
+                    &format!("permission '{p}' is not in your role's default permission set"),
+                ));
+            }
+        } else if !is_caller_admin_or_owner {
+            return Err(api_err(
+                StatusCode::FORBIDDEN,
+                &format!("custom permission '{p}' requires admin or owner role"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "api-key")]
+async fn create_org_api_key(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<CreateOrgApiKeyRequest>,
+) -> Result<(StatusCode, Json<CreateOrgApiKeyResponse>), ApiError> {
+    // Only org admin or owner may mint service accounts.
+    let caller = require_org_admin(&state, &user, id).await?;
+
+    // Rate limit per-org.
+    let (limit, window) = RATE_LIMIT_API_KEY_CREATE;
+    enforce_rate_limit(&state, &format!("org-api-key-create:{id}"), limit, window).await?;
+
+    let name = req.name.trim().to_string();
+    if name.is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "name is required"));
+    }
+
+    let requested_role = req
+        .role
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(rbac::roles::MEMBER)
+        .to_string();
+    validate_service_account_role(&caller.role, &requested_role)?;
+
+    let permissions = req.permissions.clone().unwrap_or_default();
+    validate_service_account_permissions(&caller.role, &permissions)?;
+
+    // Generate key material — same format as user-scoped keys.
+    let prefix = crate::auth::crypto::generate_token()[..8].to_string();
+    let secret = crate::auth::crypto::generate_token();
+    let full_key = format!("yauth_{}_{}", prefix, secret);
+    let key_hash = crate::auth::crypto::hash_token(&full_key);
+
+    let now = Utc::now().naive_utc();
+    let expires_at = req
+        .expires_in_days
+        .map(|days| (chrono::Utc::now() + chrono::Duration::days(i64::from(days))).naive_utc());
+
+    let scopes_json = if permissions.is_empty() {
+        None
+    } else {
+        Some(serde_json::json!(permissions))
+    };
+
+    let key_id = Uuid::now_v7();
+
+    let new_key = yauth_entity::NewApiKey {
+        id: key_id,
+        user_id: None,
+        organization_id: Some(id),
+        key_prefix: prefix.clone(),
+        key_hash,
+        name: name.clone(),
+        scopes: scopes_json,
+        role: Some(requested_role.clone()),
+        expires_at,
+        created_at: now,
+        created_by_user_id: user.id,
+    };
+
+    state.repos.api_keys.create(new_key).await.map_err(|e| {
+        crate::otel::record_error("org_api_key_create_failed", &e);
+        ApiError::from(e)
+    })?;
+
+    crate::otel::add_event(
+        "org_api_key_created",
+        #[cfg(feature = "telemetry")]
+        vec![
+            opentelemetry::KeyValue::new("organization.id", id.to_string()),
+            opentelemetry::KeyValue::new("api_key.id", key_id.to_string()),
+            opentelemetry::KeyValue::new("api_key.role", requested_role.clone()),
+            opentelemetry::KeyValue::new("created_by_user.id", user.id.to_string()),
+        ],
+        #[cfg(not(feature = "telemetry"))]
+        vec![],
+    );
+
+    state
+        .write_audit_log(
+            Some(user.id),
+            "org_api_key_created",
+            Some(serde_json::json!({
+                "organization_id": id,
+                "key_id": key_id,
+                "name": name,
+                "prefix": prefix,
+                "role": requested_role,
+                "permissions": permissions,
+            })),
+            None,
+        )
+        .await;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateOrgApiKeyResponse {
+            api_key: OrgApiKeyResponse {
+                id: key_id,
+                organization_id: id,
+                name,
+                prefix,
+                role: Some(requested_role),
+                permissions: if permissions.is_empty() {
+                    None
+                } else {
+                    Some(permissions)
+                },
+                created_by_user_id: user.id,
+                last_used_at: None,
+                expires_at,
+                created_at: now,
+            },
+            secret: full_key,
+        }),
+    ))
+}
+
+#[cfg(feature = "api-key")]
+async fn list_org_api_keys(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<OrgApiKeyResponse>>, ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    let keys = state.repos.api_keys.list_by_org_id(id).await?;
+    Ok(Json(
+        keys.into_iter()
+            .map(OrgApiKeyResponse::from_domain)
+            .collect(),
+    ))
+}
+
+#[cfg(feature = "api-key")]
+async fn delete_org_api_key(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path((id, key_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    // Ownership check — refuse to delete keys that don't belong to this org.
+    let existing = state
+        .repos
+        .api_keys
+        .find_by_id_and_org(key_id, id)
+        .await?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "api key not found"))?;
+    state.repos.api_keys.delete(existing.id).await?;
+    state
+        .write_audit_log(
+            Some(user.id),
+            "org_api_key_deleted",
+            Some(serde_json::json!({
+                "organization_id": id,
+                "key_id": key_id,
+                "created_by_user_id": existing.created_by_user_id,
+            })),
+            None,
+        )
+        .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(feature = "api-key")]
+async fn rotate_org_api_key(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path((id, key_id)): Path<(Uuid, Uuid)>,
+) -> Result<(StatusCode, Json<CreateOrgApiKeyResponse>), ApiError> {
+    require_org_admin(&state, &user, id).await?;
+
+    // Rate limit rotations per-org.
+    let (limit, window) = RATE_LIMIT_API_KEY_ROTATE;
+    enforce_rate_limit(&state, &format!("org-api-key-rotate:{id}"), limit, window).await?;
+
+    let existing = state
+        .repos
+        .api_keys
+        .find_by_id_and_org(key_id, id)
+        .await?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "api key not found"))?;
+
+    // Mint replacement.
+    let prefix = crate::auth::crypto::generate_token()[..8].to_string();
+    let secret = crate::auth::crypto::generate_token();
+    let full_key = format!("yauth_{}_{}", prefix, secret);
+    let key_hash = crate::auth::crypto::hash_token(&full_key);
+    let now = Utc::now().naive_utc();
+
+    let new_id = Uuid::now_v7();
+    let new_key = yauth_entity::NewApiKey {
+        id: new_id,
+        user_id: None,
+        organization_id: Some(id),
+        key_prefix: prefix.clone(),
+        key_hash,
+        name: format!("{} (rotated)", existing.name),
+        scopes: existing.scopes.clone(),
+        role: existing.role.clone(),
+        expires_at: existing.expires_at,
+        created_at: now,
+        created_by_user_id: user.id,
+    };
+
+    state.repos.api_keys.create(new_key).await?;
+
+    // Grace period — stamp the old key with a 24h expiry. Best-effort:
+    // if this errors we still surface the new key to the caller; an
+    // operator-side audit query catches lingering pre-rotation keys.
+    let grace = now + chrono::Duration::hours(ROTATION_GRACE_HOURS);
+    if let Err(e) = state
+        .repos
+        .api_keys
+        .set_expires_at(existing.id, grace)
+        .await
+    {
+        crate::otel::record_error("org_api_key_rotate_grace_failed", &e);
+    }
+
+    state
+        .write_audit_log(
+            Some(user.id),
+            "org_api_key_rotated",
+            Some(serde_json::json!({
+                "organization_id": id,
+                "old_key_id": existing.id,
+                "new_key_id": new_id,
+                "grace_expires_at": grace,
+            })),
+            None,
+        )
+        .await;
+
+    let permissions = existing
+        .scopes
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateOrgApiKeyResponse {
+            api_key: OrgApiKeyResponse {
+                id: new_id,
+                organization_id: id,
+                name: format!("{} (rotated)", existing.name),
+                prefix,
+                role: existing.role,
+                permissions,
+                created_by_user_id: user.id,
+                last_used_at: None,
+                expires_at: existing.expires_at,
+                created_at: now,
+            },
+            secret: full_key,
+        }),
+    ))
+}
+
+#[cfg(feature = "api-key")]
+async fn get_org_api_key_usage(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path((id, key_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<OrgApiKeyUsageResponse>, ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    let existing = state
+        .repos
+        .api_keys
+        .find_by_id_and_org(key_id, id)
+        .await?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "api key not found"))?;
+    Ok(Json(OrgApiKeyUsageResponse {
+        id: existing.id,
+        last_used_at: existing.last_used_at,
+        expires_at: existing.expires_at,
+        created_at: existing.created_at,
+    }))
 }
