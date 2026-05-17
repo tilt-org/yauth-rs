@@ -78,6 +78,8 @@ impl SessionOpsRepository for ToastySessionOpsRepo {
                 user_agent: session.user_agent,
                 expires_at: jiff_to_chrono(session.expires_at),
                 created_at: jiff_to_chrono(session.created_at),
+                // Issue #89: column not yet shipped on the toasty schema.
+                active_org_id: None,
             }))
         })
     }

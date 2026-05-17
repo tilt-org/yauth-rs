@@ -92,6 +92,7 @@ impl SessionOpsRepository for SqliteSessionOpsRepo {
                         user_agent: s.user_agent,
                         expires_at,
                         created_at: str_to_dt(&s.created_at),
+                        active_org_id: None,
                     }))
                 }
                 None => Ok(None),

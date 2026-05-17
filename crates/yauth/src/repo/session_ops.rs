@@ -29,4 +29,24 @@ pub trait SessionOpsRepository: sealed::Sealed + Send + Sync {
     /// Delete all sessions for a user except the one matching `keep_hash`.
     fn delete_other_sessions_for_user(&self, user_id: Uuid, keep_hash: &str)
     -> RepoFuture<'_, u64>;
+
+    /// Set or clear the active organization on the session row (issue #89).
+    ///
+    /// Pass `Some(org_id)` to switch into an organization, or `None` to
+    /// clear. Returns the updated [`domain::StoredSession`].
+    ///
+    /// Backends that have not yet shipped the `active_org_id` column return
+    /// `RepoError::NotImplemented` so a 501 surfaces at the route boundary.
+    fn set_active_org(
+        &self,
+        session_id: Uuid,
+        active_org_id: Option<Uuid>,
+    ) -> RepoFuture<'_, domain::StoredSession> {
+        let _ = (session_id, active_org_id);
+        Box::pin(async move {
+            Err(crate::repo::RepoError::NotImplemented(
+                "SessionOpsRepository::set_active_org".to_string(),
+            ))
+        })
+    }
 }

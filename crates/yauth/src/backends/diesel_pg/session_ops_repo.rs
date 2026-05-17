@@ -92,6 +92,8 @@ impl SessionOpsRepository for DieselSessionOpsRepo {
                         user_agent: s.user_agent,
                         expires_at: s.expires_at,
                         created_at: s.created_at,
+                        // Issue #89: column not yet shipped on diesel-pg.
+                        active_org_id: None,
                     }))
                 }
                 None => Ok(None),

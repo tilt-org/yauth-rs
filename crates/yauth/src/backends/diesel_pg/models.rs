@@ -134,6 +134,10 @@ impl DieselSession {
             user_agent: self.user_agent,
             expires_at: self.expires_at,
             created_at: self.created_at,
+            // Issue #89: column not yet shipped on the diesel-pg schema.
+            // Real population is a follow-up that adds the column +
+            // backfills `None`.
+            active_org_id: None,
         }
     }
 }
@@ -152,6 +156,10 @@ pub(crate) struct DieselNewSession {
 
 impl DieselNewSession {
     pub(crate) fn from_domain(input: crate::domain::NewSession) -> Self {
+        // Issue #89: `active_org_id` is intentionally dropped on the
+        // diesel-pg backend until the column lands. Memory backend
+        // preserves it.
+        let _ = input.active_org_id;
         Self {
             id: input.id,
             user_id: input.user_id,

@@ -79,6 +79,7 @@ impl SessionOpsRepository for SeaOrmSessionOpsRepo {
                         user_agent: s.user_agent,
                         expires_at: s.expires_at.naive_utc(),
                         created_at: s.created_at.naive_utc(),
+                        active_org_id: None,
                     }))
                 }
                 None => Ok(None),

@@ -292,6 +292,7 @@ impl SessionRepository for InMemorySessionRepo {
                 user_agent: input.user_agent,
                 expires_at: input.expires_at,
                 created_at: input.created_at,
+                active_org_id: input.active_org_id,
             };
             let mut map = self.sessions.write().unwrap();
             map.insert(session.id, session);

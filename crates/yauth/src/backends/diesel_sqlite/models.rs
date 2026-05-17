@@ -211,6 +211,7 @@ impl SqliteSession {
             user_agent: self.user_agent,
             expires_at: str_to_dt(&self.expires_at),
             created_at: str_to_dt(&self.created_at),
+            active_org_id: None,
         }
     }
 }
@@ -229,6 +230,7 @@ pub(crate) struct SqliteNewSession {
 
 impl SqliteNewSession {
     pub(crate) fn from_domain(input: crate::domain::NewSession) -> Self {
+        let _ = input.active_org_id; // #89 follow-up.
         Self {
             id: uuid_to_str(input.id),
             user_id: uuid_to_str(input.user_id),
