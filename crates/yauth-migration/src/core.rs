@@ -52,6 +52,10 @@ fn sessions_table() -> TableDef {
         .column(ColumnDef::new("user_agent", ColumnType::Varchar).nullable())
         .column(ColumnDef::new("expires_at", ColumnType::DateTime))
         .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
+        // Issue #89: active organization claim. Nullable — `None` is the
+        // legacy single-tenant state and is preserved by the migration on
+        // existing rows.
+        .column(ColumnDef::new("active_org_id", ColumnType::Uuid).nullable())
 }
 
 fn audit_log_table() -> TableDef {

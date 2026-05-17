@@ -51,6 +51,12 @@ pub struct Session {
     pub user_agent: Option<String>,
     pub expires_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    /// Active organization claim (issue #89). `None` means no active org —
+    /// the default for single-tenant deployments and for users with zero
+    /// memberships. The field is always present in the domain type; SQL
+    /// backends that have not yet shipped the column persist `None`.
+    #[serde(default)]
+    pub active_org_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,4 +68,7 @@ pub struct NewSession {
     pub user_agent: Option<String>,
     pub expires_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    /// Initial active organization (issue #89). See `Session::active_org_id`.
+    #[serde(default)]
+    pub active_org_id: Option<Uuid>,
 }
