@@ -206,6 +206,36 @@ export interface ChangeRoleRequest {
 }
 
 /**
+ * @nullable
+ */
+export type ClaimMappingsInputGroupToRole = {[key: string]: string} | null;
+
+export interface ClaimMappingsInput {
+  /** @nullable */
+  display_name?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  external_id?: string | null;
+  /** @nullable */
+  group_to_role?: ClaimMappingsInputGroupToRole;
+  /** @nullable */
+  groups?: string | null;
+}
+
+export type ClaimMappingsResponseGroupToRole = {[key: string]: string};
+
+export interface ClaimMappingsResponse {
+  /** @nullable */
+  display_name?: string | null;
+  email: string;
+  external_id: string;
+  group_to_role: ClaimMappingsResponseGroupToRole;
+  /** @nullable */
+  groups?: string | null;
+}
+
+/**
  * RFC 7591 §2 Dynamic Client Registration request body. Matches yauth-go's
 `dcrRegisterRequest` exactly so the TS client serves both backends.
 
@@ -402,6 +432,32 @@ export interface CreateOrgRequest {
   display_name?: string | null;
   name: string;
   slug: string;
+}
+
+export interface OidcConfigInput {
+  claim_mappings?: null | ClaimMappingsInput;
+  client_id: string;
+  /** Plaintext IdP client secret. yauth encrypts it at rest via the
+  configured `SecretCipher`. The plaintext NEVER leaves this
+  request boundary — list/get responses surface only the masked
+  form. */
+  client_secret: string;
+  discovery_url: string;
+  /** @nullable */
+  scopes?: string[] | null;
+}
+
+export interface CreateSsoConnectionRequest {
+  /** @nullable */
+  default_role_on_jit?: string | null;
+  /** @nullable */
+  jit_provisioning_enabled?: boolean | null;
+  /** Protocol kind — only `"oidc_client"` accepted in #93. SAML
+  (`"saml_sp"`) lands in #94. */
+  kind: string;
+  /** Operator-friendly name (`"Acme Okta"`). */
+  name: string;
+  oidc?: null | OidcConfigInput;
 }
 
 export interface CreateWebhookRequest {
@@ -833,6 +889,16 @@ export interface Oauth2PatchClientRequest {
   public_key_pem?: string | null;
 }
 
+export interface OidcConfigResponse {
+  claim_mappings: ClaimMappingsResponse;
+  client_id: string;
+  /** **Masked** — always `"********"`. The real client secret is
+  never returned over the wire after the original PUT/POST. */
+  client_secret: string;
+  discovery_url: string;
+  scopes: string[];
+}
+
 export interface OrgApiKeyUsageResponse {
   created_at: string;
   /** @nullable */
@@ -1004,6 +1070,28 @@ export interface SetupTotpResponse {
   secret: string;
 }
 
+export interface SsoConnectionResponse {
+  created_at: string;
+  default_role_on_jit: string;
+  id: string;
+  jit_provisioning_enabled: boolean;
+  kind: string;
+  name: string;
+  oidc?: null | OidcConfigResponse;
+  organization_id: string;
+  status: string;
+  updated_at: string;
+}
+
+export interface SsoConnectionTestResponse {
+  /** Human-readable detail of what was checked / what failed. */
+  detail: string;
+  /** Whether the round-trip succeeded. Currently the test is a
+  structural check (config decodes, discovery URL well-formed).
+  Live discovery + JWKS validation lands in Phase B. */
+  ok: boolean;
+}
+
 /**
  * Response for `GET /status`. Mirrors yauth-go's `StatusResponse`.
  */
@@ -1086,6 +1174,18 @@ export interface UpdatePolicyRequest {
 export interface UpdateProfileRequest {
   /** @nullable */
   display_name?: string | null;
+}
+
+export interface UpdateSsoConnectionRequest {
+  /** @nullable */
+  default_role_on_jit?: string | null;
+  /** @nullable */
+  jit_provisioning_enabled?: boolean | null;
+  /** @nullable */
+  name?: string | null;
+  oidc?: null | OidcConfigInput;
+  /** @nullable */
+  status?: string | null;
 }
 
 export interface UpdateUserRequest {
@@ -2850,6 +2950,121 @@ export const organizationsUpdatePolicy = async (id: string,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       updatePolicyRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsListSsoConnectionsUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/sso/connections`
+}
+
+export const organizationsListSsoConnections = async (id: string, options?: RequestInit): Promise<SsoConnectionResponse[]> => {
+
+  return customFetch<SsoConnectionResponse[]>(getOrganizationsListSsoConnectionsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsCreateSsoConnectionUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/sso/connections`
+}
+
+export const organizationsCreateSsoConnection = async (id: string,
+    createSsoConnectionRequest: CreateSsoConnectionRequest, options?: RequestInit): Promise<SsoConnectionResponse> => {
+
+  return customFetch<SsoConnectionResponse>(getOrganizationsCreateSsoConnectionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createSsoConnectionRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsDeleteSsoConnectionUrl = (id: string,
+    cid: string,) => {
+
+
+
+
+  return `/organizations/${id}/sso/connections/${cid}`
+}
+
+export const organizationsDeleteSsoConnection = async (id: string,
+    cid: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOrganizationsDeleteSsoConnectionUrl(id,cid),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsUpdateSsoConnectionUrl = (id: string,
+    cid: string,) => {
+
+
+
+
+  return `/organizations/${id}/sso/connections/${cid}`
+}
+
+export const organizationsUpdateSsoConnection = async (id: string,
+    cid: string,
+    updateSsoConnectionRequest: UpdateSsoConnectionRequest, options?: RequestInit): Promise<SsoConnectionResponse> => {
+
+  return customFetch<SsoConnectionResponse>(getOrganizationsUpdateSsoConnectionUrl(id,cid),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateSsoConnectionRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsTestSsoConnectionUrl = (id: string,
+    cid: string,) => {
+
+
+
+
+  return `/organizations/${id}/sso/connections/${cid}/test`
+}
+
+export const organizationsTestSsoConnection = async (id: string,
+    cid: string, options?: RequestInit): Promise<SsoConnectionTestResponse> => {
+
+  return customFetch<SsoConnectionTestResponse>(getOrganizationsTestSsoConnectionUrl(id,cid),
+  {
+    ...options,
+    method: 'POST'
+
+
   }
 );}
 
