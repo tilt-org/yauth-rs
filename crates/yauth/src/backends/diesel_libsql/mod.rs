@@ -191,6 +191,8 @@ impl DatabaseBackend for DieselLibsqlBackend {
             external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new(
                 "diesel-libsql",
             )),
+            #[cfg(feature = "organizations")]
+            sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("diesel-libsql")),
         }
     }
 }

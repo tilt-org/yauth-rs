@@ -166,6 +166,8 @@ impl DatabaseBackend for DieselMysqlBackend {
             external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new(
                 "diesel-mysql",
             )),
+            #[cfg(feature = "organizations")]
+            sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("diesel-mysql")),
         }
     }
 }

@@ -207,6 +207,7 @@ fn generated_ddl_has_all_tables() {
         "yauth_organization_policies",
         "yauth_sso_connections",
         "yauth_external_identities",
+        "yauth_sso_login_states",
     ];
 
     for table in &expected_tables {

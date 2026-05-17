@@ -595,6 +595,29 @@ pub fn organizations_schema() -> Vec<TableDef> {
             .column(ColumnDef::new("external_id", ColumnType::Varchar))
             .column(ColumnDef::new("linked_at", ColumnType::DateTime).default("now()"))
             .column(ColumnDef::new("last_login_at", ColumnType::DateTime).default("now()")),
+        // SSO login states (issue #93, Phase B). One row per
+        // `/sso/login` request; consumed at `/sso/callback`. The
+        // `state` column is the primary lookup key — random opaque
+        // token sent on the authorize URL, returned by the IdP.
+        // Rows are reaped on read (consume-once) and on `expires_at`.
+        TableDef::new("yauth_sso_login_states")
+            .description(
+                "Short-lived state for an OIDC `/sso/login` round-trip. \
+                 One row created at authorize-request time, consumed \
+                 (deleted) at callback time. Expires in 10 minutes.",
+            )
+            .column(ColumnDef::new("state", ColumnType::Varchar).primary_key())
+            .column(
+                ColumnDef::new("connection_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_sso_connections", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("issuer", ColumnType::Varchar))
+            .column(ColumnDef::new("nonce", ColumnType::Varchar))
+            .column(ColumnDef::new("pkce_verifier", ColumnType::Varchar))
+            .column(ColumnDef::new("redirect_to", ColumnType::Varchar).nullable())
+            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
+            .column(ColumnDef::new("expires_at", ColumnType::DateTime)),
     ]
 }
 

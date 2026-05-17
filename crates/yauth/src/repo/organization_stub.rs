@@ -15,7 +15,7 @@
 use super::{
     ExternalIdentityRepository, InvitationRepository, MembershipRepository,
     OrganizationDomainRepository, OrganizationPolicyRepository, OrganizationRepository, RepoError,
-    RepoFuture, SsoConnectionRepository, sealed,
+    RepoFuture, SsoConnectionRepository, SsoLoginStateRepository, sealed,
 };
 use crate::domain;
 use uuid::Uuid;
@@ -485,6 +485,44 @@ impl ExternalIdentityRepository for StubExternalIdentityRepo {
                 self.backend,
                 "ExternalIdentityRepository",
                 "list_for_user",
+            ))
+        })
+    }
+}
+
+/// Stub `SsoLoginStateRepository` used by SQL backends until their
+/// concrete implementations land.
+pub struct StubSsoLoginStateRepo {
+    backend: &'static str,
+}
+
+impl StubSsoLoginStateRepo {
+    pub fn new(backend: &'static str) -> Self {
+        Self { backend }
+    }
+}
+
+impl sealed::Sealed for StubSsoLoginStateRepo {}
+
+impl SsoLoginStateRepository for StubSsoLoginStateRepo {
+    fn create(&self, _input: domain::NewSsoLoginState) -> RepoFuture<'_, ()> {
+        Box::pin(async move { Err(pending(self.backend, "SsoLoginStateRepository", "create")) })
+    }
+    fn find_and_delete(&self, _state: &str) -> RepoFuture<'_, Option<domain::SsoLoginState>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "SsoLoginStateRepository",
+                "find_and_delete",
+            ))
+        })
+    }
+    fn delete_expired(&self) -> RepoFuture<'_, usize> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "SsoLoginStateRepository",
+                "delete_expired",
             ))
         })
     }

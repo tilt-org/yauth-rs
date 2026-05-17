@@ -168,6 +168,8 @@ impl DatabaseBackend for SqlxSqliteBackend {
             external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new(
                 "sqlx-sqlite",
             )),
+            #[cfg(feature = "organizations")]
+            sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("sqlx-sqlite")),
         }
     }
 }

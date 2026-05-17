@@ -10,7 +10,7 @@ use crate::domain;
 use crate::repo::{
     ExternalIdentityRepository, InvitationRepository, MembershipRepository,
     OrganizationDomainRepository, OrganizationPolicyRepository, OrganizationRepository, RepoError,
-    RepoFuture, SsoConnectionRepository, sealed,
+    RepoFuture, SsoConnectionRepository, SsoLoginStateRepository, sealed,
 };
 
 // ──────────────────────────────────────────────
@@ -946,3 +946,72 @@ impl ExternalIdentityRepository for InMemoryExternalIdentityRepo {
         })
     }
 }
+
+// ──────────────────────────────────────────────
+// SsoLoginState (issue #93, Phase B)
+// ──────────────────────────────────────────────
+
+pub(crate) struct InMemorySsoLoginStateRepo {
+    pub(crate) states: Arc<RwLock<HashMap<String, domain::SsoLoginState>>>,
+}
+
+impl InMemorySsoLoginStateRepo {
+    pub(crate) fn new(states: Arc<RwLock<HashMap<String, domain::SsoLoginState>>>) -> Self {
+        Self { states }
+    }
+}
+
+impl sealed::Sealed for InMemorySsoLoginStateRepo {}
+
+impl SsoLoginStateRepository for InMemorySsoLoginStateRepo {
+    fn create(&self, input: domain::NewSsoLoginState) -> RepoFuture<'_, ()> {
+        Box::pin(async move {
+            let mut map = self.states.write().unwrap();
+            if map.contains_key(&input.state) {
+                return Err(RepoError::Conflict(format!(
+                    "sso login state already exists for token={}",
+                    input.state
+                )));
+            }
+            let row = domain::SsoLoginState {
+                state: input.state.clone(),
+                connection_id: input.connection_id,
+                issuer: input.issuer,
+                nonce: input.nonce,
+                pkce_verifier: input.pkce_verifier,
+                redirect_to: input.redirect_to,
+                created_at: input.created_at,
+                expires_at: input.expires_at,
+            };
+            map.insert(input.state, row);
+            Ok(())
+        })
+    }
+
+    fn find_and_delete(&self, state: &str) -> RepoFuture<'_, Option<domain::SsoLoginState>> {
+        let key = state.to_string();
+        Box::pin(async move {
+            let mut map = self.states.write().unwrap();
+            let row = map.remove(&key);
+            // Expiry-on-read: if the row exists but is past `expires_at`,
+            // treat it as already gone. The remove() above ensures the
+            // stale row can't be replayed.
+            let now = chrono::Utc::now().naive_utc();
+            match row {
+                Some(r) if r.expires_at > now => Ok(Some(r)),
+                _ => Ok(None),
+            }
+        })
+    }
+
+    fn delete_expired(&self) -> RepoFuture<'_, usize> {
+        Box::pin(async move {
+            let mut map = self.states.write().unwrap();
+            let now = chrono::Utc::now().naive_utc();
+            let before = map.len();
+            map.retain(|_, r| r.expires_at > now);
+            Ok(before - map.len())
+        })
+    }
+}
+

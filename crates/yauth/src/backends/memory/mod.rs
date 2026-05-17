@@ -157,6 +157,8 @@ pub(crate) struct Storage {
     pub(crate) sso_connections: Arc<RwLock<HashMap<Uuid, domain::SsoConnection>>>,
     #[cfg(feature = "organizations")]
     pub(crate) external_identities: Arc<RwLock<HashMap<Uuid, domain::ExternalIdentity>>>,
+    #[cfg(feature = "organizations")]
+    pub(crate) sso_login_states: Arc<RwLock<HashMap<String, domain::SsoLoginState>>>,
 }
 
 impl Storage {
@@ -233,6 +235,8 @@ impl Storage {
             sso_connections: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(feature = "organizations")]
             external_identities: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "organizations")]
+            sso_login_states: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -415,6 +419,10 @@ impl DatabaseBackend for InMemoryBackend {
             #[cfg(feature = "organizations")]
             external_identities: Arc::new(organization_repo::InMemoryExternalIdentityRepo::new(
                 self.storage.external_identities.clone(),
+            )),
+            #[cfg(feature = "organizations")]
+            sso_login_states: Arc::new(organization_repo::InMemorySsoLoginStateRepo::new(
+                self.storage.sso_login_states.clone(),
             )),
         }
     }

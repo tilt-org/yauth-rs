@@ -232,6 +232,11 @@ mod external_identity;
 pub use external_identity::*;
 
 #[cfg(feature = "organizations")]
+mod sso_login_state;
+#[cfg(feature = "organizations")]
+pub use sso_login_state::*;
+
+#[cfg(feature = "organizations")]
 mod organization_stub;
 #[cfg(feature = "organizations")]
 pub use organization_stub::*;
@@ -315,6 +320,8 @@ pub struct Repositories {
     pub sso_connections: Arc<dyn SsoConnectionRepository>,
     #[cfg(feature = "organizations")]
     pub external_identities: Arc<dyn ExternalIdentityRepository>,
+    #[cfg(feature = "organizations")]
+    pub sso_login_states: Arc<dyn SsoLoginStateRepository>,
 }
 
 // ──────────────────────────────────────────────

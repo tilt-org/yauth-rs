@@ -184,5 +184,7 @@ fn build_repositories(db: &DatabaseConnection) -> Repositories {
         sso_connections: Arc::new(crate::repo::StubSsoConnectionRepo::new("seaorm-pg")),
         #[cfg(feature = "organizations")]
         external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new("seaorm-pg")),
+        #[cfg(feature = "organizations")]
+        sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("seaorm-pg")),
     }
 }

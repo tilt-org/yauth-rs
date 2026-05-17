@@ -216,6 +216,8 @@ impl DatabaseBackend for DieselSqliteBackend {
             external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new(
                 "diesel-sqlite",
             )),
+            #[cfg(feature = "organizations")]
+            sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("diesel-sqlite")),
         }
     }
 }
