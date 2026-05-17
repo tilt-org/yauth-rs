@@ -593,8 +593,7 @@ impl JwksCache {
         discovery_url: &str,
     ) -> Result<DiscoveryDocument, OidcFetchError> {
         // Cache hit?
-        if let Some((doc, fetched_at)) =
-            self.discovery.read().await.get(discovery_url).cloned()
+        if let Some((doc, fetched_at)) = self.discovery.read().await.get(discovery_url).cloned()
             && fetched_at.elapsed() < JWKS_TTL_MAX
         {
             return Ok(doc);
@@ -643,7 +642,11 @@ impl JwksCache {
             let guard = self.inner.read().await;
             if let Some(entry) = guard.get(issuer)
                 && entry.is_fresh()
-                && let Some(k) = entry.jwks.keys.iter().find(|k| k.kid.as_deref() == Some(kid))
+                && let Some(k) = entry
+                    .jwks
+                    .keys
+                    .iter()
+                    .find(|k| k.kid.as_deref() == Some(kid))
             {
                 return Ok(k.clone());
             }
@@ -681,7 +684,10 @@ impl JwksCache {
             .await
             .map_err(|e| OidcFetchError::Network(e.to_string()))?;
         if !resp.status().is_success() {
-            return Err(OidcFetchError::Network(format!("jwks HTTP {}", resp.status())));
+            return Err(OidcFetchError::Network(format!(
+                "jwks HTTP {}",
+                resp.status()
+            )));
         }
         let jwks: RemoteJwks = resp
             .json()

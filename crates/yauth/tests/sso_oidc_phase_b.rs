@@ -89,10 +89,8 @@ impl IdpState {
     fn jwks(&self) -> RemoteJwks {
         let priv_key = rsa::RsaPrivateKey::from_pkcs8_pem(&self.rsa_pem).expect("valid pem");
         let pub_key = priv_key.to_public_key();
-        let n = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(pub_key.n().to_bytes_be());
-        let e = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(pub_key.e().to_bytes_be());
+        let n = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(pub_key.n().to_bytes_be());
+        let e = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(pub_key.e().to_bytes_be());
         RemoteJwks {
             keys: vec![RemoteJwk {
                 kid: Some(self.kid.lock().unwrap().clone()),
@@ -110,8 +108,8 @@ impl IdpState {
             kid: Some(self.kid.lock().unwrap().clone()),
             ..Default::default()
         };
-        let key = jsonwebtoken::EncodingKey::from_rsa_pem(self.rsa_pem.as_bytes())
-            .expect("rsa pem");
+        let key =
+            jsonwebtoken::EncodingKey::from_rsa_pem(self.rsa_pem.as_bytes()).expect("rsa pem");
         jsonwebtoken::encode(&header, claims, &key).expect("sign")
     }
 }
@@ -278,8 +276,7 @@ async fn build_app(idp: &FixtureIdp) -> TestApp {
         scopes: OidcConnectionConfig::default_scopes(),
         claim_mappings: {
             let mut m = yauth_entity::ClaimMappings::default();
-            m.group_to_role
-                .insert("admins".into(), "admin".into());
+            m.group_to_role.insert("admins".into(), "admin".into());
             m.group_to_role.insert("owners".into(), "owner".into());
             m
         },
@@ -354,9 +351,7 @@ impl TestApp {
 /// Drive a `/sso/login` and pull state + nonce + pkce_verifier out
 /// of the persisted SsoLoginState row by inspecting the Location
 /// header for the `state=` param.
-async fn login_and_capture_state(
-    app: &TestApp,
-) -> (String, yauth_entity::SsoLoginState) {
+async fn login_and_capture_state(app: &TestApp) -> (String, yauth_entity::SsoLoginState) {
     let resp = app.get("/sso/login?org=acme&redirect_to=/dashboard").await;
     assert_eq!(resp.status(), StatusCode::SEE_OTHER, "login should 303");
     let loc = resp
@@ -379,10 +374,7 @@ async fn login_and_capture_state(
     (state_token, row)
 }
 
-async fn state_row(
-    state: &yauth::state::YAuthState,
-    token: &str,
-) -> yauth_entity::SsoLoginState {
+async fn state_row(state: &yauth::state::YAuthState, token: &str) -> yauth_entity::SsoLoginState {
     // We don't have a public lookup-without-delete, but the in-memory
     // repo stores by `state` key. Cheat through `find_and_delete` and
     // re-create the row in place — tests only.
@@ -451,7 +443,13 @@ async fn full_round_trip_jit_provisions_user_and_membership() {
     let code = "code-1";
     idp.seed_code(
         code,
-        make_claims(&idp, "fixture-sub-1", "alice@acme.com", &row.nonce, vec!["admins"]),
+        make_claims(
+            &idp,
+            "fixture-sub-1",
+            "alice@acme.com",
+            &row.nonce,
+            vec!["admins"],
+        ),
     );
 
     let resp = app
@@ -557,7 +555,9 @@ async fn pentest_state_replay_rejects_second_use() {
         make_claims(&idp, "u-1", "c@acme.com", &row.nonce, vec![]),
     );
 
-    let r1 = app.get(&format!("/sso/callback?code={code}&state={st}")).await;
+    let r1 = app
+        .get(&format!("/sso/callback?code={code}&state={st}"))
+        .await;
     assert_eq!(r1.status(), StatusCode::SEE_OTHER);
 
     // Replay — state is gone. Reseed a fresh code so the IdP would
@@ -583,9 +583,17 @@ async fn pentest_nonce_mismatch_rejects() {
     // Wrong nonce.
     idp.seed_code(
         code,
-        make_claims(&idp, "u", "x@acme.com", "definitely-not-the-real-nonce", vec![]),
+        make_claims(
+            &idp,
+            "u",
+            "x@acme.com",
+            "definitely-not-the-real-nonce",
+            vec![],
+        ),
     );
-    let r = app.get(&format!("/sso/callback?code={code}&state={st}")).await;
+    let r = app
+        .get(&format!("/sso/callback?code={code}&state={st}"))
+        .await;
     assert_eq!(r.status(), StatusCode::BAD_REQUEST);
     let body = r.into_body().collect().await.unwrap().to_bytes();
     let v: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
@@ -604,7 +612,9 @@ async fn pentest_audience_mismatch_rejects() {
     let mut claims = make_claims(&idp, "u", "x@acme.com", &row.nonce, vec![]);
     claims.aud = AudienceClaim::Single("some-other-client".into());
     idp.seed_code(code, claims);
-    let r = app.get(&format!("/sso/callback?code={code}&state={st}")).await;
+    let r = app
+        .get(&format!("/sso/callback?code={code}&state={st}"))
+        .await;
     assert_eq!(r.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -621,7 +631,9 @@ async fn pentest_expired_id_token_rejected() {
     claims.exp = now - 300;
     claims.iat = now - 600;
     idp.seed_code(code, claims);
-    let r = app.get(&format!("/sso/callback?code={code}&state={st}")).await;
+    let r = app
+        .get(&format!("/sso/callback?code={code}&state={st}"))
+        .await;
     assert_eq!(r.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -652,7 +664,9 @@ async fn pentest_jit_disabled_rejects_unknown_user() {
         code,
         make_claims(&idp, "new-sub", "stranger@acme.com", &row.nonce, vec![]),
     );
-    let r = app.get(&format!("/sso/callback?code={code}&state={st}")).await;
+    let r = app
+        .get(&format!("/sso/callback?code={code}&state={st}"))
+        .await;
     assert_eq!(r.status(), StatusCode::FORBIDDEN);
     // No user provisioned.
     assert!(
@@ -703,10 +717,7 @@ async fn pentest_email_change_blocks_silent_merge() {
         .state
         .repos
         .external_identities
-        .find_by_provider_external_id(
-            &yauth_entity::oidc_provider(&idp.state.issuer()),
-            "ext-1",
-        )
+        .find_by_provider_external_id(&yauth_entity::oidc_provider(&idp.state.issuer()), "ext-1")
         .await
         .unwrap()
         .unwrap();
@@ -747,8 +758,14 @@ async fn pentest_jwks_rollover_new_token_validates_old_invalid_after_grace() {
         "c-2",
         make_claims(&idp, "u-2", "b@acme.com", &row2.nonce, vec![]),
     );
-    let r2 = app.get(&format!("/sso/callback?code=c-2&state={st2}")).await;
-    assert_eq!(r2.status(), StatusCode::SEE_OTHER, "kid rotation re-fetched JWKS");
+    let r2 = app
+        .get(&format!("/sso/callback?code=c-2&state={st2}"))
+        .await;
+    assert_eq!(
+        r2.status(),
+        StatusCode::SEE_OTHER,
+        "kid rotation re-fetched JWKS"
+    );
 }
 
 #[tokio::test]
@@ -802,13 +819,7 @@ async fn pentest_pre_existing_email_blocks_jit() {
     let (st, row) = login_and_capture_state(&app).await;
     idp.seed_code(
         "atk",
-        make_claims(
-            &idp,
-            "attacker-sub",
-            "alice@acme.com",
-            &row.nonce,
-            vec![],
-        ),
+        make_claims(&idp, "attacker-sub", "alice@acme.com", &row.nonce, vec![]),
     );
     let r = app.get(&format!("/sso/callback?code=atk&state={st}")).await;
     assert_eq!(
@@ -844,14 +855,7 @@ async fn validate_fixture_token_against_oidc_client() {
     let jwks = idp.state.jwks();
     let jwk = &jwks.keys[0];
     let now = Utc::now().timestamp();
-    let parsed = validate_id_token(
-        &token,
-        jwk,
-        &idp.state.issuer(),
-        "test-client",
-        "n-1",
-        now,
-    )
-    .expect("self-signed fixture token validates");
+    let parsed = validate_id_token(&token, jwk, &idp.state.issuer(), "test-client", "n-1", now)
+        .expect("self-signed fixture token validates");
     assert_eq!(parsed.iss, idp.state.issuer());
 }

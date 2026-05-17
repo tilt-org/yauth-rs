@@ -192,10 +192,7 @@ async fn login(
 }
 
 /// Decide which `SsoConnection` to use, given the `/sso/login` query.
-async fn resolve_connection(
-    state: &YAuthState,
-    q: &LoginQuery,
-) -> Result<SsoConnection, ApiError> {
+async fn resolve_connection(state: &YAuthState, q: &LoginQuery) -> Result<SsoConnection, ApiError> {
     match (q.org.as_deref(), q.domain.as_deref()) {
         (Some(slug), _) => {
             let org = state
@@ -213,9 +210,7 @@ async fn resolve_connection(
                 .organization_domains
                 .find_by_domain(domain)
                 .await?
-                .ok_or_else(|| {
-                    api_err(StatusCode::NOT_FOUND, "domain not verified or unknown")
-                })?;
+                .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "domain not verified or unknown"))?;
             if dom.status != DomainStatus::Verified {
                 return Err(api_err(
                     StatusCode::NOT_FOUND,
@@ -359,9 +354,10 @@ async fn callback(
             crate::otel::record_error("sso_oidc_token_exchange_network", &msg);
             api_err(StatusCode::BAD_GATEWAY, "token exchange failed")
         }
-        TokenExchangeError::BadResponse { status, .. } => {
-            api_err(StatusCode::BAD_GATEWAY, &format!("IdP token error {status}"))
-        }
+        TokenExchangeError::BadResponse { status, .. } => api_err(
+            StatusCode::BAD_GATEWAY,
+            &format!("IdP token error {status}"),
+        ),
         TokenExchangeError::BadFormat(msg) => {
             crate::otel::record_error("sso_oidc_token_exchange_format", &msg);
             api_err(StatusCode::BAD_GATEWAY, "IdP token response malformed")
