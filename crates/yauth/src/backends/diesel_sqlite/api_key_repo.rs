@@ -24,16 +24,21 @@ pub(crate) struct SqliteApiKey {
 }
 impl SqliteApiKey {
     fn into_domain(self) -> domain::ApiKey {
+        // Issue #91: legacy schema — pre-org-scoped-keys.
+        let user_id = str_to_uuid(&self.user_id);
         domain::ApiKey {
             id: str_to_uuid(&self.id),
-            user_id: str_to_uuid(&self.user_id),
+            user_id: Some(user_id),
+            organization_id: None,
             key_prefix: self.key_prefix,
             key_hash: self.key_hash,
             name: self.name,
             scopes: opt_str_to_json(self.scopes),
+            role: None,
             last_used_at: opt_str_to_dt(self.last_used_at),
             expires_at: opt_str_to_dt(self.expires_at),
             created_at: str_to_dt(&self.created_at),
+            created_by_user_id: user_id,
         }
     }
 }
@@ -102,7 +107,9 @@ impl ApiKeyRepository for SqliteApiKeyRepo {
             let mut c = get_conn(&self.pool).await?;
             let (id, uid, kp, kh, nm, sc, ea, ca) = (
                 uuid_to_str(input.id),
-                uuid_to_str(input.user_id),
+                // Issue #91: org-scoped keys not supported on this
+                // legacy backend; fall back to creator's user_id.
+                uuid_to_str(input.user_id.unwrap_or(input.created_by_user_id)),
                 input.key_prefix,
                 input.key_hash,
                 input.name,

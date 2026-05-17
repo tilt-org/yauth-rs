@@ -44,16 +44,21 @@ impl ActiveModelBehavior for ActiveModel {}
 
 impl Model {
     pub fn into_domain(self) -> crate::domain::ApiKey {
+        // Issue #91: legacy schema — pre-org-scoped-keys.
+        let user_id = crate::backends::seaorm_common::str_to_uuid(&self.user_id);
         crate::domain::ApiKey {
             id: crate::backends::seaorm_common::str_to_uuid(&self.id),
-            user_id: crate::backends::seaorm_common::str_to_uuid(&self.user_id),
+            user_id: Some(user_id),
+            organization_id: None,
             key_prefix: self.key_prefix,
             key_hash: self.key_hash,
             name: self.name,
             scopes: self.scopes,
+            role: None,
             last_used_at: self.last_used_at.map(|dt| dt.naive_utc()),
             expires_at: self.expires_at.map(|dt| dt.naive_utc()),
             created_at: self.created_at.naive_utc(),
+            created_by_user_id: user_id,
         }
     }
 }

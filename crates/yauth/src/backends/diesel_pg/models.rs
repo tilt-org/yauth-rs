@@ -688,16 +688,25 @@ pub(crate) struct DieselApiKey {
 #[cfg(feature = "api-key")]
 impl DieselApiKey {
     pub(crate) fn into_domain(self) -> crate::domain::ApiKey {
+        // Issue #91: the DB schema for this backend has not yet been
+        // upgraded with `organization_id` / `role` / `created_by_user_id`.
+        // Legacy rows are user-scoped: `user_id` is always set and the
+        // creator is the same user. Backend follow-up will add the
+        // columns and populate them from the migration.
+        let user_id = self.user_id;
         crate::domain::ApiKey {
             id: self.id,
-            user_id: self.user_id,
+            user_id: Some(user_id),
+            organization_id: None,
             key_prefix: self.key_prefix,
             key_hash: self.key_hash,
             name: self.name,
             scopes: self.scopes,
+            role: None,
             last_used_at: self.last_used_at,
             expires_at: self.expires_at,
             created_at: self.created_at,
+            created_by_user_id: user_id,
         }
     }
 }
@@ -718,10 +727,15 @@ pub(crate) struct DieselNewApiKey {
 
 #[cfg(feature = "api-key")]
 impl DieselNewApiKey {
+    /// Project the new domain shape down to the legacy schema. Org-scoped
+    /// keys cannot round-trip through this backend until the schema
+    /// upgrade lands (issue #91); attempting to insert one is a no-op
+    /// here — the org-scoped repo methods return `NotImplemented` on
+    /// this backend.
     pub(crate) fn from_domain(input: crate::domain::NewApiKey) -> Self {
         Self {
             id: input.id,
-            user_id: input.user_id,
+            user_id: input.user_id.unwrap_or(input.created_by_user_id),
             key_prefix: input.key_prefix,
             key_hash: input.key_hash,
             name: input.name,

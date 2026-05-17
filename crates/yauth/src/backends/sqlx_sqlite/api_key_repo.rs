@@ -22,16 +22,21 @@ struct ApiKeyRow {
 
 impl ApiKeyRow {
     fn into_domain(self) -> domain::ApiKey {
+        // Issue #91: legacy schema — pre-org-scoped-keys.
+        let user_id = str_to_uuid(&self.user_id.unwrap_or_default());
         domain::ApiKey {
             id: str_to_uuid(&self.id.unwrap_or_default()),
-            user_id: str_to_uuid(&self.user_id.unwrap_or_default()),
+            user_id: Some(user_id),
+            organization_id: None,
             key_prefix: self.key_prefix,
             key_hash: self.key_hash,
             name: self.name,
             scopes: opt_str_to_json(self.scopes),
+            role: None,
             last_used_at: opt_str_to_dt(self.last_used_at),
             expires_at: opt_str_to_dt(self.expires_at),
             created_at: str_to_dt(&self.created_at),
+            created_by_user_id: user_id,
         }
     }
 }
@@ -104,7 +109,12 @@ impl ApiKeyRepository for SqlxSqliteApiKeyRepo {
     fn create(&self, input: domain::NewApiKey) -> RepoFuture<'_, ()> {
         Box::pin(async move {
             let id_str = input.id.to_string();
-            let user_id_str = input.user_id.to_string();
+            // Issue #91: org-scoped keys fall back to creator's id on
+            // this legacy backend.
+            let user_id_str = input
+                .user_id
+                .unwrap_or(input.created_by_user_id)
+                .to_string();
             let scopes_str = input.scopes.map(|v| v.to_string());
             let expires_str = opt_dt_to_str(input.expires_at);
             let created_str = dt_to_str(input.created_at);

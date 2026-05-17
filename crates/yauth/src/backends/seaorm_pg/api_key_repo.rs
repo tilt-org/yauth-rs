@@ -70,7 +70,9 @@ impl ApiKeyRepository for SeaOrmApiKeyRepo {
         Box::pin(async move {
             let model = api_keys::ActiveModel {
                 id: Set(input.id),
-                user_id: Set(input.user_id),
+                // Issue #91: org-scoped keys fall back to creator's id
+                // on this legacy backend.
+                user_id: Set(input.user_id.unwrap_or(input.created_by_user_id)),
                 key_prefix: Set(input.key_prefix),
                 key_hash: Set(input.key_hash),
                 name: Set(input.name),

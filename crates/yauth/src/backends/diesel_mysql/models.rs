@@ -549,16 +549,21 @@ pub(crate) struct MysqlApiKey {
 #[cfg(feature = "api-key")]
 impl MysqlApiKey {
     pub(crate) fn into_domain(self) -> crate::domain::ApiKey {
+        // Issue #91: legacy schema — pre-org-scoped-keys.
+        let user_id = str_to_uuid(&self.user_id);
         crate::domain::ApiKey {
             id: str_to_uuid(&self.id),
-            user_id: str_to_uuid(&self.user_id),
+            user_id: Some(user_id),
+            organization_id: None,
             key_prefix: self.key_prefix,
             key_hash: self.key_hash,
             name: self.name,
             scopes: self.scopes.map(|s| str_to_json(&s)),
+            role: None,
             last_used_at: self.last_used_at,
             expires_at: self.expires_at,
             created_at: self.created_at,
+            created_by_user_id: user_id,
         }
     }
 }

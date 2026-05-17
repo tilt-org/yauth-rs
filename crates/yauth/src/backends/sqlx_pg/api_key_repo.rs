@@ -21,16 +21,21 @@ struct ApiKeyRow {
 
 impl ApiKeyRow {
     fn into_domain(self) -> domain::ApiKey {
+        // Issue #91: legacy schema — pre-org-scoped-keys.
+        let user_id = self.user_id;
         domain::ApiKey {
             id: self.id,
-            user_id: self.user_id,
+            user_id: Some(user_id),
+            organization_id: None,
             key_prefix: self.key_prefix,
             key_hash: self.key_hash,
             name: self.name,
             scopes: self.scopes,
+            role: None,
             last_used_at: self.last_used_at.map(|dt| dt.naive_utc()),
             expires_at: self.expires_at.map(|dt| dt.naive_utc()),
             created_at: self.created_at.naive_utc(),
+            created_by_user_id: user_id,
         }
     }
 }
@@ -102,7 +107,9 @@ impl ApiKeyRepository for SqlxPgApiKeyRepo {
             sqlx::query!(
                 "INSERT INTO yauth_api_keys (id, user_id, key_prefix, key_hash, name, scopes, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
                 input.id,
-                input.user_id,
+                // Issue #91: org-scoped keys fall back to creator's id
+                // on this legacy backend.
+                input.user_id.unwrap_or(input.created_by_user_id),
                 input.key_prefix,
                 input.key_hash,
                 input.name,
