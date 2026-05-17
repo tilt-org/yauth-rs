@@ -368,6 +368,666 @@ pub fn validate_group_to_role(map: &HashMap<String, String>) -> Result<(), &'sta
 }
 
 // ─────────────────────────────────────────────────────────────────
+// AEAD cipher — ChaCha20-Poly1305 over the deployment secret
+// ─────────────────────────────────────────────────────────────────
+
+/// Real AEAD cipher for `client_secret` storage.
+///
+/// Replaces [`PassthroughCipher`] in production deployments. Keyed off a
+/// 32-byte deployment secret — operators typically derive this from an
+/// HKDF off a single root secret that lives in their secret manager
+/// (Vault, AWS Secrets Manager, GCP Secret Manager, etc.).
+///
+/// # Format
+///
+/// `yauth-aead-v1:<base64url-no-pad(12-byte nonce || ciphertext || 16-byte tag)>`
+///
+/// The 12-byte nonce is freshly generated per encryption and is part
+/// of the stored blob — apps don't need to track it separately.
+///
+/// # Key rotation
+///
+/// The marker carries a single version (`v1`). To rotate keys without
+/// downtime, deploy a new build with a `KeyRotatingCipher` that holds
+/// both the old and the new key, attempts decrypt against the new
+/// first then falls back to the old, and re-encrypts at write time
+/// with the new. Concrete `KeyRotatingCipher` is out of scope here —
+/// the trait surface stays narrow and apps wrap their own.
+///
+/// # Security
+///
+/// ChaCha20-Poly1305 is constant-time without hardware AES support
+/// (most non-AES-NI ARM cores) and produces ciphertext + 128-bit
+/// authentication tag in one shot. Per RFC 8439 §4 the same
+/// `(key, nonce)` pair must NEVER be reused — `encrypt` generates a
+/// fresh nonce on every call.
+pub struct ChaCha20Poly1305Cipher {
+    key: chacha20poly1305::Key,
+}
+
+const AEAD_MARKER: &str = "yauth-aead-v1:";
+const AEAD_NONCE_LEN: usize = 12;
+
+impl ChaCha20Poly1305Cipher {
+    /// Construct from a 32-byte key. Returns `None` on wrong length —
+    /// the caller is responsible for HKDF-ing a deployment root
+    /// secret down to 32 bytes.
+    pub fn new(key_bytes: &[u8]) -> Option<Self> {
+        if key_bytes.len() != 32 {
+            return None;
+        }
+        Some(Self {
+            #[allow(deprecated)]
+            key: *chacha20poly1305::Key::from_slice(key_bytes),
+        })
+    }
+}
+
+impl SecretCipher for ChaCha20Poly1305Cipher {
+    fn encrypt(&self, plaintext: &str) -> String {
+        use chacha20poly1305::aead::{Aead, KeyInit};
+        use chacha20poly1305::{ChaCha20Poly1305, Nonce};
+
+        let cipher = ChaCha20Poly1305::new(&self.key);
+        let mut nonce_bytes = [0u8; AEAD_NONCE_LEN];
+        rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+        #[allow(deprecated)]
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        // Encrypt — Poly1305 tag is appended to ciphertext.
+        let ct = cipher
+            .encrypt(nonce, plaintext.as_bytes())
+            .expect("ChaCha20-Poly1305 encrypt cannot fail with valid inputs");
+        let mut blob = Vec::with_capacity(AEAD_NONCE_LEN + ct.len());
+        blob.extend_from_slice(&nonce_bytes);
+        blob.extend_from_slice(&ct);
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&blob);
+        format!("{AEAD_MARKER}{payload}")
+    }
+
+    fn decrypt(&self, ciphertext: &str) -> Result<String, SecretDecryptError> {
+        use chacha20poly1305::aead::{Aead, KeyInit};
+        use chacha20poly1305::{ChaCha20Poly1305, Nonce};
+
+        let payload = ciphertext
+            .strip_prefix(AEAD_MARKER)
+            .ok_or(SecretDecryptError::MissingMarker)?;
+        let blob = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(payload)
+            .map_err(|_| SecretDecryptError::BadBase64)?;
+        if blob.len() < AEAD_NONCE_LEN + 16 {
+            // Need at least a nonce + a Poly1305 tag.
+            return Err(SecretDecryptError::BadBase64);
+        }
+        let (nonce_bytes, ct) = blob.split_at(AEAD_NONCE_LEN);
+        let cipher = ChaCha20Poly1305::new(&self.key);
+        #[allow(deprecated)]
+        let nonce = Nonce::from_slice(nonce_bytes);
+        let pt = cipher
+            .decrypt(nonce, ct)
+            .map_err(|_| SecretDecryptError::BadBase64)?;
+        String::from_utf8(pt).map_err(|_| SecretDecryptError::BadUtf8)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// OIDC discovery + JWKS cache
+// ─────────────────────────────────────────────────────────────────
+
+/// OIDC discovery document, parsed.
+///
+/// We only keep the fields we use — yauth doesn't need
+/// `userinfo_endpoint`, `registration_endpoint`, etc. Adding fields
+/// later is a one-line patch since `serde(default)` lets us forward-
+/// extend.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DiscoveryDocument {
+    pub issuer: String,
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+    pub jwks_uri: String,
+    #[serde(default)]
+    pub id_token_signing_alg_values_supported: Vec<String>,
+}
+
+/// JWKS as fetched from the IdP. Public-key material only — we never
+/// see the IdP's signing private key.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RemoteJwks {
+    pub keys: Vec<RemoteJwk>,
+}
+
+/// One key entry. We support RSA (RS256) for now — ES256 lands later
+/// as a follow-up. All other `kty` values are ignored during lookup.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RemoteJwk {
+    #[serde(default)]
+    pub kid: Option<String>,
+    pub kty: String,
+    #[serde(default)]
+    pub alg: Option<String>,
+    /// RSA modulus (base64url-no-pad). Present when `kty == "RSA"`.
+    #[serde(default)]
+    pub n: Option<String>,
+    /// RSA exponent (base64url-no-pad). Present when `kty == "RSA"`.
+    #[serde(default)]
+    pub e: Option<String>,
+}
+
+/// Cache entry per `issuer`.
+#[derive(Debug, Clone)]
+struct CachedJwks {
+    jwks: RemoteJwks,
+    fetched_at: std::time::Instant,
+    ttl: std::time::Duration,
+    /// Last time we refreshed *because of a kid miss*. Rate-limits
+    /// the "rotate IdP keys at midnight" path so a stream of bad
+    /// tokens can't DDoS the IdP's JWKS endpoint.
+    last_kid_miss_refresh: Option<std::time::Instant>,
+}
+
+impl CachedJwks {
+    fn is_fresh(&self) -> bool {
+        self.fetched_at.elapsed() < self.ttl
+    }
+}
+
+/// Concurrent JWKS cache, keyed by IdP `issuer`.
+///
+/// # Refresh policy
+///
+/// - **TTL hit, kid present**: serve from cache, no fetch.
+/// - **TTL miss**: fetch + replace.
+/// - **TTL hit but kid missing**: fetch *at most once per minute per
+///   issuer* (rate-limited). On the second-in-a-minute kid miss we
+///   reject the token without re-hitting the IdP.
+///
+/// # Concurrency
+///
+/// `Arc<RwLock<HashMap<...>>>` — the IdP's JWKS document is a few KB
+/// at most, contention is bounded. Fetches happen outside the lock.
+#[derive(Clone, Default)]
+pub struct JwksCache {
+    inner: std::sync::Arc<tokio::sync::RwLock<HashMap<String, CachedJwks>>>,
+    /// Discovery-document cache, indexed by the discovery URL. Documents
+    /// are stable per IdP — TTL: 1 h hard cap.
+    discovery: std::sync::Arc<
+        tokio::sync::RwLock<HashMap<String, (DiscoveryDocument, std::time::Instant)>>,
+    >,
+}
+
+/// Errors from the discovery / JWKS path.
+#[derive(Debug, thiserror::Error)]
+pub enum OidcFetchError {
+    #[error("network error: {0}")]
+    Network(String),
+    #[error("discovery document is malformed: {0}")]
+    BadDiscovery(String),
+    #[error("JWKS document is malformed: {0}")]
+    BadJwks(String),
+    #[error("rate limited: kid-miss refresh already attempted within the last minute")]
+    RateLimited,
+}
+
+/// Hard ceiling on JWKS cache TTL.
+pub const JWKS_TTL_MAX: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Default JWKS TTL when the IdP doesn't advertise one.
+pub const JWKS_TTL_DEFAULT: std::time::Duration = std::time::Duration::from_secs(900);
+
+/// Rate-limit window for kid-miss refreshes.
+pub const JWKS_KID_MISS_REFRESH_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+
+impl JwksCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Fetch + cache an IdP discovery document.
+    ///
+    /// The discovery URL is treated as opaque — we never derive
+    /// authority from it; the `issuer` field in the returned document
+    /// drives id_token `iss` validation downstream.
+    pub async fn discover(
+        &self,
+        client: &reqwest::Client,
+        discovery_url: &str,
+    ) -> Result<DiscoveryDocument, OidcFetchError> {
+        // Cache hit?
+        if let Some((doc, fetched_at)) =
+            self.discovery.read().await.get(discovery_url).cloned()
+            && fetched_at.elapsed() < JWKS_TTL_MAX
+        {
+            return Ok(doc);
+        }
+        // Miss — fetch.
+        let resp = client
+            .get(discovery_url)
+            .send()
+            .await
+            .map_err(|e| OidcFetchError::Network(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(OidcFetchError::Network(format!(
+                "discovery HTTP {}",
+                resp.status()
+            )));
+        }
+        let doc: DiscoveryDocument = resp
+            .json()
+            .await
+            .map_err(|e| OidcFetchError::BadDiscovery(e.to_string()))?;
+        // Insert into cache. Per RFC 8414 §3 we trust the document's
+        // own `issuer` field — if the IdP wants to lie about that,
+        // its TLS cert is the chokepoint.
+        self.discovery.write().await.insert(
+            discovery_url.to_string(),
+            (doc.clone(), std::time::Instant::now()),
+        );
+        Ok(doc)
+    }
+
+    /// Resolve a key by `kid` against the cached JWKS for `issuer`,
+    /// fetching if necessary. Honors the rate-limit on kid-miss
+    /// refreshes.
+    ///
+    /// `jwks_uri` is the URI to fetch on miss. Caller passes it
+    /// through from the discovery document.
+    pub async fn key_for_kid(
+        &self,
+        client: &reqwest::Client,
+        issuer: &str,
+        jwks_uri: &str,
+        kid: &str,
+    ) -> Result<RemoteJwk, OidcFetchError> {
+        // Fast path: cached + fresh + contains kid.
+        {
+            let guard = self.inner.read().await;
+            if let Some(entry) = guard.get(issuer)
+                && entry.is_fresh()
+                && let Some(k) = entry.jwks.keys.iter().find(|k| k.kid.as_deref() == Some(kid))
+            {
+                return Ok(k.clone());
+            }
+        }
+
+        // Either no entry / stale / kid missing. Decide if we refresh.
+        let now = std::time::Instant::now();
+        let kid_miss_refresh_ok = {
+            let guard = self.inner.read().await;
+            match guard.get(issuer) {
+                None => true,
+                Some(entry) => {
+                    // If TTL-expired, refresh unconditionally.
+                    if !entry.is_fresh() {
+                        true
+                    } else {
+                        // Cached but kid missing — rate-limited refresh.
+                        match entry.last_kid_miss_refresh {
+                            None => true,
+                            Some(last) => now.duration_since(last) > JWKS_KID_MISS_REFRESH_WINDOW,
+                        }
+                    }
+                }
+            }
+        };
+
+        if !kid_miss_refresh_ok {
+            return Err(OidcFetchError::RateLimited);
+        }
+
+        // Fetch JWKS.
+        let resp = client
+            .get(jwks_uri)
+            .send()
+            .await
+            .map_err(|e| OidcFetchError::Network(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(OidcFetchError::Network(format!("jwks HTTP {}", resp.status())));
+        }
+        let jwks: RemoteJwks = resp
+            .json()
+            .await
+            .map_err(|e| OidcFetchError::BadJwks(e.to_string()))?;
+
+        // Write into cache.
+        let was_kid_miss = {
+            let guard = self.inner.read().await;
+            guard.get(issuer).map(|e| e.is_fresh()).unwrap_or(false)
+        };
+        self.inner.write().await.insert(
+            issuer.to_string(),
+            CachedJwks {
+                jwks: jwks.clone(),
+                fetched_at: now,
+                ttl: JWKS_TTL_DEFAULT,
+                last_kid_miss_refresh: if was_kid_miss { Some(now) } else { None },
+            },
+        );
+
+        jwks.keys
+            .into_iter()
+            .find(|k| k.kid.as_deref() == Some(kid))
+            .ok_or_else(|| OidcFetchError::BadJwks(format!("kid `{kid}` not in JWKS")))
+    }
+
+    /// Test-only: inject a pre-built JWKS into the cache. Lets the
+    /// IdP-loop pentest seed the cache without standing up a real
+    /// HTTP server.
+    #[doc(hidden)]
+    pub async fn insert_for_test(&self, issuer: &str, jwks: RemoteJwks) {
+        self.inner.write().await.insert(
+            issuer.to_string(),
+            CachedJwks {
+                jwks,
+                fetched_at: std::time::Instant::now(),
+                ttl: JWKS_TTL_DEFAULT,
+                last_kid_miss_refresh: None,
+            },
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// id_token validation
+// ─────────────────────────────────────────────────────────────────
+
+/// Reasons an id_token was rejected.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum IdTokenError {
+    #[error("malformed id_token: {0}")]
+    Malformed(String),
+    #[error("unsupported signing algorithm: {0}")]
+    UnsupportedAlg(String),
+    #[error("issuer mismatch: token `{actual}`, expected `{expected}`")]
+    IssuerMismatch { actual: String, expected: String },
+    #[error("audience mismatch: token does not contain expected client_id `{expected}`")]
+    AudienceMismatch { expected: String },
+    #[error("nonce mismatch")]
+    NonceMismatch,
+    #[error("token expired")]
+    Expired,
+    #[error("token not yet valid (iat > now)")]
+    NotYetValid,
+    #[error("signature verification failed")]
+    BadSignature,
+    #[error("missing `kid` header (cannot pick a JWKS key without one)")]
+    MissingKid,
+    #[error("JWKS lookup failed: {0}")]
+    JwksLookup(String),
+}
+
+/// Claims we care about during validation. Extra claims pass through
+/// in the `extra` JSON value for the claim-extractor downstream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdTokenClaims {
+    pub iss: String,
+    #[serde(default)]
+    pub aud: AudienceClaim,
+    pub exp: i64,
+    pub iat: i64,
+    #[serde(default)]
+    pub nonce: Option<String>,
+    #[serde(default)]
+    pub nbf: Option<i64>,
+    /// Everything else — claim extraction reads from here.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// `aud` claim — either a single string OR an array. OIDC Core §2.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AudienceClaim {
+    Single(String),
+    Multi(Vec<String>),
+}
+
+impl Default for AudienceClaim {
+    fn default() -> Self {
+        AudienceClaim::Multi(Vec::new())
+    }
+}
+
+impl AudienceClaim {
+    pub fn contains(&self, expected: &str) -> bool {
+        match self {
+            AudienceClaim::Single(s) => s == expected,
+            AudienceClaim::Multi(v) => v.iter().any(|s| s == expected),
+        }
+    }
+}
+
+/// Validate an id_token end-to-end against a connection's config.
+///
+/// The `jwk` is expected to be pre-resolved via [`JwksCache::key_for_kid`]
+/// using the `kid` from the token header.
+///
+/// # Checks (in order)
+///
+/// 1. `alg` is one of `RS256` / `RS384` / `RS512` (no `none`, no HS*).
+/// 2. Signature verifies against `jwk`.
+/// 3. `iss == expected_issuer`.
+/// 4. `aud` contains `expected_client_id`.
+/// 5. `nonce == expected_nonce`.
+/// 6. `exp > now`.
+/// 7. `iat <= now + leeway`.
+/// 8. `nbf <= now + leeway` (when present).
+///
+/// A leeway of ±60s absorbs minor clock skew without compromising
+/// the OIDC Core §3.1.3.7 freshness contract.
+pub fn validate_id_token(
+    raw_token: &str,
+    jwk: &RemoteJwk,
+    expected_issuer: &str,
+    expected_client_id: &str,
+    expected_nonce: &str,
+    now_unix: i64,
+) -> Result<IdTokenClaims, IdTokenError> {
+    use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
+
+    let header = decode_header(raw_token)
+        .map_err(|e| IdTokenError::Malformed(format!("header parse: {e}")))?;
+
+    // Algorithm — must be asymmetric RSA. ES256 lands as a follow-up.
+    let alg = match header.alg {
+        Algorithm::RS256 => Algorithm::RS256,
+        Algorithm::RS384 => Algorithm::RS384,
+        Algorithm::RS512 => Algorithm::RS512,
+        other => return Err(IdTokenError::UnsupportedAlg(format!("{other:?}"))),
+    };
+
+    // JWK must be RSA with `n` + `e`.
+    if !jwk.kty.eq_ignore_ascii_case("RSA") {
+        return Err(IdTokenError::UnsupportedAlg(format!("kty={}", jwk.kty)));
+    }
+    let n = jwk
+        .n
+        .as_deref()
+        .ok_or_else(|| IdTokenError::JwksLookup("RSA key missing `n`".into()))?;
+    let e = jwk
+        .e
+        .as_deref()
+        .ok_or_else(|| IdTokenError::JwksLookup("RSA key missing `e`".into()))?;
+    let decoding_key = DecodingKey::from_rsa_components(n, e)
+        .map_err(|e| IdTokenError::JwksLookup(format!("rsa key parse: {e}")))?;
+
+    // Use jsonwebtoken's validator — but disable its own time / aud /
+    // iss checks so we control the error variants. We just want the
+    // signature verification + claim deserialization.
+    let mut validation = Validation::new(alg);
+    validation.validate_exp = false;
+    validation.validate_nbf = false;
+    validation.validate_aud = false;
+    validation.required_spec_claims.clear();
+    let data = decode::<IdTokenClaims>(raw_token, &decoding_key, &validation)
+        .map_err(|_| IdTokenError::BadSignature)?;
+    let claims = data.claims;
+
+    // Issuer pinning.
+    if claims.iss != expected_issuer {
+        return Err(IdTokenError::IssuerMismatch {
+            actual: claims.iss.clone(),
+            expected: expected_issuer.to_string(),
+        });
+    }
+
+    // Audience check.
+    if !claims.aud.contains(expected_client_id) {
+        return Err(IdTokenError::AudienceMismatch {
+            expected: expected_client_id.to_string(),
+        });
+    }
+
+    // Nonce check.
+    if claims.nonce.as_deref() != Some(expected_nonce) {
+        return Err(IdTokenError::NonceMismatch);
+    }
+
+    // Time-bounds check with 60s leeway.
+    const LEEWAY: i64 = 60;
+    if claims.exp + LEEWAY <= now_unix {
+        return Err(IdTokenError::Expired);
+    }
+    if claims.iat > now_unix + LEEWAY {
+        return Err(IdTokenError::NotYetValid);
+    }
+    if let Some(nbf) = claims.nbf
+        && nbf > now_unix + LEEWAY
+    {
+        return Err(IdTokenError::NotYetValid);
+    }
+
+    Ok(claims)
+}
+
+/// Extract the `kid` from a raw JWT's protected header. Convenience
+/// for callers who want to resolve the JWKS key before validating.
+pub fn id_token_kid(raw_token: &str) -> Result<String, IdTokenError> {
+    use jsonwebtoken::decode_header;
+    let h = decode_header(raw_token)
+        .map_err(|e| IdTokenError::Malformed(format!("header parse: {e}")))?;
+    h.kid.ok_or(IdTokenError::MissingKid)
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Token exchange
+// ─────────────────────────────────────────────────────────────────
+
+/// Response from the IdP's token endpoint. We only keep the bits we
+/// need — `access_token` + `refresh_token` are intentionally not
+/// persisted (yauth is acting as an OIDC consumer; we don't proxy the
+/// IdP's API tokens onward).
+#[derive(Debug, Clone, Deserialize)]
+pub struct TokenResponse {
+    pub id_token: String,
+    #[serde(default)]
+    pub access_token: Option<String>,
+    #[serde(default)]
+    pub token_type: Option<String>,
+    #[serde(default)]
+    pub expires_in: Option<i64>,
+}
+
+/// Errors from the token-exchange call.
+#[derive(Debug, thiserror::Error)]
+pub enum TokenExchangeError {
+    #[error("network error: {0}")]
+    Network(String),
+    #[error("IdP returned HTTP {status}: {body}")]
+    BadResponse { status: u16, body: String },
+    #[error("token response malformed: {0}")]
+    BadFormat(String),
+}
+
+/// Exchange an authorization code for an id_token at the IdP.
+///
+/// Sends `code` + `code_verifier` + `client_id` + `client_secret`
+/// (plaintext at this point — caller decrypted via `SecretCipher`)
+/// via `application/x-www-form-urlencoded` per OIDC Core §3.1.3.1.
+pub async fn exchange_code(
+    client: &reqwest::Client,
+    token_endpoint: &str,
+    code: &str,
+    redirect_uri: &str,
+    client_id: &str,
+    client_secret: &str,
+    code_verifier: &str,
+) -> Result<TokenResponse, TokenExchangeError> {
+    let form = [
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+        ("code_verifier", code_verifier),
+    ];
+    let resp = client
+        .post(token_endpoint)
+        .form(&form)
+        .send()
+        .await
+        .map_err(|e| TokenExchangeError::Network(e.to_string()))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(TokenExchangeError::BadResponse {
+            status: status.as_u16(),
+            body,
+        });
+    }
+    resp.json::<TokenResponse>()
+        .await
+        .map_err(|e| TokenExchangeError::BadFormat(e.to_string()))
+}
+
+/// Convert [`IdTokenClaims`] back into a flat `serde_json::Value`
+/// suitable for [`extract_identity_from_claims`].
+///
+/// We keep `iss`, `aud`, `exp`, `iat`, `nbf`, `nonce` available
+/// alongside the IdP-specific claims so a connection's
+/// `ClaimMappings.external_id` can point at any of them (e.g. Entra
+/// ID prefers `oid` over `sub`).
+pub fn claims_to_json(claims: &IdTokenClaims) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    map.insert("iss".into(), serde_json::Value::String(claims.iss.clone()));
+    match &claims.aud {
+        AudienceClaim::Single(s) => {
+            map.insert("aud".into(), serde_json::Value::String(s.clone()));
+        }
+        AudienceClaim::Multi(v) => {
+            map.insert(
+                "aud".into(),
+                serde_json::Value::Array(
+                    v.iter()
+                        .map(|s| serde_json::Value::String(s.clone()))
+                        .collect(),
+                ),
+            );
+        }
+    }
+    map.insert(
+        "exp".into(),
+        serde_json::Value::Number(serde_json::Number::from(claims.exp)),
+    );
+    map.insert(
+        "iat".into(),
+        serde_json::Value::Number(serde_json::Number::from(claims.iat)),
+    );
+    if let Some(n) = &claims.nonce {
+        map.insert("nonce".into(), serde_json::Value::String(n.clone()));
+    }
+    if let Some(nbf) = claims.nbf {
+        map.insert(
+            "nbf".into(),
+            serde_json::Value::Number(serde_json::Number::from(nbf)),
+        );
+    }
+    for (k, v) in &claims.extra {
+        map.insert(k.clone(), v.clone());
+    }
+    serde_json::Value::Object(map)
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────
 
@@ -640,5 +1300,182 @@ mod tests {
 
         map.insert("g".to_string(), "admin".to_string());
         assert!(validate_group_to_role(&map).is_ok());
+    }
+
+    // ── AEAD cipher ───────────────────────────────────
+
+    #[test]
+    fn aead_round_trips() {
+        let key = [7u8; 32];
+        let c = ChaCha20Poly1305Cipher::new(&key).unwrap();
+        let plain = "super-secret-shared-secret";
+        let enc = c.encrypt(plain);
+        assert!(enc.starts_with(AEAD_MARKER));
+        assert!(
+            !enc.contains(plain),
+            "ciphertext must not contain plaintext"
+        );
+        assert_eq!(c.decrypt(&enc).unwrap(), plain);
+    }
+
+    #[test]
+    fn aead_rejects_short_key() {
+        assert!(ChaCha20Poly1305Cipher::new(&[0u8; 16]).is_none());
+        assert!(ChaCha20Poly1305Cipher::new(&[0u8; 33]).is_none());
+    }
+
+    #[test]
+    fn aead_rejects_wrong_key() {
+        let a = ChaCha20Poly1305Cipher::new(&[1u8; 32]).unwrap();
+        let b = ChaCha20Poly1305Cipher::new(&[2u8; 32]).unwrap();
+        let enc = a.encrypt("foo");
+        // Wrong key => tag verification fails.
+        assert!(b.decrypt(&enc).is_err());
+    }
+
+    #[test]
+    fn aead_nonces_are_unique() {
+        let c = ChaCha20Poly1305Cipher::new(&[9u8; 32]).unwrap();
+        // Same plaintext, different ciphertexts (random nonce).
+        let a = c.encrypt("same");
+        let b = c.encrypt("same");
+        assert_ne!(a, b);
+        assert_eq!(c.decrypt(&a).unwrap(), "same");
+        assert_eq!(c.decrypt(&b).unwrap(), "same");
+    }
+
+    #[test]
+    fn aead_rejects_tampered_ciphertext() {
+        let c = ChaCha20Poly1305Cipher::new(&[3u8; 32]).unwrap();
+        let mut enc = c.encrypt("hi");
+        // Flip a bit in the payload (skip the marker).
+        let i = enc.len() - 1;
+        // Mutate the last byte.
+        let bytes = unsafe { enc.as_bytes_mut() };
+        bytes[i] ^= 1;
+        assert!(c.decrypt(&enc).is_err());
+    }
+
+    #[test]
+    fn aead_rejects_marker_mismatch() {
+        let c = ChaCha20Poly1305Cipher::new(&[4u8; 32]).unwrap();
+        let enc = c.encrypt("x");
+        let stripped = enc.replace(AEAD_MARKER, PT_MARKER);
+        assert_eq!(
+            c.decrypt(&stripped).unwrap_err(),
+            SecretDecryptError::MissingMarker
+        );
+    }
+
+    // ── AudienceClaim ─────────────────────────────────
+
+    #[test]
+    fn audience_claim_single_matches() {
+        let a = AudienceClaim::Single("client-1".into());
+        assert!(a.contains("client-1"));
+        assert!(!a.contains("client-2"));
+    }
+
+    #[test]
+    fn audience_claim_multi_matches_any() {
+        let a = AudienceClaim::Multi(vec!["a".into(), "b".into()]);
+        assert!(a.contains("a"));
+        assert!(a.contains("b"));
+        assert!(!a.contains("c"));
+    }
+
+    #[test]
+    fn audience_claim_parses_either_shape() {
+        let single: AudienceClaim = serde_json::from_str("\"x\"").unwrap();
+        assert!(single.contains("x"));
+        let multi: AudienceClaim = serde_json::from_str("[\"a\",\"b\"]").unwrap();
+        assert!(multi.contains("a"));
+    }
+
+    // ── JwksCache ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn jwks_cache_hit_avoids_refetch() {
+        let cache = JwksCache::new();
+        let issuer = "https://idp";
+        let jwks = RemoteJwks {
+            keys: vec![RemoteJwk {
+                kid: Some("k1".into()),
+                kty: "RSA".into(),
+                alg: Some("RS256".into()),
+                n: Some("n".into()),
+                e: Some("AQAB".into()),
+            }],
+        };
+        cache.insert_for_test(issuer, jwks).await;
+        // Client never gets used because the cache hit short-circuits.
+        let client = reqwest::Client::new();
+        let k = cache
+            .key_for_kid(&client, issuer, "http://invalid-jwks-uri", "k1")
+            .await
+            .unwrap();
+        assert_eq!(k.kid.as_deref(), Some("k1"));
+    }
+
+    #[tokio::test]
+    async fn jwks_cache_kid_miss_rate_limited() {
+        let cache = JwksCache::new();
+        let issuer = "https://idp";
+        // Seed with a fresh-but-incomplete JWKS.
+        cache
+            .insert_for_test(
+                issuer,
+                RemoteJwks {
+                    keys: vec![RemoteJwk {
+                        kid: Some("k1".into()),
+                        kty: "RSA".into(),
+                        alg: Some("RS256".into()),
+                        n: Some("n".into()),
+                        e: Some("AQAB".into()),
+                    }],
+                },
+            )
+            .await;
+        // Force the last_kid_miss_refresh field by simulating a prior
+        // refresh that happened *just now*. We do this by sneaking
+        // through insert_for_test then doing a direct kid-miss call —
+        // the first call refreshes, the second within 60s is rate-limited.
+        // We can't reach the real network here, so directly set the
+        // last_kid_miss_refresh via internal mutation.
+        {
+            let mut guard = cache.inner.write().await;
+            let entry = guard.get_mut(issuer).unwrap();
+            entry.last_kid_miss_refresh = Some(std::time::Instant::now());
+        }
+        let client = reqwest::Client::new();
+        let err = cache
+            .key_for_kid(&client, issuer, "http://invalid-jwks-uri", "missing-kid")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, OidcFetchError::RateLimited));
+    }
+
+    // ── claims_to_json ────────────────────────────────
+
+    #[test]
+    fn claims_to_json_preserves_sub_and_email() {
+        let mut extra = HashMap::new();
+        extra.insert("sub".to_string(), serde_json::json!("u-1"));
+        extra.insert("email".to_string(), serde_json::json!("a@b"));
+        let claims = IdTokenClaims {
+            iss: "https://idp".into(),
+            aud: AudienceClaim::Single("c-1".into()),
+            exp: 200,
+            iat: 100,
+            nonce: Some("n".into()),
+            nbf: None,
+            extra,
+        };
+        let v = claims_to_json(&claims);
+        assert_eq!(v["iss"], "https://idp");
+        assert_eq!(v["sub"], "u-1");
+        assert_eq!(v["email"], "a@b");
+        assert_eq!(v["nonce"], "n");
+        assert_eq!(v["aud"], "c-1");
     }
 }

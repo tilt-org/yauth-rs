@@ -42,7 +42,12 @@ oidc = ["bearer", "oauth2-server"]
 # Multi-tenancy primitive (issue #87). Adds Organization + Membership + Invitation
 # entities, repos, and routes. Default OFF — flipping the flag on must not change any
 # existing single-tenant behavior.
-organizations = ["dep:hickory-resolver", "dep:base64", "dep:serde_urlencoded"]
+#
+# Issue #93 (federated SSO) is bundled under this flag — pulls in
+# `jsonwebtoken` for id_token validation against the IdP's JWKS and
+# `chacha20poly1305` for client_secret encrypt-at-rest. Bringing them
+# into the same gate keeps the dep tree simple.
+organizations = ["dep:hickory-resolver", "dep:base64", "dep:serde_urlencoded", "dep:jsonwebtoken", "dep:chacha20poly1305"]
 telemetry =["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-http"]
 openapi = ["dep:utoipa"]
 redis = ["dep:redis"]
@@ -132,6 +137,12 @@ log = "0.4"
 # Async resolver. tokio-runtime + system-config keeps the dep light and graceful
 # when /etc/resolv.conf is unreadable (we fall back to HTTP .well-known).
 hickory-resolver = { version = "0.24", default-features = false, features = ["tokio-runtime", "system-config"], optional = true }
+
+# Feature-gated: SSO OIDC client (issue #93, `organizations` feature).
+# Real AEAD cipher for client_secret encrypt-at-rest. ChaCha20-Poly1305
+# is constant-time without hardware AES, which matches the
+# pure-Rust-by-default story.
+chacha20poly1305 = { workspace = true, optional = true }
 
 [dev-dependencies]
 yauth-entity = { path = "../yauth-entity", version = "0.12.3" }

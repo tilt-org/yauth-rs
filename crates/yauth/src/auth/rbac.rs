@@ -71,6 +71,36 @@ pub mod roles {
 
     /// All built-in role strings in canonical order.
     pub const ALL: &[&str] = &[OWNER, ADMIN, BILLING_ADMIN, MEMBER, VIEWER];
+
+    /// Privilege ordinal for a built-in role. Lower number = more
+    /// privileged. Unknown roles get a high number so they sort to
+    /// the bottom (least privileged) when picking a winner from a
+    /// list.
+    pub fn privilege_ordinal(role: &str) -> u8 {
+        match role {
+            OWNER => 0,
+            ADMIN => 1,
+            BILLING_ADMIN => 2,
+            MEMBER => 3,
+            VIEWER => 4,
+            _ => 100,
+        }
+    }
+}
+
+/// Pick the most-privileged role from a list, by [`roles::privilege_ordinal`].
+///
+/// Used by the SSO callback when a user is in multiple IdP groups
+/// that map to different yauth roles — we don't want to demote them
+/// just because their group list happened to put a lower-privileged
+/// match first.
+///
+/// Returns `None` only when the slice is empty.
+pub fn most_privileged_role<'a>(candidates: &'a [&'a str]) -> Option<&'a str> {
+    candidates
+        .iter()
+        .copied()
+        .min_by_key(|r| roles::privilege_ordinal(r))
 }
 
 // ──────────────────────────────────────────────
@@ -487,5 +517,35 @@ mod tests {
         assert!(p.members.is_empty());
         assert!(p.billing.is_empty());
         assert!(p.settings.is_empty());
+    }
+
+    #[test]
+    fn most_privileged_picks_owner_over_admin() {
+        let r = most_privileged_role(&["admin", "owner"]).unwrap();
+        assert_eq!(r, "owner");
+    }
+
+    #[test]
+    fn most_privileged_picks_admin_over_member_over_viewer() {
+        let r = most_privileged_role(&["viewer", "member", "admin"]).unwrap();
+        assert_eq!(r, "admin");
+    }
+
+    #[test]
+    fn most_privileged_falls_through_unknown_roles() {
+        // Custom roles get a high ordinal — fall through to built-in.
+        let r = most_privileged_role(&["custom-app-role", "member"]).unwrap();
+        assert_eq!(r, "member");
+    }
+
+    #[test]
+    fn most_privileged_returns_only_candidate() {
+        let r = most_privileged_role(&["my-role"]).unwrap();
+        assert_eq!(r, "my-role");
+    }
+
+    #[test]
+    fn most_privileged_handles_empty() {
+        assert!(most_privileged_role(&[]).is_none());
     }
 }
