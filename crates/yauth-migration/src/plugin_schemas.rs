@@ -443,6 +443,41 @@ pub fn organizations_schema() -> Vec<TableDef> {
             .column(ColumnDef::new("expires_at", ColumnType::DateTime))
             .column(ColumnDef::new("accepted_at", ColumnType::DateTime).nullable())
             .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()")),
+        // Verified email domains + JIT membership (issue #90).
+        //
+        // `domain` is deployment-wide unique and stored canonicalized
+        // (lowercase, trimmed). Case-insensitive uniqueness matches the
+        // organizations slug pattern: functional unique index on
+        // `LOWER(domain)` for Postgres/SQLite; generated shadow column on
+        // MySQL. Anti-abuse default `require_email_verified = true`.
+        TableDef::new("yauth_organization_domains")
+            .description(
+                "Domain claims for an organization. Verified claims may auto-join \
+                 matching users on signup (JIT membership).",
+            )
+            .column(
+                ColumnDef::new("id", ColumnType::Uuid)
+                    .primary_key()
+                    .default("gen_random_uuid()"),
+            )
+            .column(
+                ColumnDef::new("organization_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_organizations", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("domain", ColumnType::Varchar).case_insensitive_unique())
+            .column(ColumnDef::new("status", ColumnType::Varchar).default("'pending'"))
+            .column(ColumnDef::new("verification_token", ColumnType::Varchar))
+            .column(ColumnDef::new("verified_at", ColumnType::DateTime).nullable())
+            .column(ColumnDef::new("last_checked_at", ColumnType::DateTime).nullable())
+            .column(ColumnDef::new("auto_join_on_signup", ColumnType::Boolean).default("false"))
+            .column(
+                ColumnDef::new("default_role_on_auto_join", ColumnType::Varchar)
+                    .default("'member'"),
+            )
+            .column(ColumnDef::new("require_email_verified", ColumnType::Boolean).default("true"))
+            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
+            .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()")),
     ]
 }
 
