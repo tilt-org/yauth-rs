@@ -180,6 +180,10 @@ impl DatabaseBackend for DieselLibsqlBackend {
             organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
                 "diesel-libsql",
             )),
+            #[cfg(feature = "organizations")]
+            organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
+                "diesel-libsql",
+            )),
         }
     }
 }

@@ -177,5 +177,7 @@ fn build_repositories(db: &DatabaseConnection) -> Repositories {
         invitations: Arc::new(SeaOrmInvitationRepo::new(db.clone())),
         #[cfg(feature = "organizations")]
         organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new("seaorm-pg")),
+        #[cfg(feature = "organizations")]
+        organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new("seaorm-pg")),
     }
 }

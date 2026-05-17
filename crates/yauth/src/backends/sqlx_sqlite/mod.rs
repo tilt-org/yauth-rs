@@ -157,6 +157,10 @@ impl DatabaseBackend for SqlxSqliteBackend {
             organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
                 "sqlx-sqlite",
             )),
+            #[cfg(feature = "organizations")]
+            organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
+                "sqlx-sqlite",
+            )),
         }
     }
 }

@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::domain;
 use crate::repo::{
     InvitationRepository, MembershipRepository, OrganizationDomainRepository,
-    OrganizationRepository, RepoError, RepoFuture, sealed,
+    OrganizationPolicyRepository, OrganizationRepository, RepoError, RepoFuture, sealed,
 };
 
 // ──────────────────────────────────────────────
@@ -21,6 +21,7 @@ pub(crate) struct InMemoryOrganizationRepo {
     pub(crate) memberships: Arc<RwLock<HashMap<Uuid, domain::Membership>>>,
     pub(crate) invitations: Arc<RwLock<HashMap<Uuid, domain::Invitation>>>,
     pub(crate) organization_domains: Arc<RwLock<HashMap<Uuid, domain::OrganizationDomain>>>,
+    pub(crate) organization_policies: Arc<RwLock<HashMap<Uuid, domain::OrganizationPolicy>>>,
 }
 
 impl InMemoryOrganizationRepo {
@@ -29,12 +30,14 @@ impl InMemoryOrganizationRepo {
         memberships: Arc<RwLock<HashMap<Uuid, domain::Membership>>>,
         invitations: Arc<RwLock<HashMap<Uuid, domain::Invitation>>>,
         organization_domains: Arc<RwLock<HashMap<Uuid, domain::OrganizationDomain>>>,
+        organization_policies: Arc<RwLock<HashMap<Uuid, domain::OrganizationPolicy>>>,
     ) -> Self {
         Self {
             orgs,
             memberships,
             invitations,
             organization_domains,
+            organization_policies,
         }
     }
 }
@@ -140,6 +143,9 @@ impl OrganizationRepository for InMemoryOrganizationRepo {
             invitations.retain(|_, i| i.organization_id != id);
             let mut domains = self.organization_domains.write().unwrap();
             domains.retain(|_, d| d.organization_id != id);
+            // Issue #92: policy is 1:1 keyed by org id — cascade.
+            let mut policies = self.organization_policies.write().unwrap();
+            policies.remove(&id);
             Ok(())
         })
     }
@@ -594,6 +600,111 @@ impl OrganizationDomainRepository for InMemoryOrganizationDomainRepo {
                 .collect();
             v.sort_by_key(|a| a.created_at);
             Ok(v)
+        })
+    }
+}
+
+// ──────────────────────────────────────────────
+// OrganizationPolicy (issue #92)
+// ──────────────────────────────────────────────
+
+pub(crate) struct InMemoryOrganizationPolicyRepo {
+    pub(crate) policies: Arc<RwLock<HashMap<Uuid, domain::OrganizationPolicy>>>,
+}
+
+impl InMemoryOrganizationPolicyRepo {
+    pub(crate) fn new(policies: Arc<RwLock<HashMap<Uuid, domain::OrganizationPolicy>>>) -> Self {
+        Self { policies }
+    }
+}
+
+impl sealed::Sealed for InMemoryOrganizationPolicyRepo {}
+
+impl OrganizationPolicyRepository for InMemoryOrganizationPolicyRepo {
+    fn find_for_org(
+        &self,
+        organization_id: Uuid,
+    ) -> RepoFuture<'_, Option<domain::OrganizationPolicy>> {
+        Box::pin(async move {
+            let map = self.policies.read().unwrap();
+            Ok(map.get(&organization_id).cloned())
+        })
+    }
+
+    fn create(
+        &self,
+        input: domain::NewOrganizationPolicy,
+    ) -> RepoFuture<'_, domain::OrganizationPolicy> {
+        Box::pin(async move {
+            let mut map = self.policies.write().unwrap();
+            if map.contains_key(&input.organization_id) {
+                return Err(RepoError::Conflict(format!(
+                    "policy already exists for org {}",
+                    input.organization_id
+                )));
+            }
+            let row = domain::OrganizationPolicy {
+                organization_id: input.organization_id,
+                max_session_duration_secs: input.max_session_duration_secs,
+                idle_timeout_secs: input.idle_timeout_secs,
+                mfa_required: input.mfa_required,
+                mfa_grace_period_days: input.mfa_grace_period_days,
+                ip_allowlist: input.ip_allowlist,
+                max_concurrent_sessions: input.max_concurrent_sessions,
+                allowed_auth_methods: input.allowed_auth_methods,
+                session_binding: input.session_binding,
+                created_at: input.created_at,
+                updated_at: input.updated_at,
+            };
+            map.insert(row.organization_id, row.clone());
+            Ok(row)
+        })
+    }
+
+    fn update(
+        &self,
+        organization_id: Uuid,
+        changes: domain::UpdateOrganizationPolicy,
+    ) -> RepoFuture<'_, domain::OrganizationPolicy> {
+        Box::pin(async move {
+            let mut map = self.policies.write().unwrap();
+            let row = map.get_mut(&organization_id).ok_or(RepoError::NotFound)?;
+            if let Some(v) = changes.max_session_duration_secs {
+                row.max_session_duration_secs = v;
+            }
+            if let Some(v) = changes.idle_timeout_secs {
+                row.idle_timeout_secs = v;
+            }
+            if let Some(v) = changes.mfa_required {
+                row.mfa_required = v;
+            }
+            if let Some(v) = changes.mfa_grace_period_days {
+                row.mfa_grace_period_days = v;
+            }
+            if let Some(v) = changes.ip_allowlist {
+                row.ip_allowlist = v;
+            }
+            if let Some(v) = changes.max_concurrent_sessions {
+                row.max_concurrent_sessions = v;
+            }
+            if let Some(v) = changes.allowed_auth_methods {
+                row.allowed_auth_methods = v;
+            }
+            if let Some(v) = changes.session_binding {
+                row.session_binding = v;
+            }
+            if let Some(v) = changes.updated_at {
+                row.updated_at = v;
+            }
+            Ok(row.clone())
+        })
+    }
+
+    fn delete(&self, organization_id: Uuid) -> RepoFuture<'_, ()> {
+        Box::pin(async move {
+            let mut map = self.policies.write().unwrap();
+            map.remove(&organization_id);
+            Ok(())
         })
     }
 }

@@ -181,6 +181,10 @@ fn build_repositories(db: &DatabaseConnection) -> Repositories {
         organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
             "seaorm-sqlite",
         )),
+        #[cfg(feature = "organizations")]
+        organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
+            "seaorm-sqlite",
+        )),
     }
 }
 

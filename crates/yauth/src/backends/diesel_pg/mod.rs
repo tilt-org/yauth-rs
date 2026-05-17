@@ -185,6 +185,11 @@ impl DatabaseBackend for DieselPgBackend {
             organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
                 "diesel-pg",
             )),
+            // Issue #92 per-org policy repo lands as follow-up; stub for now.
+            #[cfg(feature = "organizations")]
+            organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
+                "diesel-pg",
+            )),
         }
     }
 }

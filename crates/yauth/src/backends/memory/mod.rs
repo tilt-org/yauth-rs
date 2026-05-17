@@ -151,6 +151,8 @@ pub(crate) struct Storage {
     pub(crate) invitations: Arc<RwLock<HashMap<Uuid, domain::Invitation>>>,
     #[cfg(feature = "organizations")]
     pub(crate) organization_domains: Arc<RwLock<HashMap<Uuid, domain::OrganizationDomain>>>,
+    #[cfg(feature = "organizations")]
+    pub(crate) organization_policies: Arc<RwLock<HashMap<Uuid, domain::OrganizationPolicy>>>,
 }
 
 impl Storage {
@@ -221,6 +223,8 @@ impl Storage {
             invitations: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(feature = "organizations")]
             organization_domains: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "organizations")]
+            organization_policies: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -375,6 +379,7 @@ impl DatabaseBackend for InMemoryBackend {
                 self.storage.memberships.clone(),
                 self.storage.invitations.clone(),
                 self.storage.organization_domains.clone(),
+                self.storage.organization_policies.clone(),
             )),
             #[cfg(feature = "organizations")]
             memberships: Arc::new(organization_repo::InMemoryMembershipRepo::new(
@@ -388,6 +393,12 @@ impl DatabaseBackend for InMemoryBackend {
             organization_domains: Arc::new(organization_repo::InMemoryOrganizationDomainRepo::new(
                 self.storage.organization_domains.clone(),
             )),
+            #[cfg(feature = "organizations")]
+            organization_policies: Arc::new(
+                organization_repo::InMemoryOrganizationPolicyRepo::new(
+                    self.storage.organization_policies.clone(),
+                ),
+            ),
         }
     }
 }

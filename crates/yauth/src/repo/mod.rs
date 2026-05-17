@@ -217,6 +217,11 @@ mod organization_domain;
 pub use organization_domain::*;
 
 #[cfg(feature = "organizations")]
+mod organization_policy;
+#[cfg(feature = "organizations")]
+pub use organization_policy::*;
+
+#[cfg(feature = "organizations")]
 mod organization_stub;
 #[cfg(feature = "organizations")]
 pub use organization_stub::*;
@@ -294,6 +299,8 @@ pub struct Repositories {
     pub invitations: Arc<dyn InvitationRepository>,
     #[cfg(feature = "organizations")]
     pub organization_domains: Arc<dyn OrganizationDomainRepository>,
+    #[cfg(feature = "organizations")]
+    pub organization_policies: Arc<dyn OrganizationPolicyRepository>,
 }
 
 // ──────────────────────────────────────────────

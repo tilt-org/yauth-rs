@@ -14,7 +14,7 @@
 
 use super::{
     InvitationRepository, MembershipRepository, OrganizationDomainRepository,
-    OrganizationRepository, RepoError, RepoFuture, sealed,
+    OrganizationPolicyRepository, OrganizationRepository, RepoError, RepoFuture, sealed,
 };
 use crate::domain;
 use uuid::Uuid;
@@ -279,6 +279,71 @@ impl OrganizationDomainRepository for StubOrganizationDomainRepo {
                 self.backend,
                 "OrganizationDomainRepository",
                 "list_for_org",
+            ))
+        })
+    }
+}
+
+/// Stub `OrganizationPolicyRepository` (issue #92).
+pub struct StubOrganizationPolicyRepo {
+    backend: &'static str,
+}
+
+impl StubOrganizationPolicyRepo {
+    pub fn new(backend: &'static str) -> Self {
+        Self { backend }
+    }
+}
+
+impl sealed::Sealed for StubOrganizationPolicyRepo {}
+
+impl OrganizationPolicyRepository for StubOrganizationPolicyRepo {
+    fn find_for_org(
+        &self,
+        _organization_id: Uuid,
+    ) -> RepoFuture<'_, Option<domain::OrganizationPolicy>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "OrganizationPolicyRepository",
+                "find_for_org",
+            ))
+        })
+    }
+
+    fn create(
+        &self,
+        _input: domain::NewOrganizationPolicy,
+    ) -> RepoFuture<'_, domain::OrganizationPolicy> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "OrganizationPolicyRepository",
+                "create",
+            ))
+        })
+    }
+
+    fn update(
+        &self,
+        _organization_id: Uuid,
+        _changes: domain::UpdateOrganizationPolicy,
+    ) -> RepoFuture<'_, domain::OrganizationPolicy> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "OrganizationPolicyRepository",
+                "update",
+            ))
+        })
+    }
+
+    fn delete(&self, _organization_id: Uuid) -> RepoFuture<'_, ()> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "OrganizationPolicyRepository",
+                "delete",
             ))
         })
     }
