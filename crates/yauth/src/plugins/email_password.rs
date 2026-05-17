@@ -322,6 +322,17 @@ async fn register(
         )
         .await;
 
+    // Issue #90 JIT membership: if email verification is OFF (or the
+    // deployment created the user already-verified) and the user's domain
+    // is claimed for auto-join, add them now. With verification ON we
+    // defer the hook to `verify_email` instead.
+    #[cfg(feature = "organizations")]
+    if !ep_config.require_email_verification {
+        let _ =
+            crate::plugins::organizations::auto_join_verified_domain(&state, user_id, &email, true)
+                .await;
+    }
+
     let message = if ep_config.require_email_verification {
         "Account created. Please check your email to verify your address."
     } else {
@@ -659,6 +670,19 @@ async fn verify_email(
     state
         .write_audit_log(Some(verification.user_id), "email_verified", None, None)
         .await;
+
+    // Issue #90 JIT membership: now that email is verified, run the
+    // auto-join hook. Best-effort — failures don't block the response.
+    #[cfg(feature = "organizations")]
+    {
+        let user_id = verification.user_id;
+        if let Ok(Some(u)) = state.repos.users.find_by_id(user_id).await {
+            let _ = crate::plugins::organizations::auto_join_verified_domain(
+                &state, user_id, &u.email, true,
+            )
+            .await;
+        }
+    }
 
     Ok(Json(MessageResponse {
         message: "Email verified successfully. You can now sign in.".to_string(),

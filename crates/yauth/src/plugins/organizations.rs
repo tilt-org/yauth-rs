@@ -28,9 +28,12 @@ use crate::plugin::{PluginContext, YAuthPlugin};
 use crate::repo::RepoError;
 use crate::state::YAuthState;
 use yauth_entity::{
-    Invitation, Membership, MembershipStatus, NewInvitation, NewMembership, NewOrganization,
-    Organization, UpdateMembership, UpdateOrganization,
+    DomainStatus, Invitation, Membership, MembershipStatus, NewInvitation, NewMembership,
+    NewOrganization, NewOrganizationDomain, Organization, OrganizationDomain, UpdateMembership,
+    UpdateOrganization, UpdateOrganizationDomain, domain_from_email,
 };
+
+use crate::auth::domain_verifier;
 
 const INVITATION_TTL_HOURS: i64 = 168; // 7 days
 
@@ -41,6 +44,10 @@ const INVITATION_TTL_HOURS: i64 = 168; // 7 days
 const RATE_LIMIT_ORG_CREATE: (u32, u64) = (20, 3600); // 20 / hour / user
 const RATE_LIMIT_INVITATION_CREATE: (u32, u64) = (50, 3600); // 50 / hour / org
 const RATE_LIMIT_MEMBER_LIST: (u32, u64) = (100, 60); // 100 / minute / user
+// Issue #90: domain claim + verify rate limits. Conservative defaults; domain
+// claim is a once-or-twice-per-tenant operation, verify is a manual retry button.
+const RATE_LIMIT_DOMAIN_CLAIM: (u32, u64) = (10, 3600); // 10 / hour / org
+const RATE_LIMIT_DOMAIN_VERIFY: (u32, u64) = (60, 3600); // 60 / hour / org
 
 /// Plugin entry point. Mounts org CRUD routes on the protected router.
 pub struct OrganizationsPlugin;
@@ -78,6 +85,19 @@ impl YAuthPlugin for OrganizationsPlugin {
                 .route("/organizations/{id}/permissions", get(list_my_permissions))
                 .route("/organizations/{id}/invitations", post(create_invitation))
                 .route("/invitations/accept", post(accept_invitation))
+                // ── Issue #90: verified email domains ─────────────────
+                .route(
+                    "/organizations/{id}/domains",
+                    get(list_domains).post(create_domain),
+                )
+                .route(
+                    "/organizations/{id}/domains/{did}",
+                    axum::routing::patch(update_domain).delete(delete_domain),
+                )
+                .route(
+                    "/organizations/{id}/domains/{did}/verify",
+                    post(verify_domain_route),
+                )
                 // ── Issue #89: active-org switcher ─────────────────────
                 .route(
                     "/sessions/active-org",
@@ -936,4 +956,402 @@ async fn clear_active_org(
     build_active_org_response(&state, user.id, None, bearer_token)
         .await
         .map(Json)
+}
+
+// ──────────────────────────────────────────────
+// Verified email domains (issue #90)
+// ──────────────────────────────────────────────
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CreateDomainRequest {
+    /// Domain to claim (e.g. `"acme.com"`). Canonicalized to lowercase.
+    pub domain: String,
+    /// Auto-add matching users to the org on signup / email verification.
+    /// Defaults to `false` — the org must explicitly opt in.
+    #[serde(default)]
+    pub auto_join_on_signup: bool,
+    /// Role granted on auto-join. Defaults to `"member"`.
+    #[serde(default)]
+    pub default_role_on_auto_join: Option<String>,
+    /// Auto-join only after the user has verified their address.
+    /// Defaults to `true` (anti-abuse).
+    #[serde(default)]
+    pub require_email_verified: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UpdateDomainRequest {
+    pub auto_join_on_signup: Option<bool>,
+    pub default_role_on_auto_join: Option<String>,
+    pub require_email_verified: Option<bool>,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DomainResponse {
+    pub id: Uuid,
+    pub organization_id: Uuid,
+    pub domain: String,
+    pub status: String,
+    pub verified_at: Option<chrono::NaiveDateTime>,
+    pub last_checked_at: Option<chrono::NaiveDateTime>,
+    pub auto_join_on_signup: bool,
+    pub default_role_on_auto_join: String,
+    pub require_email_verified: bool,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+}
+
+impl From<OrganizationDomain> for DomainResponse {
+    fn from(d: OrganizationDomain) -> Self {
+        Self {
+            id: d.id,
+            organization_id: d.organization_id,
+            domain: d.domain,
+            status: d.status.as_str().to_string(),
+            verified_at: d.verified_at,
+            last_checked_at: d.last_checked_at,
+            auto_join_on_signup: d.auto_join_on_signup,
+            default_role_on_auto_join: d.default_role_on_auto_join,
+            require_email_verified: d.require_email_verified,
+            created_at: d.created_at,
+            updated_at: d.updated_at,
+        }
+    }
+}
+
+/// Returned by `POST /organizations/:id/domains` — wraps the claim plus
+/// the **verification token**, which is returned exactly once at claim
+/// time. Clients must surface it to the operator so they can publish the
+/// DNS TXT record `_yauth-domain-verify.<domain>` containing the token.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CreateDomainResponse {
+    pub domain: DomainResponse,
+    pub verification_token: String,
+    pub dns_record_name: String,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct VerifyDomainResponse {
+    pub domain: DomainResponse,
+    pub verified: bool,
+}
+
+async fn create_domain(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<CreateDomainRequest>,
+) -> Result<(StatusCode, Json<CreateDomainResponse>), ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    let (limit, window) = RATE_LIMIT_DOMAIN_CLAIM;
+    enforce_rate_limit(&state, &format!("org-domain-claim:{id}"), limit, window).await?;
+
+    let canonical = req.domain.trim().to_lowercase();
+    if canonical.is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "domain is required"));
+    }
+    // Basic shape gate — reject obvious garbage. Real validity is enforced
+    // by DNS lookup at verify time.
+    if !canonical.contains('.') || canonical.contains(char::is_whitespace) {
+        return Err(api_err(StatusCode::BAD_REQUEST, "invalid domain"));
+    }
+
+    let token = crypto::generate_token();
+    let now = Utc::now().naive_utc();
+    let domain = state
+        .repos
+        .organization_domains
+        .create(NewOrganizationDomain {
+            id: Uuid::now_v7(),
+            organization_id: id,
+            domain: canonical.clone(),
+            status: DomainStatus::Pending,
+            verification_token: token.clone(),
+            verified_at: None,
+            last_checked_at: None,
+            auto_join_on_signup: req.auto_join_on_signup,
+            default_role_on_auto_join: req
+                .default_role_on_auto_join
+                .unwrap_or_else(|| roles::MEMBER.to_string()),
+            // Anti-abuse default: require verified email for auto-join.
+            require_email_verified: req.require_email_verified.unwrap_or(true),
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .map_err(|e| match e {
+            RepoError::Conflict(msg) => api_err(StatusCode::CONFLICT, &msg),
+            other => other.into(),
+        })?;
+
+    state
+        .write_audit_log(
+            Some(user.id),
+            "org_domain_claimed",
+            Some(serde_json::json!({
+                "organization_id": id,
+                "domain": canonical,
+            })),
+            None,
+        )
+        .await;
+
+    let dns_record_name = domain_verifier::challenge_fqdn(&canonical);
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateDomainResponse {
+            domain: domain.into(),
+            verification_token: token,
+            dns_record_name,
+        }),
+    ))
+}
+
+async fn list_domains(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<DomainResponse>>, ApiError> {
+    // Any active member can view claimed domains for their org.
+    state
+        .repos
+        .memberships
+        .find_by_org_user(id, user.id)
+        .await?
+        .ok_or_else(|| forbid("not a member of this organization"))?;
+    let rows = state.repos.organization_domains.list_for_org(id).await?;
+    Ok(Json(rows.into_iter().map(Into::into).collect()))
+}
+
+async fn update_domain(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path((id, did)): Path<(Uuid, Uuid)>,
+    Json(req): Json<UpdateDomainRequest>,
+) -> Result<Json<DomainResponse>, ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    let row = state
+        .repos
+        .organization_domains
+        .find_by_id(did)
+        .await?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "domain not found"))?;
+    if row.organization_id != id {
+        return Err(forbid("domain does not belong to this organization"));
+    }
+    let now = Utc::now().naive_utc();
+    let updated = state
+        .repos
+        .organization_domains
+        .update(
+            did,
+            UpdateOrganizationDomain {
+                auto_join_on_signup: req.auto_join_on_signup,
+                default_role_on_auto_join: req.default_role_on_auto_join,
+                require_email_verified: req.require_email_verified,
+                updated_at: Some(now),
+                ..Default::default()
+            },
+        )
+        .await?;
+    Ok(Json(updated.into()))
+}
+
+async fn delete_domain(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path((id, did)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    let row = state
+        .repos
+        .organization_domains
+        .find_by_id(did)
+        .await?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "domain not found"))?;
+    if row.organization_id != id {
+        return Err(forbid("domain does not belong to this organization"));
+    }
+    state.repos.organization_domains.delete(did).await?;
+    state
+        .write_audit_log(
+            Some(user.id),
+            "org_domain_removed",
+            Some(serde_json::json!({
+                "organization_id": id,
+                "domain": row.domain,
+            })),
+            None,
+        )
+        .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn verify_domain_route(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path((id, did)): Path<(Uuid, Uuid)>,
+) -> Result<Json<VerifyDomainResponse>, ApiError> {
+    require_org_admin(&state, &user, id).await?;
+    let (limit, window) = RATE_LIMIT_DOMAIN_VERIFY;
+    enforce_rate_limit(&state, &format!("org-domain-verify:{id}"), limit, window).await?;
+
+    let row = state
+        .repos
+        .organization_domains
+        .find_by_id(did)
+        .await?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "domain not found"))?;
+    if row.organization_id != id {
+        return Err(forbid("domain does not belong to this organization"));
+    }
+
+    let outcome = domain_verifier::verify_domain(
+        &row.domain,
+        &row.verification_token,
+        &domain_verifier::VerifyConfig::default(),
+    )
+    .await;
+
+    let now = Utc::now().naive_utc();
+    let verified = matches!(outcome, domain_verifier::VerifyOutcome::Verified);
+    let new_status = if verified {
+        DomainStatus::Verified
+    } else {
+        DomainStatus::Failed
+    };
+    let updated = state
+        .repos
+        .organization_domains
+        .update(
+            did,
+            UpdateOrganizationDomain {
+                status: Some(new_status),
+                verified_at: if verified { Some(Some(now)) } else { None },
+                last_checked_at: Some(Some(now)),
+                updated_at: Some(now),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    state
+        .write_audit_log(
+            Some(user.id),
+            if verified {
+                "org_domain_verified"
+            } else {
+                "org_domain_verify_failed"
+            },
+            Some(serde_json::json!({
+                "organization_id": id,
+                "domain": row.domain,
+            })),
+            None,
+        )
+        .await;
+
+    Ok(Json(VerifyDomainResponse {
+        domain: updated.into(),
+        verified,
+    }))
+}
+
+// ──────────────────────────────────────────────
+// Auto-join hook (JIT membership)
+// ──────────────────────────────────────────────
+
+/// Auto-join the given user into every organization whose verified domain
+/// matches the user's email and is configured to auto-join.
+///
+/// Call sites:
+/// - `email_password::register` — when `require_email_verification = false`
+///   and the user is created already-verified, we run the hook with
+///   `is_email_verified = true`.
+/// - `email_password::verify_email` — once verification succeeds, we run
+///   the hook with `is_email_verified = true`.
+///
+/// Returns the list of org ids the user was newly added to. Errors are
+/// swallowed — JIT is best-effort, never blocking signup. Each call logs
+/// to audit. Already-existing memberships are skipped.
+pub async fn auto_join_verified_domain(
+    state: &YAuthState,
+    user_id: Uuid,
+    email: &str,
+    is_email_verified: bool,
+) -> Vec<Uuid> {
+    let Some(domain) = domain_from_email(email) else {
+        return Vec::new();
+    };
+
+    let row = match state
+        .repos
+        .organization_domains
+        .find_by_domain(&domain)
+        .await
+    {
+        Ok(Some(r)) => r,
+        _ => return Vec::new(),
+    };
+
+    if row.status != DomainStatus::Verified {
+        return Vec::new();
+    }
+    if !row.auto_join_on_signup {
+        return Vec::new();
+    }
+    if row.require_email_verified && !is_email_verified {
+        return Vec::new();
+    }
+
+    // Idempotency — already a member? Skip.
+    if let Ok(Some(_)) = state
+        .repos
+        .memberships
+        .find_by_org_user(row.organization_id, user_id)
+        .await
+    {
+        return Vec::new();
+    }
+
+    let now = Utc::now().naive_utc();
+    let new_membership = NewMembership {
+        id: Uuid::now_v7(),
+        organization_id: row.organization_id,
+        user_id,
+        role: row.default_role_on_auto_join.clone(),
+        status: MembershipStatus::Active,
+        invited_at: None,
+        joined_at: Some(now),
+        created_at: now,
+        updated_at: now,
+    };
+    match state.repos.memberships.create(new_membership).await {
+        Ok(_) => {
+            state
+                .write_audit_log(
+                    Some(user_id),
+                    "org_domain_auto_join",
+                    Some(serde_json::json!({
+                        "organization_id": row.organization_id,
+                        "domain": row.domain,
+                        "role": row.default_role_on_auto_join,
+                    })),
+                    None,
+                )
+                .await;
+            vec![row.organization_id]
+        }
+        // Conflict means the membership already exists — treat as no-op.
+        Err(RepoError::Conflict(_)) => Vec::new(),
+        Err(e) => {
+            crate::otel::record_error("auto_join_create_failed", &e);
+            Vec::new()
+        }
+    }
 }
