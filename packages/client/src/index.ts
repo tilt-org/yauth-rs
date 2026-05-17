@@ -16,6 +16,8 @@ import type {
   ConfirmTotpRequest,
   CreateApiKeyRequest,
   CreateDomainRequest,
+  CreateSsoConnectionRequest,
+  UpdateSsoConnectionRequest,
   CreateInvitationRequest,
   CreateOrgRequest,
   CreateWebhookRequest,
@@ -113,6 +115,11 @@ import {
   organizationsListDomains,
   organizationsListMembers,
   organizationsListPermissions,
+  organizationsListSsoConnections,
+  organizationsCreateSsoConnection,
+  organizationsUpdateSsoConnection,
+  organizationsDeleteSsoConnection,
+  organizationsTestSsoConnection,
   organizationsRemoveMember,
   organizationsSetActiveOrg,
   organizationsTransferOwnership,
@@ -180,6 +187,17 @@ export function createYAuthClient(options: YAuthClientOptions) {
       verify: (body: VerifyMfaRequest) => mfaVerify(body),
       getBackupCodeCount: () => mfaGetBackupCodeCount(),
       regenerateBackupCodes: () => mfaRegenerateBackupCodes(),
+    },
+
+    sso: {
+      /** Build the user-facing `/sso/login` redirect URL (issue #93). */
+      loginUrl: (opts: { org?: string; domain?: string; redirectTo?: string }) => {
+        const params = new URLSearchParams();
+        if (opts.org) params.set("org", opts.org);
+        if (opts.domain) params.set("domain", opts.domain);
+        if (opts.redirectTo) params.set("redirect_to", opts.redirectTo);
+        return `${options.baseUrl}/sso/login?${params.toString()}`;
+      },
     },
 
     oauth: {
@@ -287,6 +305,16 @@ export function createYAuthClient(options: YAuthClientOptions) {
         organizationsUpdateDomain(id, did, body),
       deleteDomain: (id: string, did: string) => organizationsDeleteDomain(id, did),
       verifyDomain: (id: string, did: string) => organizationsVerifyDomain(id, did),
+      // SSO OIDC connections (#93)
+      listSsoConnections: (id: string) => organizationsListSsoConnections(id),
+      createSsoConnection: (id: string, body: CreateSsoConnectionRequest) =>
+        organizationsCreateSsoConnection(id, body),
+      updateSsoConnection: (id: string, cid: string, body: UpdateSsoConnectionRequest) =>
+        organizationsUpdateSsoConnection(id, cid, body),
+      deleteSsoConnection: (id: string, cid: string) =>
+        organizationsDeleteSsoConnection(id, cid),
+      testSsoConnection: (id: string, cid: string) =>
+        organizationsTestSsoConnection(id, cid),
     },
   };
 }

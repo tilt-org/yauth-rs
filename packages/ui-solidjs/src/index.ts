@@ -22,6 +22,9 @@ export { ProfileSettings } from "./components/profile-settings";
 export { RegisterForm } from "./components/register-form";
 export { ResetPasswordForm } from "./components/reset-password-form";
 export { RoleSelector } from "./components/role-selector";
+export { SsoConnectionForm } from "./components/sso-connection-form";
+export { SsoConnectionList } from "./components/sso-connection-list";
+export { SsoLoginButton } from "./components/sso-login-button";
 export { TransferOwnership } from "./components/transfer-ownership";
 export { VerifyEmail } from "./components/verify-email";
 export { createActiveOrg } from "./hooks/create-active-org";
@@ -37,5 +40,6 @@ export {
   ROLES,
   slugify,
 } from "./hooks/create-organizations";
+export { createSsoConnections } from "./hooks/create-sso-connections";
 export type { YAuthClient } from "./provider";
 export { useYAuth, YAuthProvider } from "./provider";
