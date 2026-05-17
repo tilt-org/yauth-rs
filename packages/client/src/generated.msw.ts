@@ -294,6 +294,53 @@ export interface CreateApiKeyResponse {
   secret: string;
 }
 
+export interface CreateDomainRequest {
+  /** Auto-add matching users to the org on signup / email verification.
+  Defaults to `false` — the org must explicitly opt in. */
+  auto_join_on_signup?: boolean;
+  /**
+     * Role granted on auto-join. Defaults to `"member"`.
+     * @nullable
+     */
+  default_role_on_auto_join?: string | null;
+  /** Domain to claim (e.g. `"acme.com"`). Canonicalized to lowercase. */
+  domain: string;
+  /**
+     * Auto-join only after the user has verified their address.
+  Defaults to `true` (anti-abuse).
+     * @nullable
+     */
+  require_email_verified?: boolean | null;
+}
+
+export interface DomainResponse {
+  auto_join_on_signup: boolean;
+  created_at: string;
+  default_role_on_auto_join: string;
+  domain: string;
+  id: string;
+  /** @nullable */
+  last_checked_at?: string | null;
+  organization_id: string;
+  require_email_verified: boolean;
+  status: string;
+  updated_at: string;
+  /** @nullable */
+  verified_at?: string | null;
+}
+
+/**
+ * Returned by `POST /organizations/:id/domains` — wraps the claim plus
+the **verification token**, which is returned exactly once at claim
+time. Clients must surface it to the operator so they can publish the
+DNS TXT record `_yauth-domain-verify.<domain>` containing the token.
+ */
+export interface CreateDomainResponse {
+  dns_record_name: string;
+  domain: DomainResponse;
+  verification_token: string;
+}
+
 export interface CreateInvitationRequest {
   email: string;
   /** @nullable */
@@ -925,6 +972,15 @@ export interface UnlockAccountRequest {
   token: string;
 }
 
+export interface UpdateDomainRequest {
+  /** @nullable */
+  auto_join_on_signup?: boolean | null;
+  /** @nullable */
+  default_role_on_auto_join?: string | null;
+  /** @nullable */
+  require_email_verified?: boolean | null;
+}
+
 export interface UpdateOrgRequest {
   /** @nullable */
   avatar_url?: string | null;
@@ -959,6 +1015,11 @@ export interface UpdateWebhookRequest {
   secret?: string | null;
   /** @nullable */
   url?: string | null;
+}
+
+export interface VerifyDomainResponse {
+  domain: DomainResponse;
+  verified: boolean;
 }
 
 export interface VerifyEmailRequest {
@@ -2431,6 +2492,121 @@ export const organizationsUpdate = async (id: string,
 
 
 
+export const getOrganizationsListDomainsUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/domains`
+}
+
+export const organizationsListDomains = async (id: string, options?: RequestInit): Promise<DomainResponse[]> => {
+
+  return customFetch<DomainResponse[]>(getOrganizationsListDomainsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsCreateDomainUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/domains`
+}
+
+export const organizationsCreateDomain = async (id: string,
+    createDomainRequest: CreateDomainRequest, options?: RequestInit): Promise<CreateDomainResponse> => {
+
+  return customFetch<CreateDomainResponse>(getOrganizationsCreateDomainUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createDomainRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsDeleteDomainUrl = (id: string,
+    did: string,) => {
+
+
+
+
+  return `/organizations/${id}/domains/${did}`
+}
+
+export const organizationsDeleteDomain = async (id: string,
+    did: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOrganizationsDeleteDomainUrl(id,did),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsUpdateDomainUrl = (id: string,
+    did: string,) => {
+
+
+
+
+  return `/organizations/${id}/domains/${did}`
+}
+
+export const organizationsUpdateDomain = async (id: string,
+    did: string,
+    updateDomainRequest: UpdateDomainRequest, options?: RequestInit): Promise<DomainResponse> => {
+
+  return customFetch<DomainResponse>(getOrganizationsUpdateDomainUrl(id,did),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateDomainRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsVerifyDomainUrl = (id: string,
+    did: string,) => {
+
+
+
+
+  return `/organizations/${id}/domains/${did}/verify`
+}
+
+export const organizationsVerifyDomain = async (id: string,
+    did: string, options?: RequestInit): Promise<VerifyDomainResponse> => {
+
+  return customFetch<VerifyDomainResponse>(getOrganizationsVerifyDomainUrl(id,did),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
 export const getOrganizationsCreateInvitationUrl = (id: string,) => {
 
 
@@ -3254,6 +3430,14 @@ export const getOrganizationsGetResponseMock = (overrideResponse: Partial<Extrac
 
 export const getOrganizationsUpdateResponseMock = (overrideResponse: Partial<Extract<OrganizationResponse, object>> = {}): OrganizationResponse => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
+export const getOrganizationsListDomainsResponseMock = (): DomainResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({auto_join_on_signup: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_auto_join: faker.string.alpha({length: {min: 10, max: 20}}), domain: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), last_checked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), require_email_verified: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', verified_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined])})))
+
+export const getOrganizationsCreateDomainResponseMock = (overrideResponse: Partial<Extract<CreateDomainResponse, object>> = {}): CreateDomainResponse => ({dns_record_name: faker.string.alpha({length: {min: 10, max: 20}}), domain: {auto_join_on_signup: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_auto_join: faker.string.alpha({length: {min: 10, max: 20}}), domain: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), last_checked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), require_email_verified: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', verified_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined])}, verification_token: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getOrganizationsUpdateDomainResponseMock = (overrideResponse: Partial<Extract<DomainResponse, object>> = {}): DomainResponse => ({auto_join_on_signup: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_auto_join: faker.string.alpha({length: {min: 10, max: 20}}), domain: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), last_checked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), require_email_verified: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', verified_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), ...overrideResponse})
+
+export const getOrganizationsVerifyDomainResponseMock = (overrideResponse: Partial<Extract<VerifyDomainResponse, object>> = {}): VerifyDomainResponse => ({domain: {auto_join_on_signup: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_auto_join: faker.string.alpha({length: {min: 10, max: 20}}), domain: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), last_checked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), require_email_verified: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', verified_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined])}, verified: faker.datatype.boolean(), ...overrideResponse})
+
 export const getOrganizationsCreateInvitationResponseMock = (overrideResponse: Partial<Extract<CreateInvitationResponse, object>> = {}): CreateInvitationResponse => ({invitation: {created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', email: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}})}, token: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getOrganizationsListMembersResponseMock = (): MembershipResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid()})))
@@ -4013,6 +4197,64 @@ export const getOrganizationsUpdateMockHandler = (overrideResponse?: Organizatio
   }, options)
 }
 
+export const getOrganizationsListDomainsMockHandler = (overrideResponse?: DomainResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DomainResponse[]> | DomainResponse[]), options?: RequestHandlerOptions) => {
+  return http.get('*/organizations/:id/domains', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsListDomainsResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsCreateDomainMockHandler = (overrideResponse?: CreateDomainResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<CreateDomainResponse> | CreateDomainResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/organizations/:id/domains', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsCreateDomainResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsDeleteDomainMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.delete('*/organizations/:id/domains/:did', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsUpdateDomainMockHandler = (overrideResponse?: DomainResponse | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<DomainResponse> | DomainResponse), options?: RequestHandlerOptions) => {
+  return http.patch('*/organizations/:id/domains/:did', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsUpdateDomainResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsVerifyDomainMockHandler = (overrideResponse?: VerifyDomainResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<VerifyDomainResponse> | VerifyDomainResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/organizations/:id/domains/:did/verify', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsVerifyDomainResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getOrganizationsCreateInvitationMockHandler = (overrideResponse?: CreateInvitationResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<CreateInvitationResponse> | CreateInvitationResponse), options?: RequestHandlerOptions) => {
   return http.post('*/organizations/:id/invitations', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
@@ -4452,6 +4694,11 @@ export const getYauthMock = () => [
   getOrganizationsGetMockHandler(),
   getOrganizationsDeleteMockHandler(),
   getOrganizationsUpdateMockHandler(),
+  getOrganizationsListDomainsMockHandler(),
+  getOrganizationsCreateDomainMockHandler(),
+  getOrganizationsDeleteDomainMockHandler(),
+  getOrganizationsUpdateDomainMockHandler(),
+  getOrganizationsVerifyDomainMockHandler(),
   getOrganizationsCreateInvitationMockHandler(),
   getOrganizationsListMembersMockHandler(),
   getOrganizationsRemoveMemberMockHandler(),
