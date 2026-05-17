@@ -48,3 +48,6 @@ pub use webhooks::*;
 
 mod organization;
 pub use organization::*;
+
+mod organization_domain;
+pub use organization_domain::*;
