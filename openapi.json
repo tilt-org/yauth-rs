@@ -2277,6 +2277,84 @@
         ]
       }
     },
+    "/organizations/{id}/policy": {
+      "get": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_getPolicy",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_updatePolicy",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/organizations/{id}/transfer-ownership": {
       "post": {
         "tags": [
@@ -5204,6 +5282,77 @@
           }
         }
       },
+      "PolicyResponse": {
+        "type": "object",
+        "description": "Wire-format response for the per-org policy.\n\nMirrors [`OrganizationPolicy`] but flattens the `SessionBinding` /\n`AuthMethod` enums to strings — keeps the OpenAPI schema legible\nfor the generated TS client.",
+        "required": [
+          "organization_id",
+          "mfa_required",
+          "mfa_grace_period_days",
+          "ip_allowlist",
+          "allowed_auth_methods",
+          "session_binding",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "allowed_auth_methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "idle_timeout_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "ip_allowlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_concurrent_sessions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "max_session_duration_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "mfa_grace_period_days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mfa_required": {
+            "type": "boolean"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "session_binding": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "RefreshRequest": {
         "type": "object",
         "required": [
@@ -5510,6 +5659,70 @@
             ]
           },
           "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdatePolicyRequest": {
+        "type": "object",
+        "properties": {
+          "allowed_auth_methods": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "idle_timeout_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "ip_allowlist": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_concurrent_sessions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "max_session_duration_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "`None` (omitted) = \"leave unchanged\"; `Some(None)` = \"clear\",\n`Some(Some(n))` = \"set\". Same convention as the org domain\nupdate payload — admins clear an override by sending `null`."
+          },
+          "mfa_grace_period_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "mfa_required": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "session_binding": {
             "type": [
               "string",
               "null"
