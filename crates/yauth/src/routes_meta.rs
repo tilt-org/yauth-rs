@@ -1764,10 +1764,7 @@ fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
                 .operation(
                     HttpMethod::Delete,
                     with_path_param(
-                        with_path_param(
-                            op("organizations_deleteDomain", "organizations"),
-                            "id",
-                        ),
+                        with_path_param(op("organizations_deleteDomain", "organizations"), "id"),
                         "did",
                     )
                     .pipe(with_empty_response)
