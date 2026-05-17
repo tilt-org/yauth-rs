@@ -80,6 +80,23 @@ struct Claims {
     aud: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     scope: Option<String>,
+    // ── Issue #89 — active organization claims ───────────────────────────
+    // Optional on both sides of the wire: older clients ignore them, and
+    // the server emits them only when the `organizations` feature is on
+    // AND the user has at least one membership. Decoding without these
+    // claims must continue to work (backwards compatibility).
+    /// Active organization id in this token. `None` for users with no
+    /// memberships or when the feature is disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    org: Option<String>,
+    /// Caller's role in `org`. Always paired with `org`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    org_role: Option<String>,
+    /// All organizations the user is a member of. Useful for client-side
+    /// org-switcher UI without a follow-up API call. Empty when the
+    /// feature is off; absent on the wire when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    orgs: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +143,62 @@ pub struct JwtUser {
     pub id: Uuid,
     pub email: String,
     pub role: String,
+    /// Active organization to stamp into the token (issue #89).
+    pub active_org_id: Option<Uuid>,
+    /// Caller's role in `active_org_id`.
+    pub org_role: Option<String>,
+    /// All orgs the user is a member of. Surfaced as the `orgs` claim.
+    pub all_orgs: Vec<Uuid>,
+}
+
+impl JwtUser {
+    /// Construct from raw identity, with no org context (single-tenant /
+    /// `organizations` feature off path).
+    pub fn new(id: Uuid, email: String, role: String) -> Self {
+        Self {
+            id,
+            email,
+            role,
+            active_org_id: None,
+            org_role: None,
+            all_orgs: Vec::new(),
+        }
+    }
+
+    /// Resolve membership context for the JWT (issue #89). When the
+    /// `organizations` feature is off this is a no-op and `self` is
+    /// returned unchanged. Best-effort — repo errors are swallowed and
+    /// surfaced as missing org claims, never as a token failure.
+    pub async fn with_active_org_for(mut self, state: &YAuthState) -> Self {
+        #[cfg(feature = "organizations")]
+        {
+            use yauth_entity::MembershipStatus;
+            if let Ok(memberships) = state.repos.memberships.list_by_user(self.id).await {
+                let active: Vec<_> = memberships
+                    .into_iter()
+                    .filter(|m| m.status == MembershipStatus::Active)
+                    .collect();
+                self.all_orgs = active.iter().map(|m| m.organization_id).collect();
+
+                // Same selection rules as session creation.
+                let chosen = if active.is_empty() {
+                    None
+                } else if active.len() == 1 {
+                    Some(&active[0])
+                } else {
+                    let mut by_age = active.iter().collect::<Vec<_>>();
+                    by_age.sort_by_key(|m| m.created_at);
+                    by_age.into_iter().next()
+                };
+                if let Some(m) = chosen {
+                    self.active_org_id = Some(m.organization_id);
+                    self.org_role = Some(m.role.clone());
+                }
+            }
+        }
+        let _ = state;
+        self
+    }
 }
 
 /// Resolve the `iss` claim for tokens issued by this YAuth instance.
@@ -168,6 +241,12 @@ pub fn create_jwt(
         jti: jti.clone(),
         aud: config.audience.clone(),
         scope: scope.map(|s| s.to_string()),
+        // Issue #89: omit when no active org so older clients see the
+        // same shape they always did. `serde(skip_serializing_if = "Option::is_none")`
+        // suppresses the field at the JSON level.
+        org: user.active_org_id.map(|id| id.to_string()),
+        org_role: user.org_role.clone(),
+        orgs: user.all_orgs.iter().map(|id| id.to_string()).collect(),
     };
 
     let token = crate::auth::signing::sign_jwt(&claims, state).map_err(|e| {
@@ -297,11 +376,9 @@ async fn create_token(
 
             let config = &state.bearer_config;
             let scope_str = input.scope.as_deref();
-            let jwt_user = JwtUser {
-                id: u.id,
-                email: u.email.clone(),
-                role: u.role.clone(),
-            };
+            let jwt_user = JwtUser::new(u.id, u.email.clone(), u.role.clone())
+                .with_active_org_for(&state)
+                .await;
             let (access_token, _jti) = create_jwt(&jwt_user, &state, scope_str)?;
 
             let family_id = Uuid::now_v7();
@@ -474,11 +551,12 @@ async fn refresh_token(
     }
 
     let config = &state.bearer_config;
-    let jwt_user = JwtUser {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-    };
+    // Issue #89: refresh re-runs the active-org selection so a freshly
+    // joined org appears on the next JWT without forcing the user back
+    // through login.
+    let jwt_user = JwtUser::new(user.id, user.email, user.role)
+        .with_active_org_for(&state)
+        .await;
     let (access_token, _jti) = create_jwt(&jwt_user, &state, None)?;
 
     let new_refresh =
@@ -641,6 +719,28 @@ pub async fn validate_jwt(token: &str, state: &YAuthState) -> Result<AuthUser, S
         return Err("Account suspended".to_string());
     }
 
+    // Issue #89: lift the active-org claims off the JWT into AuthUser. We
+    // trust the signed token's contents (sig + exp already validated). If
+    // membership has been revoked since the JWT was issued, we still
+    // surface the historical claim — callers re-checking authorization
+    // against current membership rows will simply 403, which is the
+    // correct end-state.
+    let active_org_id = claims.org.as_deref().and_then(|s| s.parse::<Uuid>().ok());
+    let org_role = claims.org_role.clone();
+    let all_orgs = claims
+        .orgs
+        .iter()
+        .filter_map(|s| s.parse::<Uuid>().ok())
+        .map(|id| crate::middleware::OrgMembership {
+            organization_id: id,
+            // JWT does not carry per-org role for every org (would blow up
+            // the token size). The active org's role lives in `org_role`;
+            // for non-active orgs callers can re-fetch via the switcher
+            // endpoint if they need to render anything role-aware.
+            role: String::new(),
+        })
+        .collect();
+
     Ok(AuthUser {
         id: user.id,
         email: user.email,
@@ -650,6 +750,9 @@ pub async fn validate_jwt(token: &str, state: &YAuthState) -> Result<AuthUser, S
         banned: user.banned,
         auth_method: AuthMethod::Bearer,
         scopes,
+        active_org_id,
+        org_role,
+        all_orgs,
     })
 }
 
