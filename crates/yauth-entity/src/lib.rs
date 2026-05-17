@@ -54,3 +54,9 @@ pub use organization_domain::*;
 
 mod organization_policy;
 pub use organization_policy::*;
+
+mod sso_connection;
+pub use sso_connection::*;
+
+mod external_identity;
+pub use external_identity::*;
