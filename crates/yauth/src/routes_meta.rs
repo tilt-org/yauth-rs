@@ -120,12 +120,13 @@ fn with_query_params(builder: OperationBuilder, params: &[(&str, bool)]) -> Oper
 
 /// Register all schema components from `ToSchema` derives.
 fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
-    use crate::middleware::{AuthMethod, AuthUser};
+    use crate::middleware::{AuthMethod, AuthUser, OrgMembership};
     use crate::plugins::{
         AuthConfigResponse, PatchMeResponse, SessionResponse, UpdateProfileRequest,
     };
 
     let mut b = builder
+        .schema_from::<OrgMembership>()
         .schema_from::<AuthUser>()
         .schema_from::<AuthMethod>()
         .schema_from::<AuthConfigResponse>()
@@ -303,7 +304,11 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             // RBAC (#88)
             .schema_from::<ChangeRoleRequest>()
             .schema_from::<TransferOwnershipRequest>()
-            .schema_from::<PermissionsResponse>();
+            .schema_from::<PermissionsResponse>()
+            // Active org (#89)
+            .schema_from::<SetActiveOrgRequest>()
+            .schema_from::<ActiveOrgResponse>()
+            .schema_from::<ActiveOrgEntry>();
     }
 
     b
@@ -1696,6 +1701,38 @@ fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
                     HttpMethod::Get,
                     with_path_param(op("organizations_listPermissions", "organizations"), "id")
                         .pipe(|b| with_response(b, "PermissionsResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        // ── Active organization (#89) ────────────────────────────────
+        .path(
+            "/sessions/active-org",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    op("organizations_getActiveOrg", "organizations")
+                        .pipe(|b| with_response(b, "ActiveOrgResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .operation(
+                    HttpMethod::Post,
+                    with_body(
+                        with_response(
+                            op("organizations_setActiveOrg", "organizations"),
+                            "ActiveOrgResponse",
+                        ),
+                        "SetActiveOrgRequest",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Delete,
+                    op("organizations_clearActiveOrg", "organizations")
+                        .pipe(|b| with_response(b, "ActiveOrgResponse"))
                         .security(auth_req())
                         .build(),
                 )
