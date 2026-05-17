@@ -539,6 +539,62 @@ pub fn organizations_schema() -> Vec<TableDef> {
             .column(ColumnDef::new("session_binding", ColumnType::Varchar).default("'none'"))
             .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
             .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()")),
+        // SSO connections — federated sign-in from an external IdP (issue #93).
+        //
+        // Each row attaches one OIDC (or, in #94, SAML) connection to one
+        // organization. `kind` is a `VARCHAR` so adding a new federation
+        // protocol is a no-DDL change. `config` is a JSON blob whose schema
+        // is determined by `kind` — see `OidcConnectionConfig` in
+        // `crates/yauth-entity/src/sso_connection.rs`. The embedded
+        // `client_secret` is encrypted at rest at the repository boundary.
+        TableDef::new("yauth_sso_connections")
+            .description(
+                "Federation connection (OIDC client / SAML SP) attached to one \
+                 organization. `config` carries protocol-specific JSON; \
+                 `client_secret` inside is encrypted at rest.",
+            )
+            .column(
+                ColumnDef::new("id", ColumnType::Uuid)
+                    .primary_key()
+                    .default("gen_random_uuid()"),
+            )
+            .column(
+                ColumnDef::new("organization_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_organizations", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("kind", ColumnType::Varchar).default("'oidc_client'"))
+            .column(ColumnDef::new("name", ColumnType::Varchar))
+            .column(ColumnDef::new("status", ColumnType::Varchar).default("'draft'"))
+            .column(ColumnDef::new("config", ColumnType::Json).default("'{}'"))
+            .column(ColumnDef::new("jit_provisioning_enabled", ColumnType::Boolean).default("true"))
+            .column(ColumnDef::new("default_role_on_jit", ColumnType::Varchar).default("'member'"))
+            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
+            .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()")),
+        // External identity links — IdP `(provider, external_id)` pair
+        // bound to a yauth user (issue #93). The pair is deployment-wide
+        // unique so two yauth accounts can never share one IdP identity.
+        // Cascade-on-user-delete: when the user goes, the link goes;
+        // re-linking is the (new) user's job.
+        TableDef::new("yauth_external_identities")
+            .description(
+                "External (IdP) identity linked to a yauth user. Unique on \
+                 (provider, external_id) — one yauth user per IdP-side identity.",
+            )
+            .column(
+                ColumnDef::new("id", ColumnType::Uuid)
+                    .primary_key()
+                    .default("gen_random_uuid()"),
+            )
+            .column(
+                ColumnDef::new("user_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_users", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("provider", ColumnType::Varchar))
+            .column(ColumnDef::new("external_id", ColumnType::Varchar))
+            .column(ColumnDef::new("linked_at", ColumnType::DateTime).default("now()"))
+            .column(ColumnDef::new("last_login_at", ColumnType::DateTime).default("now()")),
     ]
 }
 
