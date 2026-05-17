@@ -112,6 +112,35 @@ pub enum Authenticated {
     Machine(MachineCaller),
 }
 
+/// The actor behind the request — issue #91.
+///
+/// `AuthUser` answers *which human looks like the caller*; `Principal`
+/// answers *what owns the credential being used*. They diverge for
+/// org-scoped API keys ("service accounts"): the `AuthUser` carries
+/// the creator's identity for the audit trail, but `Principal` is the
+/// org. Handlers that care about *ownership* (e.g. data scoping, audit
+/// log key_id population) read `Principal`; handlers that just want
+/// "who authenticated" can keep using `AuthUser`.
+///
+/// Installed alongside `AuthUser` by the API key middleware. For
+/// session / bearer / user-scoped API key auth the variant is always
+/// `Principal::User`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub enum Principal {
+    /// A human user. `Uuid` is the user's id.
+    User(Uuid),
+    /// An org-scoped API key (a "service account") — issue #91.
+    ServiceAccount {
+        /// The organization the key belongs to.
+        org_id: Uuid,
+        /// The `yauth_api_keys.id` of the key being presented.
+        key_id: Uuid,
+        /// The human who minted the key. Audit trail.
+        created_by: Uuid,
+    },
+}
+
 impl Authenticated {
     pub fn from_extensions(req: &Request) -> Option<Self> {
         if let Some(user) = req.extensions().get::<AuthUser>() {
@@ -210,7 +239,11 @@ pub async fn auth_middleware(
                         attach_org_context(&state, &mut auth_user, session_user.active_org_id)
                             .await;
                         record_auth_user_on_span(&auth_user);
+                        let user_id = auth_user.id;
                         req.extensions_mut().insert(auth_user);
+                        // Issue #91: install a Principal::User so handlers that
+                        // discriminate principal type see a consistent extension.
+                        req.extensions_mut().insert(Principal::User(user_id));
                         return next.run(req).await;
                     }
                     Err(e) => {
@@ -249,7 +282,10 @@ pub async fn auth_middleware(
                     && let Ok(auth_user) = crate::plugins::bearer::validate_jwt(token, &state).await
                 {
                     record_auth_user_on_span(&auth_user);
+                    let user_id = auth_user.id;
                     req.extensions_mut().insert(auth_user);
+                    // Issue #91: stamp Principal::User for handler discriminate.
+                    req.extensions_mut().insert(Principal::User(user_id));
                     return next.run(req).await;
                 }
             }
@@ -261,10 +297,25 @@ pub async fn auth_middleware(
     #[allow(clippy::collapsible_if)]
     if let Some(api_key_header) = headers.get("x-api-key") {
         if let Ok(key_str) = api_key_header.to_str() {
-            if let Ok(auth_user) = crate::plugins::api_key::validate_api_key(key_str, &state).await
+            if let Ok((auth_user, principal)) =
+                crate::plugins::api_key::validate_api_key(key_str, &state).await
             {
                 record_auth_user_on_span(&auth_user);
+                // Issue #91: stamp service-account marker on the SERVER span
+                // so audit / dashboards can distinguish org-scoped traffic.
+                if let Principal::ServiceAccount {
+                    org_id,
+                    key_id,
+                    created_by,
+                } = &principal
+                {
+                    crate::otel::set_attribute("yauth.principal", "service_account");
+                    crate::otel::set_attribute("organization.id", org_id.to_string());
+                    crate::otel::set_attribute("api_key.id", key_id.to_string());
+                    crate::otel::set_attribute("api_key.created_by", created_by.to_string());
+                }
                 req.extensions_mut().insert(auth_user);
+                req.extensions_mut().insert(principal);
                 return next.run(req).await;
             }
         }
