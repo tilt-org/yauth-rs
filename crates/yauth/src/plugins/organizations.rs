@@ -28,9 +28,10 @@ use crate::plugin::{PluginContext, YAuthPlugin};
 use crate::repo::RepoError;
 use crate::state::YAuthState;
 use yauth_entity::{
-    DomainStatus, Invitation, Membership, MembershipStatus, NewInvitation, NewMembership,
-    NewOrganization, NewOrganizationDomain, Organization, OrganizationDomain, UpdateMembership,
-    UpdateOrganization, UpdateOrganizationDomain, domain_from_email,
+    AuthMethod as PolicyAuthMethod, DomainStatus, Invitation, Membership, MembershipStatus,
+    NewInvitation, NewMembership, NewOrganization, NewOrganizationDomain, NewOrganizationPolicy,
+    Organization, OrganizationDomain, OrganizationPolicy, SessionBinding, UpdateMembership,
+    UpdateOrganization, UpdateOrganizationDomain, UpdateOrganizationPolicy, domain_from_email,
 };
 
 use crate::auth::domain_verifier;
@@ -97,6 +98,11 @@ impl YAuthPlugin for OrganizationsPlugin {
                 .route(
                     "/organizations/{id}/domains/{did}/verify",
                     post(verify_domain_route),
+                )
+                // ── Issue #92: per-org policy ──────────────────────────
+                .route(
+                    "/organizations/{id}/policy",
+                    get(get_policy).patch(update_policy),
                 )
                 // ── Issue #91: org-scoped API keys (service accounts) ──
                 // Only mount when the api-key plugin is also enabled.
@@ -1863,4 +1869,240 @@ async fn get_org_api_key_usage(
         expires_at: existing.expires_at,
         created_at: existing.created_at,
     }))
+}
+
+// ──────────────────────────────────────────────
+// Issue #92 — Per-org auth policy
+// ──────────────────────────────────────────────
+
+/// Wire-format response for the per-org policy.
+///
+/// Mirrors [`OrganizationPolicy`] but flattens the `SessionBinding` /
+/// `AuthMethod` enums to strings — keeps the OpenAPI schema legible
+/// for the generated TS client.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PolicyResponse {
+    pub organization_id: Uuid,
+    pub max_session_duration_secs: Option<i64>,
+    pub idle_timeout_secs: Option<i64>,
+    pub mfa_required: bool,
+    pub mfa_grace_period_days: i32,
+    pub ip_allowlist: Vec<String>,
+    pub max_concurrent_sessions: Option<i32>,
+    pub allowed_auth_methods: Vec<String>,
+    pub session_binding: String,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+}
+
+impl From<OrganizationPolicy> for PolicyResponse {
+    fn from(p: OrganizationPolicy) -> Self {
+        Self {
+            organization_id: p.organization_id,
+            max_session_duration_secs: p.max_session_duration_secs,
+            idle_timeout_secs: p.idle_timeout_secs,
+            mfa_required: p.mfa_required,
+            mfa_grace_period_days: p.mfa_grace_period_days,
+            ip_allowlist: p.ip_allowlist,
+            max_concurrent_sessions: p.max_concurrent_sessions,
+            allowed_auth_methods: p
+                .allowed_auth_methods
+                .into_iter()
+                .map(|m| m.as_str().to_string())
+                .collect(),
+            session_binding: p.session_binding.as_str().to_string(),
+            created_at: p.created_at,
+            updated_at: p.updated_at,
+        }
+    }
+}
+
+/// Build the "default" (unrestricted) response payload — used when the
+/// org has never set an explicit policy. Always returns 200 so callers
+/// don't have to special-case "missing" vs "set to defaults".
+fn default_policy_response(org_id: Uuid, now: chrono::NaiveDateTime) -> PolicyResponse {
+    OrganizationPolicy {
+        organization_id: org_id,
+        max_session_duration_secs: None,
+        idle_timeout_secs: None,
+        mfa_required: false,
+        mfa_grace_period_days: 14,
+        ip_allowlist: Vec::new(),
+        max_concurrent_sessions: None,
+        allowed_auth_methods: Vec::new(),
+        session_binding: SessionBinding::None,
+        created_at: now,
+        updated_at: now,
+    }
+    .into()
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UpdatePolicyRequest {
+    /// `None` (omitted) = "leave unchanged"; `Some(None)` = "clear",
+    /// `Some(Some(n))` = "set". Same convention as the org domain
+    /// update payload — admins clear an override by sending `null`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_session_duration_secs: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_timeout_secs: Option<Option<i64>>,
+    pub mfa_required: Option<bool>,
+    pub mfa_grace_period_days: Option<i32>,
+    pub ip_allowlist: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_concurrent_sessions: Option<Option<i32>>,
+    pub allowed_auth_methods: Option<Vec<String>>,
+    pub session_binding: Option<String>,
+}
+
+/// `GET /organizations/:id/policy` — any active member can view the org's
+/// effective policy. Returns 200 with sane defaults if no row exists.
+async fn get_policy(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<PolicyResponse>, ApiError> {
+    // Membership gate — non-members shouldn't learn about an org's posture.
+    state
+        .repos
+        .memberships
+        .find_by_org_user(id, user.id)
+        .await?
+        .ok_or_else(|| forbid("not a member of this organization"))?;
+
+    match state.repos.organization_policies.find_for_org(id).await? {
+        Some(p) => Ok(Json(p.into())),
+        None => {
+            let now = Utc::now().naive_utc();
+            Ok(Json(default_policy_response(id, now)))
+        }
+    }
+}
+
+/// `PATCH /organizations/:id/policy` — admin-only. Replaces fields that
+/// are present; preserves fields that are omitted.
+///
+/// The first PATCH against an org with no existing row materializes the
+/// row with current changes applied over [`OrganizationPolicy::unrestricted`].
+/// Subsequent PATCHes update in place.
+async fn update_policy(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdatePolicyRequest>,
+) -> Result<Json<PolicyResponse>, ApiError> {
+    require_org_admin(&state, &user, id).await?;
+
+    // Parse the wire enums up front so we 400 BEFORE touching storage.
+    let parsed_binding = match req.session_binding.as_deref() {
+        None => None,
+        Some(s) => Some(SessionBinding::parse(s).ok_or_else(|| {
+            api_err(
+                StatusCode::BAD_REQUEST,
+                "invalid session_binding (expected one of: none, ip, user_agent, both)",
+            )
+        })?),
+    };
+    let parsed_methods = req.allowed_auth_methods.as_ref().map(|v| {
+        v.iter()
+            .map(|s| PolicyAuthMethod::parse(s))
+            .collect::<Vec<_>>()
+    });
+
+    // Refuse plainly nonsensical numerics — admins occasionally typo
+    // "-1" expecting "disable", and `0` would lock everyone out.
+    if let Some(Some(secs)) = req.max_session_duration_secs
+        && secs <= 0
+    {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "max_session_duration_secs must be positive (null to clear)",
+        ));
+    }
+    if let Some(Some(secs)) = req.idle_timeout_secs
+        && secs <= 0
+    {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "idle_timeout_secs must be positive (null to clear)",
+        ));
+    }
+    if let Some(Some(n)) = req.max_concurrent_sessions
+        && n <= 0
+    {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "max_concurrent_sessions must be positive (null to clear)",
+        ));
+    }
+    if let Some(days) = req.mfa_grace_period_days
+        && days < 0
+    {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "mfa_grace_period_days must be non-negative",
+        ));
+    }
+
+    let now = Utc::now().naive_utc();
+    let existing = state.repos.organization_policies.find_for_org(id).await?;
+    let row = match existing {
+        Some(_) => {
+            let changes = UpdateOrganizationPolicy {
+                max_session_duration_secs: req.max_session_duration_secs,
+                idle_timeout_secs: req.idle_timeout_secs,
+                mfa_required: req.mfa_required,
+                mfa_grace_period_days: req.mfa_grace_period_days,
+                ip_allowlist: req.ip_allowlist,
+                max_concurrent_sessions: req.max_concurrent_sessions,
+                allowed_auth_methods: parsed_methods,
+                session_binding: parsed_binding,
+                updated_at: Some(now),
+            };
+            state
+                .repos
+                .organization_policies
+                .update(id, changes)
+                .await?
+        }
+        None => {
+            // Materialize the row from defaults + PATCH overlay.
+            let new = NewOrganizationPolicy {
+                organization_id: id,
+                max_session_duration_secs: req.max_session_duration_secs.unwrap_or(None),
+                idle_timeout_secs: req.idle_timeout_secs.unwrap_or(None),
+                mfa_required: req.mfa_required.unwrap_or(false),
+                mfa_grace_period_days: req.mfa_grace_period_days.unwrap_or(14),
+                ip_allowlist: req.ip_allowlist.unwrap_or_default(),
+                max_concurrent_sessions: req.max_concurrent_sessions.unwrap_or(None),
+                allowed_auth_methods: parsed_methods.unwrap_or_default(),
+                session_binding: parsed_binding.unwrap_or(SessionBinding::None),
+                created_at: now,
+                updated_at: now,
+            };
+            state.repos.organization_policies.create(new).await?
+        }
+    };
+
+    state
+        .write_audit_log(
+            Some(user.id),
+            "org_policy_updated",
+            Some(serde_json::json!({
+                "organization_id": id,
+                "mfa_required": row.mfa_required,
+                "session_binding": row.session_binding.as_str(),
+                "max_session_duration_secs": row.max_session_duration_secs,
+                "idle_timeout_secs": row.idle_timeout_secs,
+                "max_concurrent_sessions": row.max_concurrent_sessions,
+                "ip_allowlist_count": row.ip_allowlist.len(),
+                "allowed_auth_methods_count": row.allowed_auth_methods.len(),
+            })),
+            None,
+        )
+        .await;
+
+    Ok(Json(row.into()))
 }
