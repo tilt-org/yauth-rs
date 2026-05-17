@@ -180,6 +180,11 @@ impl DatabaseBackend for DieselPgBackend {
             invitations: Arc::new(invitation_repo::DieselInvitationRepo::new(
                 self.pool.clone(),
             )),
+            // Issue #90 verified domains repo lands as follow-up; stub for now.
+            #[cfg(feature = "organizations")]
+            organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
+                "diesel-pg",
+            )),
         }
     }
 }

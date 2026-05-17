@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use crate::domain;
 use crate::repo::{
-    InvitationRepository, MembershipRepository, OrganizationRepository, RepoError, RepoFuture,
-    sealed,
+    InvitationRepository, MembershipRepository, OrganizationDomainRepository,
+    OrganizationRepository, RepoError, RepoFuture, sealed,
 };
 
 // ──────────────────────────────────────────────
@@ -20,6 +20,7 @@ pub(crate) struct InMemoryOrganizationRepo {
     pub(crate) orgs: Arc<RwLock<HashMap<Uuid, domain::Organization>>>,
     pub(crate) memberships: Arc<RwLock<HashMap<Uuid, domain::Membership>>>,
     pub(crate) invitations: Arc<RwLock<HashMap<Uuid, domain::Invitation>>>,
+    pub(crate) organization_domains: Arc<RwLock<HashMap<Uuid, domain::OrganizationDomain>>>,
 }
 
 impl InMemoryOrganizationRepo {
@@ -27,11 +28,13 @@ impl InMemoryOrganizationRepo {
         orgs: Arc<RwLock<HashMap<Uuid, domain::Organization>>>,
         memberships: Arc<RwLock<HashMap<Uuid, domain::Membership>>>,
         invitations: Arc<RwLock<HashMap<Uuid, domain::Invitation>>>,
+        organization_domains: Arc<RwLock<HashMap<Uuid, domain::OrganizationDomain>>>,
     ) -> Self {
         Self {
             orgs,
             memberships,
             invitations,
+            organization_domains,
         }
     }
 }
@@ -135,6 +138,8 @@ impl OrganizationRepository for InMemoryOrganizationRepo {
             memberships.retain(|_, m| m.organization_id != id);
             let mut invitations = self.invitations.write().unwrap();
             invitations.retain(|_, i| i.organization_id != id);
+            let mut domains = self.organization_domains.write().unwrap();
+            domains.retain(|_, d| d.organization_id != id);
             Ok(())
         })
     }
@@ -460,6 +465,131 @@ impl InvitationRepository for InMemoryInvitationRepo {
                         && i.accepted_at.is_none()
                         && i.expires_at > now
                 })
+                .cloned()
+                .collect();
+            v.sort_by_key(|a| a.created_at);
+            Ok(v)
+        })
+    }
+}
+
+// ──────────────────────────────────────────────
+// OrganizationDomain (issue #90)
+// ──────────────────────────────────────────────
+
+pub(crate) struct InMemoryOrganizationDomainRepo {
+    pub(crate) domains: Arc<RwLock<HashMap<Uuid, domain::OrganizationDomain>>>,
+}
+
+impl InMemoryOrganizationDomainRepo {
+    pub(crate) fn new(domains: Arc<RwLock<HashMap<Uuid, domain::OrganizationDomain>>>) -> Self {
+        Self { domains }
+    }
+}
+
+impl sealed::Sealed for InMemoryOrganizationDomainRepo {}
+
+impl OrganizationDomainRepository for InMemoryOrganizationDomainRepo {
+    fn find_by_id(&self, id: Uuid) -> RepoFuture<'_, Option<domain::OrganizationDomain>> {
+        Box::pin(async move {
+            let map = self.domains.read().unwrap();
+            Ok(map.get(&id).cloned())
+        })
+    }
+
+    fn find_by_domain(&self, d: &str) -> RepoFuture<'_, Option<domain::OrganizationDomain>> {
+        let needle = d.trim().to_lowercase();
+        Box::pin(async move {
+            let map = self.domains.read().unwrap();
+            Ok(map.values().find(|x| x.domain == needle).cloned())
+        })
+    }
+
+    fn create(
+        &self,
+        input: domain::NewOrganizationDomain,
+    ) -> RepoFuture<'_, domain::OrganizationDomain> {
+        Box::pin(async move {
+            let canonical = input.domain.trim().to_lowercase();
+            if canonical.is_empty() {
+                return Err(RepoError::Conflict("domain must not be empty".to_string()));
+            }
+            let mut map = self.domains.write().unwrap();
+            // Deployment-wide uniqueness on `domain` (case-insensitive).
+            if map.values().any(|x| x.domain == canonical) {
+                return Err(RepoError::Conflict(format!(
+                    "domain '{canonical}' is already claimed"
+                )));
+            }
+            let row = domain::OrganizationDomain {
+                id: input.id,
+                organization_id: input.organization_id,
+                domain: canonical,
+                status: input.status,
+                verification_token: input.verification_token,
+                verified_at: input.verified_at,
+                last_checked_at: input.last_checked_at,
+                auto_join_on_signup: input.auto_join_on_signup,
+                default_role_on_auto_join: input.default_role_on_auto_join,
+                require_email_verified: input.require_email_verified,
+                created_at: input.created_at,
+                updated_at: input.updated_at,
+            };
+            map.insert(row.id, row.clone());
+            Ok(row)
+        })
+    }
+
+    fn update(
+        &self,
+        id: Uuid,
+        changes: domain::UpdateOrganizationDomain,
+    ) -> RepoFuture<'_, domain::OrganizationDomain> {
+        Box::pin(async move {
+            let mut map = self.domains.write().unwrap();
+            let row = map.get_mut(&id).ok_or(RepoError::NotFound)?;
+            if let Some(v) = changes.status {
+                row.status = v;
+            }
+            if let Some(v) = changes.verified_at {
+                row.verified_at = v;
+            }
+            if let Some(v) = changes.last_checked_at {
+                row.last_checked_at = v;
+            }
+            if let Some(v) = changes.auto_join_on_signup {
+                row.auto_join_on_signup = v;
+            }
+            if let Some(v) = changes.default_role_on_auto_join {
+                row.default_role_on_auto_join = v;
+            }
+            if let Some(v) = changes.require_email_verified {
+                row.require_email_verified = v;
+            }
+            if let Some(v) = changes.updated_at {
+                row.updated_at = v;
+            }
+            Ok(row.clone())
+        })
+    }
+
+    fn delete(&self, id: Uuid) -> RepoFuture<'_, ()> {
+        Box::pin(async move {
+            let mut map = self.domains.write().unwrap();
+            map.remove(&id);
+            Ok(())
+        })
+    }
+
+    fn list_for_org(
+        &self,
+        organization_id: Uuid,
+    ) -> RepoFuture<'_, Vec<domain::OrganizationDomain>> {
+        Box::pin(async move {
+            let map = self.domains.read().unwrap();
+            let mut v: Vec<_> = map
+                .values()
+                .filter(|x| x.organization_id == organization_id)
                 .cloned()
                 .collect();
             v.sort_by_key(|a| a.created_at);

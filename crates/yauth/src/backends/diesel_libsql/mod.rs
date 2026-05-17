@@ -176,6 +176,10 @@ impl DatabaseBackend for DieselLibsqlBackend {
             invitations: Arc::new(invitation_repo::LibsqlInvitationRepo::new(
                 self.pool.clone(),
             )),
+            #[cfg(feature = "organizations")]
+            organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
+                "diesel-libsql",
+            )),
         }
     }
 }

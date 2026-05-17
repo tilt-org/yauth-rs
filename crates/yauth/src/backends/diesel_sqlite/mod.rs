@@ -201,6 +201,10 @@ impl DatabaseBackend for DieselSqliteBackend {
             invitations: Arc::new(invitation_repo::SqliteInvitationRepo::new(
                 self.pool.clone(),
             )),
+            #[cfg(feature = "organizations")]
+            organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
+                "diesel-sqlite",
+            )),
         }
     }
 }

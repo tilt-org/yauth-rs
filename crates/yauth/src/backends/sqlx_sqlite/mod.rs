@@ -153,6 +153,10 @@ impl DatabaseBackend for SqlxSqliteBackend {
             invitations: Arc::new(invitation_repo::SqlxSqliteInvitationRepo::new(
                 self.pool.clone(),
             )),
+            #[cfg(feature = "organizations")]
+            organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
+                "sqlx-sqlite",
+            )),
         }
     }
 }
