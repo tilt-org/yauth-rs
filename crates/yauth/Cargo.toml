@@ -42,7 +42,7 @@ oidc = ["bearer", "oauth2-server"]
 # Multi-tenancy primitive (issue #87). Adds Organization + Membership + Invitation
 # entities, repos, and routes. Default OFF — flipping the flag on must not change any
 # existing single-tenant behavior.
-organizations = ["dep:hickory-resolver"]
+organizations = ["dep:hickory-resolver", "dep:base64", "dep:serde_urlencoded"]
 telemetry =["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-http"]
 openapi = ["dep:utoipa"]
 redis = ["dep:redis"]

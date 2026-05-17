@@ -8,6 +8,8 @@ pub mod hibp;
 pub mod input;
 #[cfg(feature = "bearer")]
 pub mod jwks;
+#[cfg(feature = "organizations")]
+pub mod oidc_client;
 pub mod password;
 #[cfg(feature = "email-password")]
 pub mod password_policy;
