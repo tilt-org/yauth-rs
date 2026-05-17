@@ -167,10 +167,24 @@ pub fn bearer_schema() -> Vec<TableDef> {
 }
 
 /// API key plugin: api_keys.
+///
+/// Issue #91 added `organization_id`, `role`, and `created_by_user_id`
+/// to support org-scoped service-account keys alongside user-scoped keys.
+/// Both `user_id` and `organization_id` are nullable; the application-layer
+/// repo enforces the "exactly one owner" invariant. A future schema
+/// upgrade should add a CHECK / partial-unique-index per dialect:
+///   CHECK (
+///     (user_id IS NULL) <> (organization_id IS NULL)
+///   )
+/// (omitted here because the declarative schema framework does not yet
+/// emit CHECK constraints — tracked as a follow-up).
 pub fn api_key_schema() -> Vec<TableDef> {
     vec![
         TableDef::new("yauth_api_keys")
-            .description("API keys. Identified by prefix, verified by hash.")
+            .description(
+                "API keys. Identified by prefix, verified by hash. \
+                 Owned by either a user OR an organization (#91).",
+            )
             .column(
                 ColumnDef::new("id", ColumnType::Uuid)
                     .primary_key()
@@ -181,13 +195,28 @@ pub fn api_key_schema() -> Vec<TableDef> {
                     .nullable()
                     .references("yauth_users", "id", OnDelete::Cascade),
             )
+            // No FK to yauth_organizations because the `organizations`
+            // plugin is optional — its table may not be present in a
+            // single-tenant deployment. The app-layer repo enforces
+            // referential integrity. Operators who enable both plugins
+            // can add the FK manually post-migration.
+            .column(ColumnDef::new("organization_id", ColumnType::Uuid).nullable())
             .column(ColumnDef::new("key_prefix", ColumnType::VarcharN(12)).unique())
             .column(ColumnDef::new("key_hash", ColumnType::VarcharN(64)))
             .column(ColumnDef::new("name", ColumnType::Varchar))
             .column(ColumnDef::new("scopes", ColumnType::Json).nullable())
+            // Issue #91: for org-scoped keys, the role the bearer acts as.
+            // NULL for user-scoped keys.
+            .column(ColumnDef::new("role", ColumnType::Varchar).nullable())
             .column(ColumnDef::new("last_used_at", ColumnType::DateTime).nullable())
             .column(ColumnDef::new("expires_at", ColumnType::DateTime).nullable())
-            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()")),
+            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
+            // Issue #91: audit trail — who minted the key. Always set.
+            .column(
+                ColumnDef::new("created_by_user_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_users", "id", OnDelete::Restrict),
+            ),
     ]
 }
 
