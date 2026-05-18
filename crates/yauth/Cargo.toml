@@ -225,3 +225,7 @@ required-features = ["full", "diesel-pg-backend"]
 [[example]]
 name = "m2m_auth"
 required-features = ["full", "memory-backend"]
+
+[[example]]
+name = "cross_idp_server"
+required-features = ["full", "memory-backend"]

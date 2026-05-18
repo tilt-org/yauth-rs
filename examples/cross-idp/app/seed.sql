@@ -1,0 +1,36 @@
+-- App seed reference. NOT applied directly — see ../idp/seed.sql for the
+-- rationale. The runtime seed lives in `../scripts/seed.sh`.
+--
+-- For a Postgres-backed Server B you'd want the equivalent of:
+
+-- Admin user (so the seed script can call the org/SSO admin endpoints) -------
+-- INSERT INTO yauth_users (id, email, display_name, role, email_verified, ...)
+-- VALUES ('<uuid-v7>', 'admin@example.com', 'Admin', 'admin', true, ...);
+
+-- Organization ----------------------------------------------------------------
+-- INSERT INTO yauth_organizations (id, name, slug, display_name, created_at)
+-- VALUES ('<org-uuid>', 'Acme App', 'acme', 'Acme App', NOW());
+
+-- SSO connection pointing at the IdP -----------------------------------------
+-- INSERT INTO yauth_sso_connections (
+--   id, organization_id, kind, name, status,
+--   config, jit_provisioning_enabled, default_role_on_jit, created_at, updated_at
+-- ) VALUES (
+--   '<conn-uuid>', '<org-uuid>', 'oidc_client', 'Server A IdP', 'active',
+--   jsonb_build_object(
+--     'discovery_url',  'http://idp:8080/.well-known/openid-configuration',
+--     'client_id',      '<from idp seed>',
+--     'client_secret',  '<encrypted-or-passthrough-from-idp-seed>',
+--     'scopes',         ARRAY['openid','email','profile'],
+--     'claim_mappings', jsonb_build_object(
+--       'email',         'email',
+--       'display_name',  'name',
+--       'external_id',   'sub'
+--     )
+--   ),
+--   true, 'member', NOW(), NOW()
+-- );
+--
+-- NOTE: on this branch, the diesel-pg backend ships a StubSsoConnectionRepo
+-- (see crates/yauth/src/backends/diesel_pg/mod.rs). Until the SSO migration
+-- ships, this SQL is illustrative only. The demo uses the memory backend.

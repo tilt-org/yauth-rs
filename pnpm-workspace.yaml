@@ -1,3 +1,5 @@
 packages:
   - "packages/*"
   - "examples/*"
+  - "examples/cross-idp/ui-app"
+  - "examples/cross-idp/ui-idp"

@@ -1,0 +1,112 @@
+# Cross-IdP federation example — compose stack.
+#
+# Two yauth servers (memory backend), each fronted by its own Vite UI.
+# No Postgres needed because the SSO connection / external-identity /
+# login-state repos all have working in-memory implementations.
+#
+# Network layout:
+#   idp     →  http://idp:8080  (in-network) / http://localhost:8080 (host)
+#   app     →  http://app:8081  (in-network) / http://localhost:8081 (host)
+#   idp-ui  →  http://localhost:5173
+#   app-ui  →  http://localhost:5174
+#
+# Server B's `discovery_url` points at `http://idp:8080/...` because the
+# browser's redirect chain ALWAYS terminates at the user-agent — but
+# Server B's backend exchanges the code over the docker network.
+
+services:
+  idp:
+    image: rust:1.87-slim
+    working_dir: /work
+    volumes:
+      - ../..:/work:cached
+      - cargo-cache-idp:/usr/local/cargo/registry
+      - target-cache:/work/target
+    environment:
+      PORT: "8080"
+      BASE_URL: "http://localhost:8080"
+      JWT_SECRET: "idp-dev-secret-do-not-use-in-prod"
+      ALLOW_SIGNUPS: "true"
+      # When the browser GETs /oauth/authorize, redirect to the IdP UI's
+      # consent page (the JSON branch is only for headless callers).
+      CONSENT_UI_URL: "http://localhost:5173/consent"
+      PASSKEY_RP_ID: "localhost"
+      PASSKEY_RP_ORIGIN: "http://localhost:8080"
+      PASSKEY_RP_NAME: "Server A (IdP)"
+      MFA_ISSUER: "Server A IdP"
+      RUST_LOG: "info,yauth=debug"
+    command: >-
+      bash -c "apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev curl && cargo run --release --example cross_idp_server --features 'full memory-backend' -p yauth"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  app:
+    image: rust:1.87-slim
+    working_dir: /work
+    volumes:
+      - ../..:/work:cached
+      - cargo-cache-app:/usr/local/cargo/registry
+      - target-cache:/work/target
+    environment:
+      PORT: "8081"
+      BASE_URL: "http://localhost:8081"
+      JWT_SECRET: "app-dev-secret-do-not-use-in-prod"
+      ALLOW_SIGNUPS: "true"
+      PASSKEY_RP_ID: "localhost"
+      PASSKEY_RP_ORIGIN: "http://localhost:8081"
+      PASSKEY_RP_NAME: "Server B (App)"
+      MFA_ISSUER: "Server B App"
+      RUST_LOG: "info,yauth=debug"
+    command: >-
+      bash -c "apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev curl && cargo run --release --example cross_idp_server --features 'full memory-backend' -p yauth"
+    ports:
+      - "8081:8081"
+    depends_on:
+      idp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  idp-ui:
+    image: oven/bun:1
+    working_dir: /work/examples/cross-idp/ui-idp
+    volumes:
+      - ../..:/work:cached
+    command: >-
+      bash -c "cd /work && bun install && cd /work/examples/cross-idp/ui-idp && bun run dev --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_YAUTH_BASE: "http://localhost:8080"
+    depends_on:
+      idp:
+        condition: service_healthy
+
+  app-ui:
+    image: oven/bun:1
+    working_dir: /work/examples/cross-idp/ui-app
+    volumes:
+      - ../..:/work:cached
+    command: >-
+      bash -c "cd /work && bun install && cd /work/examples/cross-idp/ui-app && bun run dev --host 0.0.0.0 --port 5174"
+    ports:
+      - "5174:5174"
+    environment:
+      VITE_YAUTH_BASE: "http://localhost:8081"
+      VITE_ORG_SLUG: "acme"
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  cargo-cache-idp: {}
+  cargo-cache-app: {}
+  target-cache: {}

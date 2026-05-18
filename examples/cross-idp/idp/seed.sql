@@ -1,0 +1,36 @@
+-- IdP seed reference. NOT applied directly by this demo — the example
+-- uses yauth's memory backend, so seed data is created via API calls in
+-- `../scripts/seed.sh` (which is idempotent and works against both the
+-- memory backend and a real Postgres).
+--
+-- This file documents the equivalent SQL for operators who want to
+-- replay the seed against a Postgres-backed yauth deployment. The
+-- inserts target the diesel-pg schema in
+-- `migrations/diesel-pg/20260417215647_yauth_init/up.sql`.
+--
+-- ⚠ Passwords below are argon2id-hashed for the literal demo passwords
+-- listed in the README. Regenerate hashes for any real deployment.
+--
+-- See: crates/yauth/src/plugins/oauth2_server.rs (yauth_oauth2_clients)
+--      crates/yauth/src/plugins/email_password.rs (yauth_passwords)
+
+-- Users -----------------------------------------------------------------------
+-- INSERT INTO yauth_users (id, email, display_name, email_verified, role, ...)
+-- VALUES
+--   ('<uuid-v7>', 'alice@example.com', 'Alice', true, 'user', ...),
+--   ('<uuid-v7>', 'bob@example.com',   'Bob',   true, 'user', ...);
+
+-- OAuth client for Server B ---------------------------------------------------
+-- INSERT INTO yauth_oauth2_clients (
+--   client_id, client_secret_hash, client_name,
+--   redirect_uris, grant_types, response_types,
+--   token_endpoint_auth_method, scopes, created_at
+-- ) VALUES (
+--   '<client_id>', '<argon2-hashed-secret>', 'Server B (cross-idp example)',
+--   ARRAY['http://localhost:8081/api/auth/sso/callback'],
+--   ARRAY['authorization_code'],
+--   ARRAY['code'],
+--   'client_secret_post',
+--   ARRAY['openid','email','profile'],
+--   NOW()
+-- );
