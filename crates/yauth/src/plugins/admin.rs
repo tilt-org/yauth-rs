@@ -617,6 +617,7 @@ async fn impersonate_user(
         user_agent: Some("admin-impersonation".to_string()),
         expires_at: expires_at.naive_utc(),
         created_at: now.naive_utc(),
+        active_org_id: None,
     };
 
     state

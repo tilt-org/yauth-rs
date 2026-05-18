@@ -110,7 +110,8 @@ CREATE TABLE IF NOT EXISTS yauth_sessions (
     ip_address VARCHAR,
     user_agent VARCHAR,
     expires_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    active_org_id UUID
 );
 
 -- Append-only authentication event log.

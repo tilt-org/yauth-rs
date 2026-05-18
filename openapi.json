@@ -2382,6 +2382,87 @@
         ]
       }
     },
+    "/sessions/active-org": {
+      "get": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_getActiveOrg",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveOrgResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_setActiveOrg",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetActiveOrgRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveOrgResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_clearActiveOrg",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveOrgResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/status": {
       "get": {
         "tags": [
@@ -2877,6 +2958,62 @@
           }
         }
       },
+      "ActiveOrgEntry": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "role"
+        ],
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ActiveOrgResponse": {
+        "type": "object",
+        "description": "Response payload for the active-org switcher endpoints.\n\n`active_org_id` is the currently-active org (or `None` if cleared).\n`orgs` is the full membership list the caller can switch into — small\nand bounded, so we always return it (saves a follow-up roundtrip when\nrendering an org picker).\n\n`bearer_access_token` is populated ONLY for bearer-auth callers on\nswitch: cookie sessions update server-side and need no token rotation,\nwhile JWT bearer requires a freshly-issued token carrying the new\n`org`/`role`/`orgs` claims.",
+        "required": [
+          "orgs"
+        ],
+        "properties": {
+          "active_org_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "bearer_access_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "orgs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActiveOrgEntry"
+            }
+          }
+        }
+      },
       "AdminAuditEntry": {
         "type": "object",
         "required": [
@@ -3084,6 +3221,21 @@
           "auth_method"
         ],
         "properties": {
+          "active_org_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Active organization claim (issue #89). `None` for single-tenant\ndeployments or users with no memberships. Populated from the session\nrow (cookie auth) or from the JWT's `org` claim (bearer auth)."
+          },
+          "all_orgs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrgMembership"
+            },
+            "description": "Compact membership list — one entry per organization the user\nbelongs to. Populated alongside `active_org_id`. Empty when the\n`organizations` feature is off or the user has no memberships."
+          },
           "auth_method": {
             "$ref": "#/components/schemas/AuthMethod"
           },
@@ -3105,6 +3257,13 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "org_role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The caller's role in `active_org_id`. Resolved at auth time from the\nmembership row (cookie) or from the JWT's `role` claim. `None` when\n`active_org_id` is `None`."
           },
           "role": {
             "type": "string"
@@ -4360,6 +4519,23 @@
           }
         }
       },
+      "OrgMembership": {
+        "type": "object",
+        "description": "Compact membership descriptor surfaced on [`AuthUser`] (issue #89).\n\nLightweight enough to drop into JWT claims and SSR-render org switchers\nwithout a follow-up API roundtrip.",
+        "required": [
+          "organization_id",
+          "role"
+        ],
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
       "OrganizationResponse": {
         "type": "object",
         "required": [
@@ -4688,6 +4864,18 @@
           },
           "user": {
             "$ref": "#/components/schemas/AuthUser"
+          }
+        }
+      },
+      "SetActiveOrgRequest": {
+        "type": "object",
+        "required": [
+          "organization_id"
+        ],
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

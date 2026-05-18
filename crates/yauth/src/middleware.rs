@@ -24,6 +24,35 @@ pub struct AuthUser {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub scopes: Option<Vec<String>>,
+    /// Active organization claim (issue #89). `None` for single-tenant
+    /// deployments or users with no memberships. Populated from the session
+    /// row (cookie auth) or from the JWT's `org` claim (bearer auth).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub active_org_id: Option<Uuid>,
+    /// The caller's role in `active_org_id`. Resolved at auth time from the
+    /// membership row (cookie) or from the JWT's `role` claim. `None` when
+    /// `active_org_id` is `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub org_role: Option<String>,
+    /// Compact membership list — one entry per organization the user
+    /// belongs to. Populated alongside `active_org_id`. Empty when the
+    /// `organizations` feature is off or the user has no memberships.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub all_orgs: Vec<OrgMembership>,
+}
+
+/// Compact membership descriptor surfaced on [`AuthUser`] (issue #89).
+///
+/// Lightweight enough to drop into JWT claims and SSR-render org switchers
+/// without a follow-up API roundtrip.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct OrgMembership {
+    pub organization_id: Uuid,
+    pub role: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,11 +201,14 @@ pub async fn auth_middleware(
         {
             Ok(Some(session_user)) => {
                 match lookup_user(&state, session_user.user_id, AuthMethod::Session).await {
-                    Ok(auth_user) => {
+                    Ok(mut auth_user) => {
                         if auth_user.banned {
                             return api_err(StatusCode::FORBIDDEN, "Account suspended")
                                 .into_response();
                         }
+                        // Issue #89: stamp active-org context from the session row.
+                        attach_org_context(&state, &mut auth_user, session_user.active_org_id)
+                            .await;
                         record_auth_user_on_span(&auth_user);
                         req.extensions_mut().insert(auth_user);
                         return next.run(req).await;
@@ -265,7 +297,60 @@ async fn lookup_user(
         banned: user.banned,
         auth_method: method,
         scopes: None,
+        active_org_id: None,
+        org_role: None,
+        all_orgs: Vec::new(),
     })
+}
+
+/// Populate the org-related fields on [`AuthUser`] from the user's
+/// memberships (issue #89). No-op when the `organizations` feature is off.
+///
+/// `requested_active_org` is the org_id surfaced by the auth carrier — the
+/// `active_org_id` column on the session row, or the `org` claim on a JWT.
+/// If the user is no longer a member of that org (membership revoked
+/// between auth events) the resolver gracefully degrades: it surfaces an
+/// `active_org_id` of `None` rather than 500'ing the request.
+#[cfg(feature = "organizations")]
+async fn attach_org_context(
+    state: &YAuthState,
+    auth_user: &mut AuthUser,
+    requested_active_org: Option<uuid::Uuid>,
+) {
+    use yauth_entity::MembershipStatus;
+
+    let memberships = match state.repos.memberships.list_by_user(auth_user.id).await {
+        Ok(m) => m,
+        Err(e) => {
+            crate::otel::record_error("membership_list_failed", &e);
+            return;
+        }
+    };
+    auth_user.all_orgs = memberships
+        .iter()
+        .filter(|m| m.status == MembershipStatus::Active)
+        .map(|m| OrgMembership {
+            organization_id: m.organization_id,
+            role: m.role.clone(),
+        })
+        .collect();
+
+    if let Some(org_id) = requested_active_org
+        && let Some(m) = memberships
+            .iter()
+            .find(|m| m.organization_id == org_id && m.status == MembershipStatus::Active)
+    {
+        auth_user.active_org_id = Some(org_id);
+        auth_user.org_role = Some(m.role.clone());
+    }
+}
+
+#[cfg(not(feature = "organizations"))]
+async fn attach_org_context(
+    _state: &YAuthState,
+    _auth_user: &mut AuthUser,
+    _requested_active_org: Option<uuid::Uuid>,
+) {
 }
 
 pub fn require_scope(
@@ -359,6 +444,9 @@ mod tests {
             banned: false,
             auth_method: AuthMethod::Session,
             scopes: None,
+            active_org_id: None,
+            org_role: None,
+            all_orgs: Vec::new(),
         }
     }
 

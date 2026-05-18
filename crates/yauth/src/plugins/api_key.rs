@@ -355,5 +355,12 @@ pub async fn validate_api_key(key: &str, state: &YAuthState) -> Result<AuthUser,
         banned: user.banned,
         auth_method: AuthMethod::ApiKey,
         scopes,
+        // Issue #89: API keys are org-scoped at creation (per the spec)
+        // and never switch — they DO NOT inherit the user's active org.
+        // The org-aware fields stay empty; a follow-up will attach the
+        // key's own organization_id when that column lands.
+        active_org_id: None,
+        org_role: None,
+        all_orgs: Vec::new(),
     })
 }

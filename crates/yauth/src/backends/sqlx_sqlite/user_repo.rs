@@ -64,6 +64,7 @@ impl SessionRow {
             user_agent: self.user_agent,
             expires_at: str_to_dt(&self.expires_at),
             created_at: str_to_dt(&self.created_at),
+            active_org_id: None,
         }
     }
 }

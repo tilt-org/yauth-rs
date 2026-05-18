@@ -196,6 +196,9 @@ async fn update_profile(
                         banned: updated.banned,
                         auth_method: user.auth_method,
                         scopes: user.scopes,
+                        active_org_id: user.active_org_id,
+                        org_role: user.org_role,
+                        all_orgs: user.all_orgs,
                     },
                 })
                 .unwrap_or_else(|_| serde_json::json!({})),

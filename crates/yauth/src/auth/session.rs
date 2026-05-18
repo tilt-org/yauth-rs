@@ -32,6 +32,9 @@ pub fn session_set_cookie(state: &YAuthState, token: &str, ttl: std::time::Durat
 pub struct SessionUser {
     pub user_id: Uuid,
     pub session_id: Uuid,
+    /// Active organization on this session, if any (issue #89).
+    #[serde(default)]
+    pub active_org_id: Option<Uuid>,
 }
 
 #[derive(Debug)]
@@ -77,7 +80,57 @@ pub async fn create_session(
         .create_session(user_id, token_hash, ip_address, user_agent, ttl)
         .await?;
 
+    // Issue #89: apply the active-org selection rules. Best-effort —
+    // backends without `set_active_org` implemented (column not shipped)
+    // silently leave `active_org_id` as `None`. With the `organizations`
+    // feature disabled this is a no-op (the helper returns `None`).
+    if let Some(org_id) = pick_default_active_org(state, user_id).await {
+        let _ = state
+            .repos
+            .session_ops
+            .set_active_org(session_id, Some(org_id))
+            .await;
+    }
+
     Ok((token, session_id))
+}
+
+/// Compute the default active organization for a user on session creation
+/// (issue #89).
+///
+/// Selection rules:
+///
+/// 1. Zero memberships → `None`.
+/// 2. Exactly one active membership → that org.
+/// 3. Multiple → first sorted by `created_at` (a deterministic fallback for
+///    `most_recently_used_org_id`, which is tracked as a follow-up).
+///
+/// With the `organizations` feature disabled this returns `None`
+/// unconditionally — no behaviour change for single-tenant deployments.
+#[cfg(feature = "organizations")]
+async fn pick_default_active_org(state: &YAuthState, user_id: Uuid) -> Option<Uuid> {
+    use yauth_entity::MembershipStatus;
+
+    let memberships = state.repos.memberships.list_by_user(user_id).await.ok()?;
+    let mut active: Vec<_> = memberships
+        .into_iter()
+        .filter(|m| m.status == MembershipStatus::Active)
+        .collect();
+    if active.is_empty() {
+        return None;
+    }
+    if active.len() == 1 {
+        return Some(active[0].organization_id);
+    }
+    // Deterministic fallback: oldest membership wins. Follow-up #89-FU will
+    // track `User.most_recently_used_org_id` and prefer that.
+    active.sort_by_key(|m| m.created_at);
+    Some(active[0].organization_id)
+}
+
+#[cfg(not(feature = "organizations"))]
+async fn pick_default_active_org(_state: &YAuthState, _user_id: Uuid) -> Option<Uuid> {
+    None
 }
 
 pub async fn validate_session(
@@ -145,6 +198,7 @@ pub async fn validate_session(
             Ok(Some(SessionUser {
                 user_id: s.user_id,
                 session_id: s.id,
+                active_org_id: s.active_org_id,
             }))
         }
         None => Ok(None),

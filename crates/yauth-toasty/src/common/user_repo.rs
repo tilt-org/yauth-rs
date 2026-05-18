@@ -270,5 +270,7 @@ fn session_to_domain(m: YauthSession) -> domain::Session {
         user_agent: m.user_agent,
         expires_at: jiff_to_chrono(m.expires_at),
         created_at: jiff_to_chrono(m.created_at),
+        // Issue #89: column not yet shipped on the toasty schema.
+        active_org_id: None,
     }
 }

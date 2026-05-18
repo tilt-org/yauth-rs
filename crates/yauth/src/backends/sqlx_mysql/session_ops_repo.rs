@@ -97,6 +97,7 @@ impl SessionOpsRepository for SqlxMysqlSessionOpsRepo {
                             user_agent: s.user_agent,
                             expires_at: s.expires_at,
                             created_at: s.created_at,
+                            active_org_id: None,
                         }))
                     }
                 }

@@ -1016,11 +1016,10 @@ async fn handle_authorization_code_grant(
     {
         let bearer_config = &state.bearer_config;
 
-        let jwt_user = crate::plugins::bearer::JwtUser {
-            id: user.id,
-            email: user.email.clone(),
-            role: user.role.clone(),
-        };
+        let jwt_user =
+            crate::plugins::bearer::JwtUser::new(user.id, user.email.clone(), user.role.clone())
+                .with_active_org_for(state)
+                .await;
 
         let (access_token, _jti) =
             crate::plugins::bearer::create_jwt(&jwt_user, state, scope_str.as_deref()).map_err(
@@ -1239,11 +1238,13 @@ async fn handle_oauth2_refresh_token(
         let bearer_config = &state.bearer_config;
 
         let (access_token, _jti) = {
-            let jwt_user = crate::plugins::bearer::JwtUser {
-                id: user.id,
-                email: user.email.clone(),
-                role: user.role.clone(),
-            };
+            let jwt_user = crate::plugins::bearer::JwtUser::new(
+                user.id,
+                user.email.clone(),
+                user.role.clone(),
+            )
+            .with_active_org_for(state)
+            .await;
             crate::plugins::bearer::create_jwt(&jwt_user, state, None).map_err(|_| {
                 oauth2_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -2029,11 +2030,10 @@ async fn handle_device_code_grant(
     {
         let bearer_config = &state.bearer_config;
 
-        let jwt_user = crate::plugins::bearer::JwtUser {
-            id: user.id,
-            email: user.email.clone(),
-            role: user.role.clone(),
-        };
+        let jwt_user =
+            crate::plugins::bearer::JwtUser::new(user.id, user.email.clone(), user.role.clone())
+                .with_active_org_for(state)
+                .await;
 
         let (access_token, _jti) =
             crate::plugins::bearer::create_jwt(&jwt_user, state, scope_str.as_deref()).map_err(
@@ -2919,6 +2919,9 @@ async fn authenticate_user(
                         banned: user.banned,
                         auth_method: crate::middleware::AuthMethod::Session,
                         scopes: None,
+                        active_org_id: session_user.active_org_id,
+                        org_role: None,
+                        all_orgs: Vec::new(),
                     });
                 }
             }

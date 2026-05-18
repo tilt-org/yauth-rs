@@ -83,6 +83,7 @@ impl SessionOpsRepository for RedisCachedSessionOps {
                 user_agent,
                 expires_at,
                 created_at: now,
+                active_org_id: None,
             };
 
             if let Ok(json) = serde_json::to_string(&session) {
@@ -288,6 +289,22 @@ impl SessionOpsRepository for RedisCachedSessionOps {
             }
 
             Ok(count)
+        })
+    }
+
+    fn set_active_org(
+        &self,
+        session_id: Uuid,
+        active_org_id: Option<Uuid>,
+    ) -> RepoFuture<'_, domain::StoredSession> {
+        Box::pin(async move {
+            // Inner backend is the source of truth; on success we'd want to
+            // invalidate the cached entry for this session. The cache is keyed
+            // by token_hash (not session_id), so a precise refresh would
+            // require a reverse-lookup index we don't maintain. The simplest
+            // safe behavior is to let the next validate_session re-fetch from
+            // the inner store (cache TTL bounds the staleness window).
+            self.inner.set_active_org(session_id, active_org_id).await
         })
     }
 }

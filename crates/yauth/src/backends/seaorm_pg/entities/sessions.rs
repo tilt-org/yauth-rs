@@ -50,6 +50,7 @@ impl Model {
             user_agent: self.user_agent,
             expires_at: self.expires_at.naive_utc(),
             created_at: self.created_at.naive_utc(),
+            active_org_id: None,
         }
     }
 }

@@ -50,6 +50,7 @@ impl SessionOpsRepository for InMemorySessionOpsRepo {
                 user_agent,
                 expires_at,
                 created_at: now,
+                active_org_id: None,
             };
             map.insert(token_hash, session);
             Ok(id)
@@ -116,6 +117,30 @@ impl SessionOpsRepository for InMemorySessionOpsRepo {
             let before = map.len();
             map.retain(|key, s| !(s.user_id == user_id && key != &keep_hash));
             Ok((before - map.len()) as u64)
+        })
+    }
+
+    fn set_active_org(
+        &self,
+        session_id: Uuid,
+        active_org_id: Option<Uuid>,
+    ) -> RepoFuture<'_, domain::StoredSession> {
+        Box::pin(async move {
+            let mut map = self.entries.write().await;
+            // Locate by session id — the cookie carries the token hash but
+            // the active-org route resolves the session_id from the request
+            // extension first.
+            let entry = map
+                .iter_mut()
+                .find(|(_, s)| s.id == session_id)
+                .map(|(_, v)| v);
+            match entry {
+                Some(s) => {
+                    s.active_org_id = active_org_id;
+                    Ok(s.clone())
+                }
+                None => Err(RepoError::NotFound),
+            }
         })
     }
 }

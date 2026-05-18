@@ -11,4 +11,9 @@ pub struct StoredSession {
     pub user_agent: Option<String>,
     pub expires_at: NaiveDateTime,
     pub created_at: NaiveDateTime,
+    /// Active organization claim (issue #89). `None` for single-tenant
+    /// deployments, for users with no memberships, or for backends that
+    /// have not yet shipped the active-org column.
+    #[serde(default)]
+    pub active_org_id: Option<Uuid>,
 }

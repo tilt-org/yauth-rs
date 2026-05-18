@@ -1551,6 +1551,7 @@ fn datetime_fractional_second_precision() {
                     user_agent: Some("dt-test".into()),
                     expires_at: expires_with_micros,
                     created_at: base,
+                    active_org_id: None,
                 })
                 .await
                 .unwrap_or_else(|e| panic!("{name}: create session: {e}"));
@@ -1695,6 +1696,7 @@ fn session_admin_crud() {
                     user_agent: Some("admin-test".into()),
                     expires_at: n + Duration::hours(1),
                     created_at: n,
+                    active_org_id: None,
                 })
                 .await
                 .unwrap_or_else(|e| panic!("{name}: create session: {e}"));

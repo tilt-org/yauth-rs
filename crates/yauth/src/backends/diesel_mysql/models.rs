@@ -140,6 +140,8 @@ impl MysqlSession {
             user_agent: self.user_agent,
             expires_at: self.expires_at,
             created_at: self.created_at,
+            // Issue #89 follow-up: column lands in the cross-backend rollout.
+            active_org_id: None,
         }
     }
 }
@@ -158,6 +160,7 @@ pub(crate) struct MysqlNewSession {
 
 impl MysqlNewSession {
     pub(crate) fn from_domain(input: crate::domain::NewSession) -> Self {
+        let _ = input.active_org_id; // Issue #89 column lands in follow-up.
         Self {
             id: uuid_to_str(input.id),
             user_id: uuid_to_str(input.user_id),

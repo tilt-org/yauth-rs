@@ -15,6 +15,7 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
+use axum_extra::extract::cookie::CookieJar;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -76,7 +77,14 @@ impl YAuthPlugin for OrganizationsPlugin {
                 )
                 .route("/organizations/{id}/permissions", get(list_my_permissions))
                 .route("/organizations/{id}/invitations", post(create_invitation))
-                .route("/invitations/accept", post(accept_invitation)),
+                .route("/invitations/accept", post(accept_invitation))
+                // ── Issue #89: active-org switcher ─────────────────────
+                .route(
+                    "/sessions/active-org",
+                    get(get_active_org)
+                        .post(set_active_org_route)
+                        .delete(clear_active_org),
+                ),
         )
     }
 }
@@ -672,4 +680,260 @@ async fn list_my_permissions(
         role: cur.role,
         permissions: perms,
     }))
+}
+
+// ──────────────────────────────────────────────
+// Active-org switcher (issue #89)
+// ──────────────────────────────────────────────
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SetActiveOrgRequest {
+    pub organization_id: Uuid,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ActiveOrgEntry {
+    pub organization_id: Uuid,
+    pub role: String,
+    pub slug: Option<String>,
+    pub display_name: Option<String>,
+}
+
+/// Response payload for the active-org switcher endpoints.
+///
+/// `active_org_id` is the currently-active org (or `None` if cleared).
+/// `orgs` is the full membership list the caller can switch into — small
+/// and bounded, so we always return it (saves a follow-up roundtrip when
+/// rendering an org picker).
+///
+/// `bearer_access_token` is populated ONLY for bearer-auth callers on
+/// switch: cookie sessions update server-side and need no token rotation,
+/// while JWT bearer requires a freshly-issued token carrying the new
+/// `org`/`role`/`orgs` claims.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ActiveOrgResponse {
+    pub active_org_id: Option<Uuid>,
+    pub orgs: Vec<ActiveOrgEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bearer_access_token: Option<String>,
+}
+
+/// Build the response body. Looks up org slugs to make the payload
+/// directly UI-renderable. Best-effort on slug lookups — a deleted org
+/// surfaces as `slug = None` rather than 500'ing the whole switcher.
+async fn build_active_org_response(
+    state: &YAuthState,
+    user_id: Uuid,
+    active_org_id: Option<Uuid>,
+    bearer_token: Option<String>,
+) -> Result<ActiveOrgResponse, ApiError> {
+    let memberships = state
+        .repos
+        .memberships
+        .list_by_user(user_id)
+        .await?
+        .into_iter()
+        .filter(|m| m.status == MembershipStatus::Active);
+
+    let mut orgs = Vec::new();
+    for m in memberships {
+        let org = state
+            .repos
+            .organizations
+            .find_by_id(m.organization_id)
+            .await
+            .ok()
+            .flatten();
+        orgs.push(ActiveOrgEntry {
+            organization_id: m.organization_id,
+            role: m.role,
+            slug: org.as_ref().map(|o| o.slug.clone()),
+            display_name: org.and_then(|o| o.display_name),
+        });
+    }
+
+    Ok(ActiveOrgResponse {
+        active_org_id,
+        orgs,
+        bearer_access_token: bearer_token,
+    })
+}
+
+/// `GET /sessions/active-org` — return the caller's active org plus the
+/// membership list. Works for both cookie and bearer auth.
+async fn get_active_org(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+) -> Result<Json<ActiveOrgResponse>, ApiError> {
+    build_active_org_response(&state, user.id, user.active_org_id, None)
+        .await
+        .map(Json)
+}
+
+/// `POST /sessions/active-org` — switch into an organization.
+///
+/// Authorization: caller must be an active member of the target org —
+/// non-members get `403`. The 403 is the pentest acceptance criterion
+/// from issue #89.
+///
+/// Carrier semantics:
+/// - **Cookie session** — update the `active_org_id` column on the
+///   session row. No cookie rotation; the existing cookie continues to
+///   work.
+/// - **Bearer JWT** — issue a NEW access token with refreshed `org`,
+///   `role`, `orgs` claims. The old token keeps working until expiry
+///   (clients must adopt the new one).
+async fn set_active_org_route(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    jar: CookieJar,
+    Json(req): Json<SetActiveOrgRequest>,
+) -> Result<Json<ActiveOrgResponse>, ApiError> {
+    // Authorization: must be an active member of the target org.
+    let membership = state
+        .repos
+        .memberships
+        .find_by_org_user(req.organization_id, user.id)
+        .await?
+        .filter(|m| m.status == MembershipStatus::Active)
+        .ok_or_else(|| forbid("not a member of this organization"))?;
+
+    let mut bearer_token: Option<String> = None;
+
+    match user.auth_method {
+        crate::middleware::AuthMethod::Session => {
+            // Resolve the current session id from the cookie so we know
+            // which row to mutate.
+            let cookie = jar
+                .get(&state.config.session_cookie_name)
+                .ok_or_else(|| api_err(StatusCode::UNAUTHORIZED, "Session cookie missing"))?;
+            let token_hash = crate::auth::crypto::hash_token(cookie.value());
+            let session = state
+                .repos
+                .session_ops
+                .validate_session(&token_hash)
+                .await?
+                .ok_or_else(|| api_err(StatusCode::UNAUTHORIZED, "Session expired"))?;
+            state
+                .repos
+                .session_ops
+                .set_active_org(session.id, Some(req.organization_id))
+                .await?;
+        }
+        crate::middleware::AuthMethod::Bearer => {
+            // Re-issue a JWT with the new active org baked in. Client
+            // MUST adopt the new token; the old one keeps validating
+            // (carries the old `org` claim) until exp.
+            #[cfg(feature = "bearer")]
+            {
+                let all_orgs: Vec<Uuid> = state
+                    .repos
+                    .memberships
+                    .list_by_user(user.id)
+                    .await?
+                    .into_iter()
+                    .filter(|m| m.status == MembershipStatus::Active)
+                    .map(|m| m.organization_id)
+                    .collect();
+                let jwt_user = crate::plugins::bearer::JwtUser {
+                    id: user.id,
+                    email: user.email.clone(),
+                    role: user.role.clone(),
+                    active_org_id: Some(req.organization_id),
+                    org_role: Some(membership.role.clone()),
+                    all_orgs,
+                };
+                let (token, _) = crate::plugins::bearer::create_jwt(&jwt_user, &state, None)?;
+                bearer_token = Some(token);
+            }
+        }
+        crate::middleware::AuthMethod::ApiKey => {
+            // Issue #89: API keys are org-scoped at creation time —
+            // switching is intentionally not supported.
+            return Err(api_err(
+                StatusCode::BAD_REQUEST,
+                "API key sessions cannot switch active org",
+            ));
+        }
+    }
+    let _ = membership; // Suppress unused warning on the non-bearer path.
+
+    state
+        .write_audit_log(
+            Some(user.id),
+            "active_org_switched",
+            Some(serde_json::json!({ "organization_id": req.organization_id })),
+            None,
+        )
+        .await;
+
+    build_active_org_response(&state, user.id, Some(req.organization_id), bearer_token)
+        .await
+        .map(Json)
+}
+
+/// `DELETE /sessions/active-org` — clear the active org. Returns to the
+/// "no active org" state (legacy single-tenant path runs in app code).
+async fn clear_active_org(
+    State(state): State<YAuthState>,
+    Extension(user): Extension<AuthUser>,
+    jar: CookieJar,
+) -> Result<Json<ActiveOrgResponse>, ApiError> {
+    let mut bearer_token: Option<String> = None;
+    match user.auth_method {
+        crate::middleware::AuthMethod::Session => {
+            let cookie = jar
+                .get(&state.config.session_cookie_name)
+                .ok_or_else(|| api_err(StatusCode::UNAUTHORIZED, "Session cookie missing"))?;
+            let token_hash = crate::auth::crypto::hash_token(cookie.value());
+            let session = state
+                .repos
+                .session_ops
+                .validate_session(&token_hash)
+                .await?
+                .ok_or_else(|| api_err(StatusCode::UNAUTHORIZED, "Session expired"))?;
+            state
+                .repos
+                .session_ops
+                .set_active_org(session.id, None)
+                .await?;
+        }
+        crate::middleware::AuthMethod::Bearer => {
+            #[cfg(feature = "bearer")]
+            {
+                let all_orgs: Vec<Uuid> = state
+                    .repos
+                    .memberships
+                    .list_by_user(user.id)
+                    .await?
+                    .into_iter()
+                    .filter(|m| m.status == MembershipStatus::Active)
+                    .map(|m| m.organization_id)
+                    .collect();
+                let jwt_user = crate::plugins::bearer::JwtUser {
+                    id: user.id,
+                    email: user.email.clone(),
+                    role: user.role.clone(),
+                    active_org_id: None,
+                    org_role: None,
+                    all_orgs,
+                };
+                let (token, _) = crate::plugins::bearer::create_jwt(&jwt_user, &state, None)?;
+                bearer_token = Some(token);
+            }
+        }
+        crate::middleware::AuthMethod::ApiKey => {
+            return Err(api_err(
+                StatusCode::BAD_REQUEST,
+                "API key sessions cannot clear active org",
+            ));
+        }
+    }
+
+    build_active_org_response(&state, user.id, None, bearer_token)
+        .await
+        .map(Json)
 }

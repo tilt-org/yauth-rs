@@ -721,6 +721,9 @@ async fn verify_mfa(
                 banned: user.banned,
                 auth_method: crate::middleware::AuthMethod::Session,
                 scopes: None,
+                active_org_id: None,
+                org_role: None,
+                all_orgs: Vec::new(),
             },
         }),
     ))

@@ -101,6 +101,7 @@ impl SessionOpsRepository for SqlxSqliteSessionOpsRepo {
                             user_agent: s.user_agent,
                             expires_at: expires,
                             created_at: str_to_dt(&s.created_at),
+                            active_org_id: None,
                         }))
                     }
                 }
