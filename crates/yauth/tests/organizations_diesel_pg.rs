@@ -85,6 +85,7 @@ async fn make_repos(db: &TestDb) -> Repositories {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn diesel_pg_org_create_find_update_delete_round_trip() {
     let db = require_db!();
     let repos = make_repos(db).await;
@@ -134,6 +135,7 @@ async fn diesel_pg_org_create_find_update_delete_round_trip() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn diesel_pg_org_slug_uniqueness_is_case_insensitive() {
     let db = require_db!();
     let repos = make_repos(db).await;
@@ -205,6 +207,7 @@ async fn diesel_pg_org_slug_uniqueness_is_case_insensitive() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn diesel_pg_membership_uniqueness_and_listing() {
     let db = require_db!();
     let repos = make_repos(db).await;
@@ -264,6 +267,7 @@ async fn diesel_pg_membership_uniqueness_and_listing() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn diesel_pg_org_list_for_user_returns_only_joined_orgs() {
     let db = require_db!();
     let repos = make_repos(db).await;
@@ -371,6 +375,7 @@ async fn diesel_pg_org_delete_cascades_to_memberships_and_invitations() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn diesel_pg_invitation_token_lookup_filters_expired_and_accepted() {
     let db = require_db!();
     let repos = make_repos(db).await;
@@ -450,6 +455,7 @@ async fn diesel_pg_invitation_token_lookup_filters_expired_and_accepted() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn diesel_pg_membership_does_not_leak_across_orgs() {
     let db = require_db!();
     let repos = make_repos(db).await;
@@ -492,6 +498,7 @@ async fn diesel_pg_membership_does_not_leak_across_orgs() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn diesel_pg_org_delete_missing_returns_not_found() {
     let db = require_db!();
     let repos = make_repos(db).await;
@@ -501,6 +508,7 @@ async fn diesel_pg_org_delete_missing_returns_not_found() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn diesel_pg_org_list_with_search_and_pagination() {
     let db = require_db!();
     let repos = make_repos(db).await;
