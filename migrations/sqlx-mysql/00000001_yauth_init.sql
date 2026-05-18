@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS `yauth_sessions` (
     `user_agent` VARCHAR(255),
     `expires_at` DATETIME NOT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `active_org_id` CHAR(36),
     FOREIGN KEY (`user_id`) REFERENCES `yauth_users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
