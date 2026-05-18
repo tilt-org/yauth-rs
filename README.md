@@ -108,6 +108,9 @@ All backends accept pools/connections you create. **Each backend has a complete,
 | `webhooks` | `webhooks` | HMAC-signed HTTP callbacks on auth events |
 | `oidc` | `oidc` | OpenID Connect Provider (id_token, discovery, JWKS, /userinfo) |
 | `asymmetric-jwt` | `asymmetric-jwt` | RS256/ES256 JWT signing + populated `/.well-known/jwks.json` for cross-trust-domain validation |
+| `organizations` | `organizations` | Multi-tenant organizations — Org + Membership + Invitation + RBAC; verified-domain + JIT membership; active-org session claim; per-org auth policy; SSO connections (OIDC client + SAML 2.0 SP) |
+| `scim` | `scim` | SCIM 2.0 provisioning — RFC 7643/7644 Users + Groups endpoints for IdP push sync; requires `organizations` + `api-key` |
+| `audit-export` | `audit-export` | Audit log SIEM export — webhook, syslog (RFC 5424 TLS), S3/R2/MinIO, Splunk HEC, Datadog; at-least-once delivery; requires `webhooks` + `admin` |
 
 Infrastructure features: `telemetry` (OpenTelemetry), `openapi` (utoipa spec generation), `redis` (caching decorator).
 
@@ -293,9 +296,13 @@ No secrets in config -- database URLs come from environment variables only.
 
 - [Backend setup guides](docs/backends.md) — detailed examples for all 14 backends + Redis caching
 - [API routes](docs/api-routes.md) — complete route tables for every plugin
-- [Configuration](docs/configuration.md) — session binding, password policy, lockout, webhooks, OIDC
+- [Configuration](docs/configuration.md) — session binding, password policy, lockout, webhooks, OIDC, org policy
 - [Database schema](docs/schema.md) — full table definitions by plugin
 - [TypeScript packages](docs/typescript.md) — client API, Vue composables/components, SolidJS components
+- [SSO — OIDC client](docs/sso-oidc/README.md) — connect Google, Entra, Okta, Auth0, Keycloak as identity providers
+- [SSO — SAML 2.0 SP](docs/sso-saml/README.md) — ADFS, Entra, Okta, Auth0, OneLogin, Ping Identity
+- [SCIM 2.0 provisioning](docs/scim/README.md) — push-sync users + groups from Okta, Entra, OneLogin
+- [Audit export / SIEM](docs/audit-export/README.md) — syslog, S3, Splunk HEC, Datadog, webhook destinations
 
 ## Development
 
