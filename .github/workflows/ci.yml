@@ -19,7 +19,7 @@ env:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: local
     permissions:
       contents: read
     steps:
@@ -66,7 +66,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: local
     permissions:
       contents: read
     services:
@@ -166,7 +166,7 @@ jobs:
   # `test` job above.
   toasty:
     name: yauth-toasty (${{ matrix.backend }})
-    runs-on: ubuntu-latest
+    runs-on: local
     permissions:
       contents: read
     strategy:
@@ -233,7 +233,7 @@ jobs:
 
   openapi-conformance:
     name: OpenAPI conformance (Rust ↔ Go)
-    runs-on: ubuntu-latest
+    runs-on: local
     # Hard-gated: any BREAKING / MISSING / SHAPE / GO-EXTRA divergence
     # against yauth-go fails the build. Phase 1 of the convergence plan
     # closed all four categories — any new drift is a real regression.
@@ -272,7 +272,7 @@ jobs:
 
   codeql:
     name: CodeQL (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: local
     permissions:
       security-events: write
     strategy:

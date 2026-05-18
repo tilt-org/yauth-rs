@@ -12,7 +12,7 @@ jobs:
   # Step 1: On every push to main, create/update a release PR with version bumps + changelog.
   prepare-release:
     name: Prepare Release PR
-    runs-on: ubuntu-latest
+    runs-on: local
     if: "!startsWith(github.event.head_commit.message, 'chore: prepare release')"
     permissions:
       contents: write
@@ -79,7 +79,7 @@ jobs:
   # Step 2: When the release PR is merged, publish to crates.io + npm and create GitHub release.
   publish:
     name: Publish
-    runs-on: ubuntu-latest
+    runs-on: local
     if: "startsWith(github.event.head_commit.message, 'chore: prepare release')"
     permissions:
       contents: write
