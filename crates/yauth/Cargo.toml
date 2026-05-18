@@ -48,12 +48,19 @@ oidc = ["bearer", "oauth2-server"]
 # `chacha20poly1305` for client_secret encrypt-at-rest. Bringing them
 # into the same gate keeps the dep tree simple.
 organizations = ["dep:hickory-resolver", "dep:base64", "dep:serde_urlencoded", "dep:jsonwebtoken", "dep:chacha20poly1305", "dep:quick-xml", "dep:x509-parser", "dep:flate2", "dep:rsa"]
+# SCIM 2.0 provisioning endpoints (issue #95). Requires `organizations`
+# (for the per-org URL space + group→role mapping reuse) and `api-key`
+# (for the org-scoped bearer auth IdPs send). Off by default — pure
+# additive surface area mounted under `/api/scim/v2/...`. SCIM uses the
+# RFC 7644 §3.12 error JSON shape rather than yauth's normal envelope,
+# because that is what IdPs (Okta / Entra / OneLogin) parse.
+scim = ["organizations", "api-key"]
 telemetry =["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-http"]
 openapi = ["dep:utoipa"]
 redis = ["dep:redis"]
 # All auth plugins — this is what "full" means to users.
 # Real apps use `full` + one backend (e.g., `yauth = { features = ["full", "diesel-pg-backend"] }`).
-full = ["email-password", "passkey", "mfa", "oauth", "bearer", "api-key", "magic-link", "admin", "status", "oauth2-server", "account-lockout", "webhooks", "oidc", "asymmetric-jwt", "telemetry", "openapi", "organizations"]
+full = ["email-password", "passkey", "mfa", "oauth", "bearer", "api-key", "magic-link", "admin", "status", "oauth2-server", "account-lockout", "webhooks", "oidc", "asymmetric-jwt", "telemetry", "openapi", "organizations", "scim"]
 # CI-only — every backend + redis, for conformance testing. Never recommended for production.
 # NOTE: diesel-libsql-backend is excluded because libsql-ffi bundles its own sqlite3.c,
 # which produces duplicate symbols with libsqlite3-sys (used by diesel-sqlite + sqlx-sqlite).

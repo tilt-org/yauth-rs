@@ -24,6 +24,7 @@ export { ResetPasswordForm } from "./components/reset-password-form";
 export { RoleSelector } from "./components/role-selector";
 export { SamlConnectionForm } from "./components/saml-connection-form";
 export { SamlLoginButton } from "./components/saml-login-button";
+export { ScimSettingsPanel } from "./components/scim-settings-panel";
 export { SsoConnectionForm } from "./components/sso-connection-form";
 export { SsoConnectionList } from "./components/sso-connection-list";
 export { SsoLoginButton } from "./components/sso-login-button";

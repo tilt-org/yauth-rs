@@ -24,6 +24,7 @@ export { default as ResetPasswordForm } from "./components/ResetPasswordForm.vue
 export { default as RoleSelector } from "./components/RoleSelector.vue";
 export { default as SamlConnectionForm } from "./components/SamlConnectionForm.vue";
 export { default as SamlLoginButton } from "./components/SamlLoginButton.vue";
+export { default as ScimSettingsPanel } from "./components/ScimSettingsPanel.vue";
 export { default as SsoConnectionForm } from "./components/SsoConnectionForm.vue";
 export { default as SsoConnectionList } from "./components/SsoConnectionList.vue";
 export { default as SsoLoginButton } from "./components/SsoLoginButton.vue";

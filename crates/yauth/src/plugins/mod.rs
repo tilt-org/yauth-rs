@@ -48,6 +48,9 @@ pub mod sso_oidc;
 #[cfg(feature = "organizations")]
 pub mod sso_saml;
 
+#[cfg(feature = "scim")]
+pub mod scim;
+
 use axum::{
     Extension, Json, Router,
     extract::State,

@@ -283,6 +283,19 @@ impl YAuthBuilder {
         self
     }
 
+    /// Mount the SCIM 2.0 provisioning endpoints (issue #95). No-op
+    /// unless the `scim` feature is on (which also requires
+    /// `organizations` + `api-key`).
+    ///
+    /// SCIM endpoints sit at `/api/scim/v2/organizations/{org_id}/...`
+    /// and authenticate via an org-scoped bearer API key (issue #91).
+    /// See `docs/scim/README.md`.
+    #[cfg(feature = "scim")]
+    pub fn with_scim(mut self) -> Self {
+        self.plugins.push(Box::new(plugins::scim::ScimPlugin));
+        self
+    }
+
     pub fn with_plugin(mut self, plugin: Box<dyn YAuthPlugin>) -> Self {
         self.plugins.push(plugin);
         self
