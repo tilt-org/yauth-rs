@@ -200,6 +200,8 @@ pub struct YauthOrganization {
     pub memberships: toasty::HasMany<YauthMembership>,
     #[has_many]
     pub invitations: toasty::HasMany<YauthInvitation>,
+    #[has_many]
+    pub organization_domains: toasty::HasMany<YauthOrganizationDomain>,
 }
 
 /// Toasty model for `yauth_sessions`.
@@ -551,4 +553,27 @@ pub struct YauthInvitation {
     pub expires_at: jiff::Timestamp,
     pub accepted_at: Option<jiff::Timestamp>,
     pub created_at: jiff::Timestamp,
+}
+
+/// Toasty model for `yauth_organization_domains`.
+#[derive(Debug, toasty::Model)]
+#[table = "organization_domains"]
+pub struct YauthOrganizationDomain {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+    pub organization_id: Option<uuid::Uuid>,
+    #[belongs_to(key = organization_id, references = id)]
+    pub yauth_organization: toasty::BelongsTo<YauthOrganization>,
+    #[unique]
+    pub domain: String,
+    pub status: String,
+    pub verification_token: String,
+    pub verified_at: Option<jiff::Timestamp>,
+    pub last_checked_at: Option<jiff::Timestamp>,
+    pub auto_join_on_signup: bool,
+    pub default_role_on_auto_join: String,
+    pub require_email_verified: bool,
+    pub created_at: jiff::Timestamp,
+    pub updated_at: jiff::Timestamp,
 }
