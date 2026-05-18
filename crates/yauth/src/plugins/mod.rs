@@ -51,6 +51,9 @@ pub mod sso_saml;
 #[cfg(feature = "scim")]
 pub mod scim;
 
+#[cfg(feature = "audit-export")]
+pub mod audit_export;
+
 use axum::{
     Extension, Json, Router,
     extract::State,

@@ -186,5 +186,11 @@ fn build_repositories(db: &DatabaseConnection) -> Repositories {
         external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new("seaorm-pg")),
         #[cfg(feature = "organizations")]
         sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("seaorm-pg")),
+        #[cfg(feature = "audit-export")]
+        audit_export_destinations: Arc::new(crate::repo::StubAuditExportDestinationRepo::new(
+            "seaorm-pg",
+        )),
+        #[cfg(feature = "audit-export")]
+        audit_outbox: Arc::new(crate::repo::StubAuditOutboxRepo::new("seaorm-pg")),
     }
 }

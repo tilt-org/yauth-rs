@@ -1,3 +1,5 @@
+export { default as AuditDestinationCreate } from "./components/AuditDestinationCreate.vue";
+export { default as AuditDestinationList } from "./components/AuditDestinationList.vue";
 export { default as ChangePasswordForm } from "./components/ChangePasswordForm.vue";
 export { default as ConsentScreen } from "./components/ConsentScreen.vue";
 export { default as DomainClaim } from "./components/DomainClaim.vue";
@@ -30,6 +32,14 @@ export { default as SsoConnectionList } from "./components/SsoConnectionList.vue
 export { default as SsoLoginButton } from "./components/SsoLoginButton.vue";
 export { default as TransferOwnership } from "./components/TransferOwnership.vue";
 export { default as VerifyEmail } from "./components/VerifyEmail.vue";
+export {
+  type AuditDestination,
+  type AuditDestinationKindTag,
+  type CreateDestinationInput,
+  type OutboxEntry,
+  useAuditDestinations,
+  type UseAuditDestinationsOptions,
+} from "./composables/useAuditExport";
 export { useAuth } from "./composables/useAuth";
 export { useSsoConnections } from "./composables/useSsoConnections";
 export {

@@ -715,6 +715,270 @@
         ]
       }
     },
+    "/audit/destinations": {
+      "get": {
+        "tags": [
+          "audit-export"
+        ],
+        "operationId": "auditExport_listDestinations",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuditDestinationResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "audit-export"
+        ],
+        "operationId": "auditExport_createDestination",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAuditDestinationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditDestinationResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/audit/destinations/{id}": {
+      "get": {
+        "tags": [
+          "audit-export"
+        ],
+        "operationId": "auditExport_getDestination",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditDestinationResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "audit-export"
+        ],
+        "operationId": "auditExport_deleteDestination",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "audit-export"
+        ],
+        "operationId": "auditExport_updateDestination",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAuditDestinationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditDestinationResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/audit/destinations/{id}/outbox": {
+      "get": {
+        "tags": [
+          "audit-export"
+        ],
+        "operationId": "auditExport_listDestinationOutbox",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OutboxEntryResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/audit/replay": {
+      "post": {
+        "tags": [
+          "audit-export"
+        ],
+        "operationId": "auditExport_replay",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplayResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/change-password": {
       "post": {
         "tags": [
@@ -3684,6 +3948,61 @@
           }
         }
       },
+      "AuditDestinationResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "kind_tag",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "description": "Sanitized kind — secrets (hmac_secret, hec_token, api_key) are stripped."
+          },
+          "kind_tag": {
+            "type": "string"
+          },
+          "last_failure_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_success_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
       "AuthConfigResponse": {
         "type": "object",
         "description": "Server-side auth configuration exposed to frontends via `GET /config`.",
@@ -4147,6 +4466,29 @@
           },
           "secret": {
             "type": "string"
+          }
+        }
+      },
+      "CreateAuditDestinationRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/WireDestinationKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "`None` => deployment-wide destination."
           }
         }
       },
@@ -5535,6 +5877,53 @@
           }
         }
       },
+      "OutboxEntryResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "audit_log_id",
+          "destination_id",
+          "status",
+          "attempts",
+          "created_at"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "audit_log_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "destination_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
       "PaginatedSessionsResponse": {
         "type": "object",
         "description": "Response type for `GET /admin/sessions` (schema-only, used for OpenAPI spec).",
@@ -5825,6 +6214,49 @@
           },
           "user": {
             "$ref": "#/components/schemas/AuthUser"
+          }
+        }
+      },
+      "ReplayRequest": {
+        "type": "object",
+        "required": [
+          "audit_log_ids",
+          "destination_ids"
+        ],
+        "properties": {
+          "audit_log_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "destination_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "ReplayResponse": {
+        "type": "object",
+        "required": [
+          "enqueued",
+          "gone"
+        ],
+        "properties": {
+          "enqueued": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gone": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },
@@ -6316,6 +6748,33 @@
           }
         }
       },
+      "UpdateAuditDestinationRequest": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WireDestinationKind"
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateDomainRequest": {
         "type": "object",
         "properties": {
@@ -6683,6 +7142,150 @@
             "type": "string"
           }
         }
+      },
+      "WireDestinationKind": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "url",
+              "type"
+            ],
+            "properties": {
+              "format": {
+                "type": "string"
+              },
+              "headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "hmac_secret": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "webhook"
+                ]
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "host",
+              "port",
+              "type"
+            ],
+            "properties": {
+              "facility": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "host": {
+                "type": "string"
+              },
+              "port": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "transport": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "syslog"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "bucket",
+              "region",
+              "type"
+            ],
+            "properties": {
+              "bucket": {
+                "type": "string"
+              },
+              "partition": {
+                "type": "string"
+              },
+              "prefix": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "s3"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "hec_url",
+              "hec_token",
+              "type"
+            ],
+            "properties": {
+              "hec_token": {
+                "type": "string"
+              },
+              "hec_url": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "splunk"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "site",
+              "api_key",
+              "type"
+            ],
+            "properties": {
+              "api_key": {
+                "type": "string"
+              },
+              "site": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "datadog"
+                ]
+              }
+            }
+          }
+        ]
       }
     },
     "securitySchemes": {

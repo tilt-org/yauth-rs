@@ -8,6 +8,8 @@ import type {
   AcceptInvitationRequest,
   AdminListSessionsParams,
   AdminListUsersParams,
+  AuditExportListDestinationOutboxParams,
+  AuditExportListDestinationsParams,
   BanRequest,
   CallbackBody,
   ChangePasswordRequest,
@@ -15,6 +17,7 @@ import type {
   ClientRegistrationRequest,
   ConfirmTotpRequest,
   CreateApiKeyRequest,
+  CreateAuditDestinationRequest,
   CreateDomainRequest,
   CreateSsoConnectionRequest,
   UpdateSsoConnectionRequest,
@@ -30,6 +33,7 @@ import type {
   RefreshRequest,
   RegisterFinishRequest,
   RegisterRequest,
+  ReplayRequest,
   RequestUnlockRequest,
   ResendVerificationRequest,
   ResetPasswordRequest,
@@ -38,6 +42,7 @@ import type {
   TokenRequest,
   UnlockAccountRequest,
   TransferOwnershipRequest,
+  UpdateAuditDestinationRequest,
   UpdateDomainRequest,
   UpdateOrgRequest,
   UpdateProfileRequest,
@@ -47,6 +52,13 @@ import type {
   VerifyMfaRequest,
 } from "./generated";
 import {
+  auditExportCreateDestination,
+  auditExportDeleteDestination,
+  auditExportGetDestination,
+  auditExportListDestinationOutbox,
+  auditExportListDestinations,
+  auditExportReplay,
+  auditExportUpdateDestination,
   accountLockoutAdminUnlock,
   accountLockoutRequestUnlock,
   accountLockoutUnlock,
@@ -278,6 +290,23 @@ export function createYAuthClient(options: YAuthClientOptions) {
       update: (id: string, body: UpdateWebhookRequest) => webhooksUpdate(id, body),
       delete: (id: string) => webhooksDelete(id),
       test: (id: string) => webhooksTest(id),
+    },
+
+    auditExport: {
+      // Issue #96 — SIEM/syslog export destinations.
+      listDestinations: (params?: AuditExportListDestinationsParams) =>
+        auditExportListDestinations(params),
+      createDestination: (body: CreateAuditDestinationRequest) =>
+        auditExportCreateDestination(body),
+      getDestination: (id: string) => auditExportGetDestination(id),
+      updateDestination: (id: string, body: UpdateAuditDestinationRequest) =>
+        auditExportUpdateDestination(id, body),
+      deleteDestination: (id: string) => auditExportDeleteDestination(id),
+      listDestinationOutbox: (
+        id: string,
+        params?: AuditExportListDestinationOutboxParams,
+      ) => auditExportListDestinationOutbox(id, params),
+      replay: (body: ReplayRequest) => auditExportReplay(body),
     },
 
     accountLockout: {

@@ -126,6 +126,8 @@ pub struct YAuthBuilder {
     account_lockout_config: Option<config::AccountLockoutConfig>,
     #[cfg(feature = "webhooks")]
     webhook_config: Option<config::WebhookConfig>,
+    #[cfg(feature = "audit-export")]
+    audit_export_config: Option<config::AuditExportConfig>,
     #[cfg(feature = "oidc")]
     oidc_config: Option<config::OidcConfig>,
     #[cfg(feature = "admin")]
@@ -158,6 +160,8 @@ impl YAuthBuilder {
             account_lockout_config: None,
             #[cfg(feature = "webhooks")]
             webhook_config: None,
+            #[cfg(feature = "audit-export")]
+            audit_export_config: None,
             #[cfg(feature = "oidc")]
             oidc_config: None,
             #[cfg(feature = "admin")]
@@ -238,6 +242,14 @@ impl YAuthBuilder {
     #[cfg(feature = "webhooks")]
     pub fn with_webhooks(mut self, config: config::WebhookConfig) -> Self {
         self.webhook_config = Some(config);
+        self
+    }
+
+    /// Enable the audit-export plugin (issue #96). No-op if no destinations
+    /// are configured at runtime — the drain worker stays idle.
+    #[cfg(feature = "audit-export")]
+    pub fn with_audit_export(mut self, config: config::AuditExportConfig) -> Self {
+        self.audit_export_config = Some(config);
         self
     }
 
@@ -478,6 +490,14 @@ impl YAuthBuilder {
         if let Some(wh_config) = self.webhook_config {
             self.plugins
                 .push(Box::new(plugins::webhooks::WebhookPlugin::new(wh_config)));
+        }
+
+        #[cfg(feature = "audit-export")]
+        if let Some(ae_config) = self.audit_export_config {
+            self.plugins
+                .push(Box::new(plugins::audit_export::AuditExportPlugin::new(
+                    ae_config,
+                )));
         }
 
         #[cfg(feature = "oidc")]

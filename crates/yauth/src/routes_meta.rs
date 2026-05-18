@@ -289,6 +289,20 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
         b = b.schema_from::<StatusResponse>();
     }
 
+    // Audit-export plugin (issue #96)
+    #[cfg(feature = "audit-export")]
+    {
+        use crate::plugins::audit_export::routes::*;
+        b = b
+            .schema_from::<CreateAuditDestinationRequest>()
+            .schema_from::<UpdateAuditDestinationRequest>()
+            .schema_from::<WireDestinationKind>()
+            .schema_from::<AuditDestinationResponse>()
+            .schema_from::<OutboxEntryResponse>()
+            .schema_from::<ReplayRequest>()
+            .schema_from::<ReplayResponse>();
+    }
+
     #[cfg(feature = "organizations")]
     {
         use crate::plugins::organizations::*;
@@ -1976,6 +1990,113 @@ fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
         )
 }
 
+/// Audit-export plugin paths (issue #96).
+///
+/// All routes are admin-only — see `crates/yauth/src/plugins/audit_export/
+/// routes.rs` for the actual Axum router wiring.
+#[cfg(feature = "audit-export")]
+fn audit_export_paths(builder: PathsBuilder) -> PathsBuilder {
+    let auth_req = || {
+        utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
+            "sessionCookie",
+            [],
+        )
+    };
+
+    builder
+        .path(
+            "/audit/destinations",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_body(
+                        with_response(
+                            op("auditExport_createDestination", "audit-export"),
+                            "AuditDestinationResponse",
+                        ),
+                        "CreateAuditDestinationRequest",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Get,
+                    with_query_params(
+                        op("auditExport_listDestinations", "audit-export"),
+                        &[("organization_id", false), ("scope", false)],
+                    )
+                    .pipe(|b| with_array_response(b, "AuditDestinationResponse"))
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/audit/destinations/{id}",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("auditExport_getDestination", "audit-export"), "id")
+                        .pipe(|b| with_response(b, "AuditDestinationResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_body(
+                            with_response(
+                                op("auditExport_updateDestination", "audit-export"),
+                                "AuditDestinationResponse",
+                            ),
+                            "UpdateAuditDestinationRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Delete,
+                    with_path_param(op("auditExport_deleteDestination", "audit-export"), "id")
+                        .pipe(with_empty_response)
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/audit/destinations/{id}/outbox",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(
+                        op("auditExport_listDestinationOutbox", "audit-export"),
+                        "id",
+                    )
+                    .pipe(|b| with_query_params(b, &[("limit", false)]))
+                    .pipe(|b| with_array_response(b, "OutboxEntryResponse"))
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/audit/replay",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_body(
+                        with_response(op("auditExport_replay", "audit-export"), "ReplayResponse"),
+                        "ReplayRequest",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+}
+
 /// Build the complete OpenAPI specification for yauth.
 #[allow(unused_mut)]
 pub fn build_openapi_spec() -> utoipa::openapi::OpenApi {
@@ -2082,6 +2203,11 @@ pub fn build_openapi_spec() -> utoipa::openapi::OpenApi {
     #[cfg(feature = "organizations")]
     {
         paths = organizations_paths(paths);
+    }
+
+    #[cfg(feature = "audit-export")]
+    {
+        paths = audit_export_paths(paths);
     }
 
     OpenApiBuilder::new()

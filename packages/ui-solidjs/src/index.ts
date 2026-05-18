@@ -1,3 +1,5 @@
+export { AuditDestinationCreate } from "./components/audit-destination-create";
+export { AuditDestinationList } from "./components/audit-destination-list";
 export { ChangePasswordForm } from "./components/change-password-form";
 export { ConsentScreen } from "./components/consent-screen";
 export { DomainClaim } from "./components/domain-claim";
@@ -31,6 +33,14 @@ export { SsoLoginButton } from "./components/sso-login-button";
 export { TransferOwnership } from "./components/transfer-ownership";
 export { VerifyEmail } from "./components/verify-email";
 export { createActiveOrg } from "./hooks/create-active-org";
+export {
+	type AuditDestination,
+	type AuditDestinationKindTag,
+	createAuditDestinations,
+	type CreateAuditDestinationsOptions,
+	type CreateDestinationInput,
+	type OutboxEntry,
+} from "./hooks/create-audit-destinations";
 export {
   type BuiltinRole,
   createDomains,

@@ -71,8 +71,32 @@ impl YAuthState {
         metadata: Option<serde_json::Value>,
         ip_address: Option<String>,
     ) {
+        self.write_audit_log_scoped(user_id, None, event_type, metadata, ip_address)
+            .await
+    }
+
+    /// Insert an audit row AND fan-out to the audit-export outbox.
+    ///
+    /// Ordering: audit.create FIRST, then enqueue_for_audit. If the audit
+    /// insert fails, no outbox row is enqueued — this satisfies the
+    /// pentest case 7 ("outbox transactional"). The memory backend uses a
+    /// single mutex inside enqueue_for_audit so per-org routing is
+    /// consistent under concurrent inserts.
+    ///
+    /// `organization_id`, when `Some`, scopes the audit to a specific org —
+    /// per-org destinations match only on identical `organization_id` per
+    /// the cross-org leakage pentest.
+    pub async fn write_audit_log_scoped(
+        &self,
+        user_id: Option<Uuid>,
+        organization_id: Option<Uuid>,
+        event_type: &str,
+        metadata: Option<serde_json::Value>,
+        ip_address: Option<String>,
+    ) {
+        let audit_id = Uuid::now_v7();
         let new_log = crate::domain::NewAuditLog {
-            id: Uuid::now_v7(),
+            id: audit_id,
             user_id,
             event_type: event_type.to_string(),
             metadata,
@@ -81,6 +105,27 @@ impl YAuthState {
         };
         if let Err(e) = self.repos.audit.create(new_log).await {
             crate::otel::record_error("audit_log_write_failed", &e);
+            // Audit insert failed — DO NOT enqueue outbox. Pentest 7.
+            return;
         }
+
+        #[cfg(feature = "audit-export")]
+        {
+            // Enqueue outbox rows for each matching destination. Failures
+            // here log but never roll back — the audit row is the source
+            // of truth, and operators can use the replay endpoint to
+            // re-enqueue if the outbox transiently failed.
+            if let Err(e) = self
+                .repos
+                .audit_outbox
+                .enqueue_for_audit(audit_id, organization_id)
+                .await
+            {
+                crate::otel::record_error("audit_outbox_enqueue_failed", &e);
+            }
+        }
+        // Silence unused-var when audit-export is off.
+        #[cfg(not(feature = "audit-export"))]
+        let _ = organization_id;
     }
 }

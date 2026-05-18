@@ -144,5 +144,12 @@ pub(crate) fn build_repositories(db: &Db) -> Repositories {
         external_identities: Arc::new(yauth::repo::StubExternalIdentityRepo::new("toasty")),
         #[cfg(feature = "organizations")]
         sso_login_states: Arc::new(yauth::repo::StubSsoLoginStateRepo::new("toasty")),
+
+        #[cfg(feature = "audit-export")]
+        audit_export_destinations: Arc::new(yauth::repo::StubAuditExportDestinationRepo::new(
+            "toasty",
+        )),
+        #[cfg(feature = "audit-export")]
+        audit_outbox: Arc::new(yauth::repo::StubAuditOutboxRepo::new("toasty")),
     }
 }

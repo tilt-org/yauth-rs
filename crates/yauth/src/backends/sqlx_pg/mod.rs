@@ -177,6 +177,12 @@ impl DatabaseBackend for SqlxPgBackend {
             external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new("sqlx-pg")),
             #[cfg(feature = "organizations")]
             sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("sqlx-pg")),
+            #[cfg(feature = "audit-export")]
+            audit_export_destinations: Arc::new(crate::repo::StubAuditExportDestinationRepo::new(
+                "sqlx-pg",
+            )),
+            #[cfg(feature = "audit-export")]
+            audit_outbox: Arc::new(crate::repo::StubAuditOutboxRepo::new("sqlx-pg")),
         }
     }
 }

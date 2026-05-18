@@ -193,6 +193,12 @@ impl DatabaseBackend for DieselLibsqlBackend {
             )),
             #[cfg(feature = "organizations")]
             sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("diesel-libsql")),
+            #[cfg(feature = "audit-export")]
+            audit_export_destinations: Arc::new(crate::repo::StubAuditExportDestinationRepo::new(
+                "diesel-libsql",
+            )),
+            #[cfg(feature = "audit-export")]
+            audit_outbox: Arc::new(crate::repo::StubAuditOutboxRepo::new("diesel-libsql")),
         }
     }
 }

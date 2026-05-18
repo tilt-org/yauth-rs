@@ -11,6 +11,10 @@
 //! `backends/memory/organization_repo.rs`. Diesel-PG ships a complete real
 //! implementation. See
 //! `backends/diesel_pg/{organization,membership,invitation}_repo.rs`.
+//!
+//! NOTE: audit-export stubs live in this same file (gated on `audit-export`)
+//! so SQL backends can re-use the `pending(...)` helper without a second
+//! module dance.
 
 use super::{
     ExternalIdentityRepository, InvitationRepository, MembershipRepository,

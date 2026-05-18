@@ -197,6 +197,12 @@ impl DatabaseBackend for DieselPgBackend {
             external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new("diesel-pg")),
             #[cfg(feature = "organizations")]
             sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("diesel-pg")),
+            #[cfg(feature = "audit-export")]
+            audit_export_destinations: Arc::new(crate::repo::StubAuditExportDestinationRepo::new(
+                "diesel-pg",
+            )),
+            #[cfg(feature = "audit-export")]
+            audit_outbox: Arc::new(crate::repo::StubAuditOutboxRepo::new("diesel-pg")),
         }
     }
 }

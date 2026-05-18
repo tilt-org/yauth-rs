@@ -55,12 +55,16 @@ organizations = ["dep:hickory-resolver", "dep:base64", "dep:serde_urlencoded", "
 # RFC 7644 §3.12 error JSON shape rather than yauth's normal envelope,
 # because that is what IdPs (Okta / Entra / OneLogin) parse.
 scim = ["organizations", "api-key"]
+# Issue #96 — Audit log SIEM/syslog export. Off by default. When on but no
+# destinations are configured the outbox is idle. Depends on `webhooks`
+# (HMAC + reqwest) and `admin` (replay endpoint guard).
+audit-export = ["webhooks", "admin", "dep:hmac", "dep:url", "dep:object_store", "dep:bytes", "dep:tokio-rustls", "dep:rustls-pki-types", "dep:webpki-roots", "yauth-entity/audit-export"]
 telemetry =["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-http"]
 openapi = ["dep:utoipa"]
 redis = ["dep:redis"]
 # All auth plugins — this is what "full" means to users.
 # Real apps use `full` + one backend (e.g., `yauth = { features = ["full", "diesel-pg-backend"] }`).
-full = ["email-password", "passkey", "mfa", "oauth", "bearer", "api-key", "magic-link", "admin", "status", "oauth2-server", "account-lockout", "webhooks", "oidc", "asymmetric-jwt", "telemetry", "openapi", "organizations", "scim"]
+full = ["email-password", "passkey", "mfa", "oauth", "bearer", "api-key", "magic-link", "admin", "status", "oauth2-server", "account-lockout", "webhooks", "oidc", "asymmetric-jwt", "telemetry", "openapi", "organizations", "scim", "audit-export"]
 # CI-only — every backend + redis, for conformance testing. Never recommended for production.
 # NOTE: diesel-libsql-backend is excluded because libsql-ffi bundles its own sqlite3.c,
 # which produces duplicate symbols with libsqlite3-sys (used by diesel-sqlite + sqlx-sqlite).
@@ -132,6 +136,20 @@ p256 = { version = "0.13", features = ["pem"], optional = true }
 # Feature-gated: Webhooks
 hmac = { version = "0.13", optional = true }
 
+# Feature-gated: audit-export S3 dispatcher (issue #96 Phase B).
+# Default features cover memory + AWS S3 + S3-compatible (MinIO, R2). We don't
+# pull GCS/Azure because they require extra system tokens; operators can fork
+# if they need those backends.
+object_store = { version = "0.13", default-features = false, features = ["aws"], optional = true }
+bytes = { version = "1", optional = true }
+
+# Feature-gated: audit-export TLS syslog dispatcher (port 6514).
+# tokio-rustls is reused from the wider tokio runtime; we keep it gated on
+# `audit-export` so apps that don't enable the plugin don't pull rustls roots.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"], optional = true }
+rustls-pki-types = { version = "1", optional = true }
+webpki-roots = { version = "0.26", optional = true }
+
 opentelemetry = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
@@ -186,6 +204,14 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-opentelemetry = "0.32"
 serial_test = "3"
+# Audit-export pentest fakes (issue #96 Phase B):
+#   - wiremock: in-process fake Splunk HEC / Datadog log intake
+#   - rcgen: self-signed cert for the TLS syslog test server
+#   - rustls/rustls-pemfile: pinned-trust client config for syslog TLS tests
+wiremock = "0.6"
+rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"
 
 
 [[example]]

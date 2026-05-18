@@ -51,6 +51,9 @@ mod webhooks_repo;
 #[cfg(feature = "organizations")]
 mod organization_repo;
 
+#[cfg(feature = "audit-export")]
+pub(crate) mod audit_export_repo;
+
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -159,6 +162,9 @@ pub(crate) struct Storage {
     pub(crate) external_identities: Arc<RwLock<HashMap<Uuid, domain::ExternalIdentity>>>,
     #[cfg(feature = "organizations")]
     pub(crate) sso_login_states: Arc<RwLock<HashMap<String, domain::SsoLoginState>>>,
+
+    #[cfg(feature = "audit-export")]
+    pub(crate) audit_export: audit_export_repo::AuditExportState,
 }
 
 impl Storage {
@@ -237,6 +243,9 @@ impl Storage {
             external_identities: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(feature = "organizations")]
             sso_login_states: Arc::new(RwLock::new(HashMap::new())),
+
+            #[cfg(feature = "audit-export")]
+            audit_export: audit_export_repo::AuditExportState::default(),
         }
     }
 }
@@ -423,6 +432,17 @@ impl DatabaseBackend for InMemoryBackend {
             #[cfg(feature = "organizations")]
             sso_login_states: Arc::new(organization_repo::InMemorySsoLoginStateRepo::new(
                 self.storage.sso_login_states.clone(),
+            )),
+
+            #[cfg(feature = "audit-export")]
+            audit_export_destinations: Arc::new(
+                audit_export_repo::InMemoryAuditExportDestinationRepo::new(
+                    self.storage.audit_export.clone(),
+                ),
+            ),
+            #[cfg(feature = "audit-export")]
+            audit_outbox: Arc::new(audit_export_repo::InMemoryAuditOutboxRepo::new(
+                self.storage.audit_export.clone(),
             )),
         }
     }

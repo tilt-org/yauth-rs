@@ -63,3 +63,8 @@ pub use external_identity::*;
 
 mod sso_login_state;
 pub use sso_login_state::*;
+
+#[cfg(feature = "audit-export")]
+mod audit_export;
+#[cfg(feature = "audit-export")]
+pub use audit_export::*;

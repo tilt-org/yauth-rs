@@ -112,6 +112,7 @@ pub struct EnabledFeatures {
     pub webhooks: bool,
     pub oidc: bool,
     pub organizations: bool,
+    pub audit_export: bool,
 }
 
 impl EnabledFeatures {
@@ -130,6 +131,7 @@ impl EnabledFeatures {
             webhooks: cfg!(feature = "webhooks"),
             oidc: cfg!(feature = "oidc"),
             organizations: cfg!(feature = "organizations"),
+            audit_export: cfg!(feature = "audit-export"),
         }
     }
 }
@@ -241,6 +243,16 @@ mod organization_stub;
 #[cfg(feature = "organizations")]
 pub use organization_stub::*;
 
+#[cfg(feature = "audit-export")]
+mod audit_export;
+#[cfg(feature = "audit-export")]
+pub use audit_export::*;
+
+#[cfg(feature = "audit-export")]
+mod audit_export_stub;
+#[cfg(feature = "audit-export")]
+pub use audit_export_stub::*;
+
 // ──────────────────────────────────────────────
 // Repositories struct
 // ──────────────────────────────────────────────
@@ -322,6 +334,11 @@ pub struct Repositories {
     pub external_identities: Arc<dyn ExternalIdentityRepository>,
     #[cfg(feature = "organizations")]
     pub sso_login_states: Arc<dyn SsoLoginStateRepository>,
+
+    #[cfg(feature = "audit-export")]
+    pub audit_export_destinations: Arc<dyn AuditExportDestinationRepository>,
+    #[cfg(feature = "audit-export")]
+    pub audit_outbox: Arc<dyn AuditOutboxRepository>,
 }
 
 // ──────────────────────────────────────────────

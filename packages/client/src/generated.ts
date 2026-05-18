@@ -101,6 +101,23 @@ export interface ApiKeyResponse {
   scopes?: string[] | null;
 }
 
+export interface AuditDestinationResponse {
+  created_at: string;
+  id: string;
+  /** Sanitized kind — secrets (hmac_secret, hec_token, api_key) are stripped. */
+  kind: unknown;
+  kind_tag: string;
+  /** @nullable */
+  last_failure_at?: string | null;
+  /** @nullable */
+  last_success_at?: string | null;
+  name: string;
+  /** @nullable */
+  organization_id?: string | null;
+  status: string;
+  updated_at: string;
+}
+
 /**
  * Server-side auth configuration exposed to frontends via `GET /config`.
  */
@@ -310,6 +327,47 @@ export interface CreateApiKeyRequest {
 export interface CreateApiKeyResponse {
   api_key: ApiKeyResponse;
   secret: string;
+}
+
+export type WireDestinationKind = {
+  format?: string;
+  headers?: {[key: string]: string};
+  /** @nullable */
+  hmac_secret?: string | null;
+  type: 'webhook';
+  url: string;
+} | {
+  /** @minimum 0 */
+  facility?: number;
+  host: string;
+  /** @minimum 0 */
+  port: number;
+  transport?: string;
+  type: 'syslog';
+} | {
+  bucket: string;
+  partition?: string;
+  prefix?: string;
+  region: string;
+  type: 's3';
+} | {
+  hec_token: string;
+  hec_url: string;
+  type: 'splunk';
+} | {
+  api_key: string;
+  site: string;
+  type: 'datadog';
+};
+
+export interface CreateAuditDestinationRequest {
+  kind: WireDestinationKind;
+  name: string;
+  /**
+     * `None` => deployment-wide destination.
+     * @nullable
+     */
+  organization_id?: string | null;
 }
 
 export interface CreateDomainRequest {
@@ -971,6 +1029,19 @@ export interface OrganizationResponse {
   updated_at: string;
 }
 
+export interface OutboxEntryResponse {
+  attempts: number;
+  audit_log_id: string;
+  created_at: string;
+  destination_id: string;
+  id: string;
+  /** @nullable */
+  last_attempt_at?: string | null;
+  /** @nullable */
+  last_error?: string | null;
+  status: string;
+}
+
 /**
  * Response type for `GET /admin/sessions` (schema-only, used for OpenAPI spec).
  */
@@ -1077,6 +1148,17 @@ export interface RegisterResponse {
   /** @nullable */
   message?: string | null;
   user: AuthUser;
+}
+
+export interface ReplayRequest {
+  audit_log_ids: string[];
+  destination_ids: string[];
+}
+
+export interface ReplayResponse {
+  /** @minimum 0 */
+  enqueued: number;
+  gone: string[];
 }
 
 export interface RequestUnlockRequest {
@@ -1216,6 +1298,14 @@ export interface UnlockAccountRequest {
   token: string;
 }
 
+export interface UpdateAuditDestinationRequest {
+  kind?: null | WireDestinationKind;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  status?: string | null;
+}
+
 export interface UpdateDomainRequest {
   /** @nullable */
   auto_join_on_signup?: boolean | null;
@@ -1351,6 +1441,15 @@ search?: string;
 export type ApiKeysListParams = {
 page?: string;
 per_page?: string;
+};
+
+export type AuditExportListDestinationsParams = {
+organization_id?: string;
+scope?: string;
+};
+
+export type AuditExportListDestinationOutboxParams = {
+limit?: string;
 };
 
 export type OauthAccountsParams = {
@@ -1851,6 +1950,173 @@ export const apiKeysDelete = async (id: string, options?: RequestInit): Promise<
     method: 'DELETE'
 
 
+  }
+);}
+
+
+
+export const getAuditExportListDestinationsUrl = (params?: AuditExportListDestinationsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/audit/destinations?${stringifiedParams}` : `/audit/destinations`
+}
+
+export const auditExportListDestinations = async (params?: AuditExportListDestinationsParams, options?: RequestInit): Promise<AuditDestinationResponse[]> => {
+
+  return customFetch<AuditDestinationResponse[]>(getAuditExportListDestinationsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAuditExportCreateDestinationUrl = () => {
+
+
+
+
+  return `/audit/destinations`
+}
+
+export const auditExportCreateDestination = async (createAuditDestinationRequest: CreateAuditDestinationRequest, options?: RequestInit): Promise<AuditDestinationResponse> => {
+
+  return customFetch<AuditDestinationResponse>(getAuditExportCreateDestinationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createAuditDestinationRequest,)
+  }
+);}
+
+
+
+export const getAuditExportGetDestinationUrl = (id: string,) => {
+
+
+
+
+  return `/audit/destinations/${id}`
+}
+
+export const auditExportGetDestination = async (id: string, options?: RequestInit): Promise<AuditDestinationResponse> => {
+
+  return customFetch<AuditDestinationResponse>(getAuditExportGetDestinationUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAuditExportDeleteDestinationUrl = (id: string,) => {
+
+
+
+
+  return `/audit/destinations/${id}`
+}
+
+export const auditExportDeleteDestination = async (id: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getAuditExportDeleteDestinationUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getAuditExportUpdateDestinationUrl = (id: string,) => {
+
+
+
+
+  return `/audit/destinations/${id}`
+}
+
+export const auditExportUpdateDestination = async (id: string,
+    updateAuditDestinationRequest: UpdateAuditDestinationRequest, options?: RequestInit): Promise<AuditDestinationResponse> => {
+
+  return customFetch<AuditDestinationResponse>(getAuditExportUpdateDestinationUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateAuditDestinationRequest,)
+  }
+);}
+
+
+
+export const getAuditExportListDestinationOutboxUrl = (id: string,
+    params?: AuditExportListDestinationOutboxParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/audit/destinations/${id}/outbox?${stringifiedParams}` : `/audit/destinations/${id}/outbox`
+}
+
+export const auditExportListDestinationOutbox = async (id: string,
+    params?: AuditExportListDestinationOutboxParams, options?: RequestInit): Promise<OutboxEntryResponse[]> => {
+
+  return customFetch<OutboxEntryResponse[]>(getAuditExportListDestinationOutboxUrl(id,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAuditExportReplayUrl = () => {
+
+
+
+
+  return `/audit/replay`
+}
+
+export const auditExportReplay = async (replayRequest: ReplayRequest, options?: RequestInit): Promise<ReplayResponse> => {
+
+  return customFetch<ReplayResponse>(getAuditExportReplayUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      replayRequest,)
   }
 );}
 

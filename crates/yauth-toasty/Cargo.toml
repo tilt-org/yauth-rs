@@ -26,6 +26,7 @@ oauth2-server = ["yauth/oauth2-server"]
 account-lockout = ["yauth/account-lockout"]
 webhooks = ["yauth/webhooks"]
 organizations = ["yauth/organizations"]
+audit-export = ["yauth/audit-export"]
 full = [
     "yauth/full",
     "email-password",
@@ -40,6 +41,7 @@ full = [
     "account-lockout",
     "webhooks",
     "organizations",
+    "audit-export",
 ]
 
 # Dev-only: CLI binary for generating migrations (not published)

@@ -168,6 +168,12 @@ impl DatabaseBackend for DieselMysqlBackend {
             )),
             #[cfg(feature = "organizations")]
             sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("diesel-mysql")),
+            #[cfg(feature = "audit-export")]
+            audit_export_destinations: Arc::new(crate::repo::StubAuditExportDestinationRepo::new(
+                "diesel-mysql",
+            )),
+            #[cfg(feature = "audit-export")]
+            audit_outbox: Arc::new(crate::repo::StubAuditOutboxRepo::new("diesel-mysql")),
         }
     }
 }

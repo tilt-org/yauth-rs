@@ -630,6 +630,63 @@ impl Default for OidcConfig {
     }
 }
 
+/// Audit-export plugin configuration (issue #96). Off-by-default behavior is
+/// "exists but idle" — when no destinations are configured the drain worker
+/// is still spawned but immediately sleeps.
+///
+/// Secrets in `AuditExportDestinationKind` (HMAC keys, HEC tokens, Datadog
+/// API keys) are **never logged**, even masked.
+#[cfg(feature = "audit-export")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditExportConfig {
+    /// Max events drained per destination per pass. Default 100.
+    pub batch_size: usize,
+    /// Worker poll cadence — max time between drain passes. Default 5s.
+    #[serde(with = "duration_secs")]
+    pub batch_interval: Duration,
+    /// Per-destination inflight cap (concurrent dispatches). Default 4.
+    pub max_inflight: usize,
+    /// Max attempts before transitioning an outbox row to `dead_letter`.
+    /// Default 5. Backoff schedule: 1s, 5s, 30s, 5m, 1h.
+    pub retry_max_attempts: u32,
+    /// Optional allow-list. `None` = all events flow. Used for noisy event
+    /// types when an org doesn't want them in their SIEM (e.g. `session.created`).
+    #[serde(default)]
+    pub include_event_types: Option<Vec<String>>,
+    /// HTTP timeout for webhook + Splunk + Datadog dispatches. Default 10s.
+    #[serde(with = "duration_secs", default = "default_export_http_timeout")]
+    pub http_timeout: Duration,
+    /// HMAC signature window. Receivers should reject signatures older than
+    /// this. Default 300s (5 min) — Stripe convention.
+    #[serde(with = "duration_secs", default = "default_signature_window")]
+    pub signature_window: Duration,
+}
+
+#[cfg(feature = "audit-export")]
+fn default_export_http_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
+#[cfg(feature = "audit-export")]
+fn default_signature_window() -> Duration {
+    Duration::from_secs(300)
+}
+
+#[cfg(feature = "audit-export")]
+impl Default for AuditExportConfig {
+    fn default() -> Self {
+        Self {
+            batch_size: 100,
+            batch_interval: Duration::from_secs(5),
+            max_inflight: 4,
+            retry_max_attempts: 5,
+            include_event_types: None,
+            http_timeout: Duration::from_secs(10),
+            signature_window: Duration::from_secs(300),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
