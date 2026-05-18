@@ -531,9 +531,11 @@ pub fn organizations_schema() -> Vec<TableDef> {
             .column(ColumnDef::new("idle_timeout_secs", ColumnType::Int).nullable())
             .column(ColumnDef::new("mfa_required", ColumnType::Boolean).default("false"))
             .column(ColumnDef::new("mfa_grace_period_days", ColumnType::Int).default("14"))
-            .column(ColumnDef::new("ip_allowlist", ColumnType::Json).default("'[]'"))
+            // MySQL forbids defaults on JSON columns; populate `[]` at the
+            // application layer when inserting.
+            .column(ColumnDef::new("ip_allowlist", ColumnType::Json))
             .column(ColumnDef::new("max_concurrent_sessions", ColumnType::Int).nullable())
-            .column(ColumnDef::new("allowed_auth_methods", ColumnType::Json).default("'[]'"))
+            .column(ColumnDef::new("allowed_auth_methods", ColumnType::Json))
             .column(ColumnDef::new("session_binding", ColumnType::Varchar).default("'none'"))
             .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
             .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()")),

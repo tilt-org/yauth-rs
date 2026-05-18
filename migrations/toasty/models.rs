@@ -204,6 +204,8 @@ pub struct YauthOrganization {
     pub invitations: toasty::HasMany<YauthInvitation>,
     #[has_many]
     pub organization_domains: toasty::HasMany<YauthOrganizationDomain>,
+    #[has_one]
+    pub organization_policy: toasty::HasOne<YauthOrganizationPolicy>,
 }
 
 /// Toasty model for `yauth_sessions`.
@@ -581,6 +583,29 @@ pub struct YauthOrganizationDomain {
     pub auto_join_on_signup: bool,
     pub default_role_on_auto_join: String,
     pub require_email_verified: bool,
+    pub created_at: jiff::Timestamp,
+    pub updated_at: jiff::Timestamp,
+}
+
+/// Toasty model for `yauth_organization_policies`.
+#[derive(Debug, toasty::Model)]
+#[table = "organization_policies"]
+pub struct YauthOrganizationPolicy {
+    #[key]
+    #[auto]
+    pub organization_id: uuid::Uuid,
+    #[belongs_to(key = organization_id, references = id)]
+    pub yauth_organization: toasty::BelongsTo<YauthOrganization>,
+    pub max_session_duration_secs: Option<i64>,
+    pub idle_timeout_secs: Option<i64>,
+    pub mfa_required: bool,
+    pub mfa_grace_period_days: i64,
+    #[serialize(json)]
+    pub ip_allowlist: serde_json::Value,
+    pub max_concurrent_sessions: Option<i64>,
+    #[serialize(json)]
+    pub allowed_auth_methods: serde_json::Value,
+    pub session_binding: String,
     pub created_at: jiff::Timestamp,
     pub updated_at: jiff::Timestamp,
 }
