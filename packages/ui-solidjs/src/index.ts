@@ -1,5 +1,8 @@
 export { ChangePasswordForm } from "./components/change-password-form";
 export { ConsentScreen } from "./components/consent-screen";
+export { DomainClaim } from "./components/domain-claim";
+export { DomainList } from "./components/domain-list";
+export { DomainVerifyStep } from "./components/domain-verify-step";
 export { ForgotPasswordForm } from "./components/forgot-password-form";
 export { InvitationAccept } from "./components/invitation-accept";
 export { InviteForm } from "./components/invite-form";
@@ -24,6 +27,7 @@ export { VerifyEmail } from "./components/verify-email";
 export { createActiveOrg } from "./hooks/create-active-org";
 export {
   type BuiltinRole,
+  createDomains,
   createInvitation,
   createMembers,
   createOrganization,

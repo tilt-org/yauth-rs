@@ -177,6 +177,10 @@ fn build_repositories(db: &DatabaseConnection) -> Repositories {
         memberships: Arc::new(SeaOrmMembershipRepo::new(db.clone())),
         #[cfg(feature = "organizations")]
         invitations: Arc::new(SeaOrmInvitationRepo::new(db.clone())),
+        #[cfg(feature = "organizations")]
+        organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
+            "seaorm-sqlite",
+        )),
     }
 }
 

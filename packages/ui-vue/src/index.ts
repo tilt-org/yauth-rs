@@ -1,5 +1,8 @@
 export { default as ChangePasswordForm } from "./components/ChangePasswordForm.vue";
 export { default as ConsentScreen } from "./components/ConsentScreen.vue";
+export { default as DomainClaim } from "./components/DomainClaim.vue";
+export { default as DomainList } from "./components/DomainList.vue";
+export { default as DomainVerifyStep } from "./components/DomainVerifyStep.vue";
 export { default as ForgotPasswordForm } from "./components/ForgotPasswordForm.vue";
 export { default as InvitationAccept } from "./components/InvitationAccept.vue";
 export { default as InviteForm } from "./components/InviteForm.vue";
@@ -23,21 +26,22 @@ export { default as TransferOwnership } from "./components/TransferOwnership.vue
 export { default as VerifyEmail } from "./components/VerifyEmail.vue";
 export { useAuth } from "./composables/useAuth";
 export {
-	type BuiltinRole,
-	ROLES,
-	slugify,
-	useInvitation,
-	useMembers,
-	useOrganization,
-	useOrganizations,
-	useOrgPermissions,
-	useOrgRoles,
+  type BuiltinRole,
+  ROLES,
+  slugify,
+  useDomains,
+  useInvitation,
+  useMembers,
+  useOrganization,
+  useOrganizations,
+  useOrgPermissions,
+  useOrgRoles,
 } from "./composables/useOrganizations";
 export { useSession } from "./composables/useSession";
 export {
-	useYAuth,
-	type YAuthContext,
-	YAuthKey,
-	YAuthPlugin,
-	type YAuthPluginOptions,
+  useYAuth,
+  type YAuthContext,
+  YAuthKey,
+  YAuthPlugin,
+  type YAuthPluginOptions,
 } from "./provider";

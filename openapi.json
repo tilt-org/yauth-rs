@@ -1859,6 +1859,217 @@
         ]
       }
     },
+    "/organizations/{id}/domains": {
+      "get": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_listDomains",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DomainResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_createDomain",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDomainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateDomainResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/organizations/{id}/domains/{did}": {
+      "delete": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_deleteDomain",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "did",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_updateDomain",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "did",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDomainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/organizations/{id}/domains/{did}/verify": {
+      "post": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_verifyDomain",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "did",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyDomainResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/organizations/{id}/invitations": {
       "post": {
         "tags": [
@@ -3572,6 +3783,56 @@
           }
         }
       },
+      "CreateDomainRequest": {
+        "type": "object",
+        "required": [
+          "domain"
+        ],
+        "properties": {
+          "auto_join_on_signup": {
+            "type": "boolean",
+            "description": "Auto-add matching users to the org on signup / email verification.\nDefaults to `false` — the org must explicitly opt in."
+          },
+          "default_role_on_auto_join": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Role granted on auto-join. Defaults to `\"member\"`."
+          },
+          "domain": {
+            "type": "string",
+            "description": "Domain to claim (e.g. `\"acme.com\"`). Canonicalized to lowercase."
+          },
+          "require_email_verified": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Auto-join only after the user has verified their address.\nDefaults to `true` (anti-abuse)."
+          }
+        }
+      },
+      "CreateDomainResponse": {
+        "type": "object",
+        "description": "Returned by `POST /organizations/:id/domains` — wraps the claim plus\nthe **verification token**, which is returned exactly once at claim\ntime. Clients must surface it to the operator so they can publish the\nDNS TXT record `_yauth-domain-verify.<domain>` containing the token.",
+        "required": [
+          "domain",
+          "verification_token",
+          "dns_record_name"
+        ],
+        "properties": {
+          "dns_record_name": {
+            "type": "string"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/DomainResponse"
+          },
+          "verification_token": {
+            "type": "string"
+          }
+        }
+      },
       "CreateInvitationRequest": {
         "type": "object",
         "required": [
@@ -3661,6 +3922,67 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "DomainResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "domain",
+          "status",
+          "auto_join_on_signup",
+          "default_role_on_auto_join",
+          "require_email_verified",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "auto_join_on_signup": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "default_role_on_auto_join": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "require_email_verified": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verified_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -4996,6 +5318,29 @@
           }
         }
       },
+      "UpdateDomainRequest": {
+        "type": "object",
+        "properties": {
+          "auto_join_on_signup": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "default_role_on_auto_join": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "require_email_verified": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateOrgRequest": {
         "type": "object",
         "properties": {
@@ -5088,6 +5433,21 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "VerifyDomainResponse": {
+        "type": "object",
+        "required": [
+          "domain",
+          "verified"
+        ],
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/DomainResponse"
+          },
+          "verified": {
+            "type": "boolean"
           }
         }
       },

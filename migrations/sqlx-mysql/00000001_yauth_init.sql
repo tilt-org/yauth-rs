@@ -338,3 +338,22 @@ CREATE TABLE IF NOT EXISTS `yauth_invitations` (
     FOREIGN KEY (`invited_by_user_id`) REFERENCES `yauth_users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- Domain claims for an organization. Verified claims may auto-join matching users on signup (JIT membership).
+CREATE TABLE IF NOT EXISTS `yauth_organization_domains` (
+    `id` CHAR(36) PRIMARY KEY,
+    `organization_id` CHAR(36),
+    `domain` VARCHAR(255) NOT NULL,
+    `status` VARCHAR(255) NOT NULL DEFAULT 'pending',
+    `verification_token` VARCHAR(255) NOT NULL,
+    `verified_at` DATETIME,
+    `last_checked_at` DATETIME,
+    `auto_join_on_signup` TINYINT(1) NOT NULL DEFAULT false,
+    `default_role_on_auto_join` VARCHAR(255) NOT NULL DEFAULT 'member',
+    `require_email_verified` TINYINT(1) NOT NULL DEFAULT true,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `domain_lower` VARCHAR(255) GENERATED ALWAYS AS (LOWER(`domain`)) STORED,
+    UNIQUE KEY `yauth_organization_domains_domain_lower_key` (`domain_lower`),
+    FOREIGN KEY (`organization_id`) REFERENCES `yauth_organizations`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+

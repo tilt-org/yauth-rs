@@ -1,6 +1,8 @@
 #[cfg(all(feature = "asymmetric-jwt", feature = "oauth2-server"))]
 pub mod client_keys;
 pub mod crypto;
+#[cfg(feature = "organizations")]
+pub mod domain_verifier;
 pub mod email;
 pub mod hibp;
 pub mod input;

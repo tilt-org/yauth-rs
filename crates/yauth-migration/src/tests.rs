@@ -203,6 +203,7 @@ fn generated_ddl_has_all_tables() {
         "yauth_organizations",
         "yauth_memberships",
         "yauth_invitations",
+        "yauth_organization_domains",
     ];
 
     for table in &expected_tables {
@@ -301,7 +302,7 @@ fn sqlite_ddl_has_all_tables() {
     let ddl = generate_sqlite_ddl(&schema);
 
     let create_count = ddl.matches("CREATE TABLE IF NOT EXISTS").count();
-    assert_eq!(create_count, 29);
+    assert_eq!(create_count, 30);
 }
 
 #[test]
@@ -435,7 +436,7 @@ fn mysql_ddl_has_all_tables() {
     let ddl = generate_mysql_ddl(&schema);
 
     let create_count = ddl.matches("CREATE TABLE IF NOT EXISTS").count();
-    assert_eq!(create_count, 29);
+    assert_eq!(create_count, 30);
 }
 
 // -- Plugin lookup tests --

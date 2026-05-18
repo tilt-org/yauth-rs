@@ -316,3 +316,20 @@ CREATE TABLE IF NOT EXISTS yauth_invitations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Domain claims for an organization. Verified claims may auto-join matching users on signup (JIT membership).
+CREATE TABLE IF NOT EXISTS yauth_organization_domains (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES yauth_organizations(id) ON DELETE CASCADE,
+    domain VARCHAR NOT NULL,
+    status VARCHAR NOT NULL DEFAULT 'pending',
+    verification_token VARCHAR NOT NULL,
+    verified_at TIMESTAMPTZ,
+    last_checked_at TIMESTAMPTZ,
+    auto_join_on_signup BOOLEAN NOT NULL DEFAULT false,
+    default_role_on_auto_join VARCHAR NOT NULL DEFAULT 'member',
+    require_email_verified BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS yauth_organization_domains_domain_lower_key ON yauth_organization_domains (LOWER(domain));
+

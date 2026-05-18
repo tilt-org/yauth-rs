@@ -13,8 +13,8 @@
 //! `backends/diesel_pg/{organization,membership,invitation}_repo.rs`.
 
 use super::{
-    InvitationRepository, MembershipRepository, OrganizationRepository, RepoError, RepoFuture,
-    sealed,
+    InvitationRepository, MembershipRepository, OrganizationDomainRepository,
+    OrganizationRepository, RepoError, RepoFuture, sealed,
 };
 use crate::domain;
 use uuid::Uuid;
@@ -199,6 +199,86 @@ impl InvitationRepository for StubInvitationRepo {
                 self.backend,
                 "InvitationRepository",
                 "list_pending_for_org",
+            ))
+        })
+    }
+}
+
+/// Stub `OrganizationDomainRepository` (issue #90).
+pub struct StubOrganizationDomainRepo {
+    backend: &'static str,
+}
+
+impl StubOrganizationDomainRepo {
+    pub fn new(backend: &'static str) -> Self {
+        Self { backend }
+    }
+}
+
+impl sealed::Sealed for StubOrganizationDomainRepo {}
+
+impl OrganizationDomainRepository for StubOrganizationDomainRepo {
+    fn find_by_id(&self, _id: Uuid) -> RepoFuture<'_, Option<domain::OrganizationDomain>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "OrganizationDomainRepository",
+                "find_by_id",
+            ))
+        })
+    }
+    fn find_by_domain(&self, _domain: &str) -> RepoFuture<'_, Option<domain::OrganizationDomain>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "OrganizationDomainRepository",
+                "find_by_domain",
+            ))
+        })
+    }
+    fn create(
+        &self,
+        _input: domain::NewOrganizationDomain,
+    ) -> RepoFuture<'_, domain::OrganizationDomain> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "OrganizationDomainRepository",
+                "create",
+            ))
+        })
+    }
+    fn update(
+        &self,
+        _id: Uuid,
+        _changes: domain::UpdateOrganizationDomain,
+    ) -> RepoFuture<'_, domain::OrganizationDomain> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "OrganizationDomainRepository",
+                "update",
+            ))
+        })
+    }
+    fn delete(&self, _id: Uuid) -> RepoFuture<'_, ()> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "OrganizationDomainRepository",
+                "delete",
+            ))
+        })
+    }
+    fn list_for_org(
+        &self,
+        _organization_id: Uuid,
+    ) -> RepoFuture<'_, Vec<domain::OrganizationDomain>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "OrganizationDomainRepository",
+                "list_for_org",
             ))
         })
     }

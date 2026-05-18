@@ -282,6 +282,53 @@ export interface CreateApiKeyResponse {
   secret: string;
 }
 
+export interface CreateDomainRequest {
+  /** Auto-add matching users to the org on signup / email verification.
+  Defaults to `false` — the org must explicitly opt in. */
+  auto_join_on_signup?: boolean;
+  /**
+     * Role granted on auto-join. Defaults to `"member"`.
+     * @nullable
+     */
+  default_role_on_auto_join?: string | null;
+  /** Domain to claim (e.g. `"acme.com"`). Canonicalized to lowercase. */
+  domain: string;
+  /**
+     * Auto-join only after the user has verified their address.
+  Defaults to `true` (anti-abuse).
+     * @nullable
+     */
+  require_email_verified?: boolean | null;
+}
+
+export interface DomainResponse {
+  auto_join_on_signup: boolean;
+  created_at: string;
+  default_role_on_auto_join: string;
+  domain: string;
+  id: string;
+  /** @nullable */
+  last_checked_at?: string | null;
+  organization_id: string;
+  require_email_verified: boolean;
+  status: string;
+  updated_at: string;
+  /** @nullable */
+  verified_at?: string | null;
+}
+
+/**
+ * Returned by `POST /organizations/:id/domains` — wraps the claim plus
+the **verification token**, which is returned exactly once at claim
+time. Clients must surface it to the operator so they can publish the
+DNS TXT record `_yauth-domain-verify.<domain>` containing the token.
+ */
+export interface CreateDomainResponse {
+  dns_record_name: string;
+  domain: DomainResponse;
+  verification_token: string;
+}
+
 export interface CreateInvitationRequest {
   email: string;
   /** @nullable */
@@ -913,6 +960,15 @@ export interface UnlockAccountRequest {
   token: string;
 }
 
+export interface UpdateDomainRequest {
+  /** @nullable */
+  auto_join_on_signup?: boolean | null;
+  /** @nullable */
+  default_role_on_auto_join?: string | null;
+  /** @nullable */
+  require_email_verified?: boolean | null;
+}
+
 export interface UpdateOrgRequest {
   /** @nullable */
   avatar_url?: string | null;
@@ -947,6 +1003,11 @@ export interface UpdateWebhookRequest {
   secret?: string | null;
   /** @nullable */
   url?: string | null;
+}
+
+export interface VerifyDomainResponse {
+  domain: DomainResponse;
+  verified: boolean;
 }
 
 export interface VerifyEmailRequest {
@@ -2414,6 +2475,121 @@ export const organizationsUpdate = async (id: string,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       updateOrgRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsListDomainsUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/domains`
+}
+
+export const organizationsListDomains = async (id: string, options?: RequestInit): Promise<DomainResponse[]> => {
+
+  return customFetch<DomainResponse[]>(getOrganizationsListDomainsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsCreateDomainUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/domains`
+}
+
+export const organizationsCreateDomain = async (id: string,
+    createDomainRequest: CreateDomainRequest, options?: RequestInit): Promise<CreateDomainResponse> => {
+
+  return customFetch<CreateDomainResponse>(getOrganizationsCreateDomainUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createDomainRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsDeleteDomainUrl = (id: string,
+    did: string,) => {
+
+
+
+
+  return `/organizations/${id}/domains/${did}`
+}
+
+export const organizationsDeleteDomain = async (id: string,
+    did: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOrganizationsDeleteDomainUrl(id,did),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsUpdateDomainUrl = (id: string,
+    did: string,) => {
+
+
+
+
+  return `/organizations/${id}/domains/${did}`
+}
+
+export const organizationsUpdateDomain = async (id: string,
+    did: string,
+    updateDomainRequest: UpdateDomainRequest, options?: RequestInit): Promise<DomainResponse> => {
+
+  return customFetch<DomainResponse>(getOrganizationsUpdateDomainUrl(id,did),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateDomainRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsVerifyDomainUrl = (id: string,
+    did: string,) => {
+
+
+
+
+  return `/organizations/${id}/domains/${did}/verify`
+}
+
+export const organizationsVerifyDomain = async (id: string,
+    did: string, options?: RequestInit): Promise<VerifyDomainResponse> => {
+
+  return customFetch<VerifyDomainResponse>(getOrganizationsVerifyDomainUrl(id,did),
+  {
+    ...options,
+    method: 'POST'
+
+
   }
 );}
 

@@ -42,7 +42,7 @@ oidc = ["bearer", "oauth2-server"]
 # Multi-tenancy primitive (issue #87). Adds Organization + Membership + Invitation
 # entities, repos, and routes. Default OFF — flipping the flag on must not change any
 # existing single-tenant behavior.
-organizations = []
+organizations = ["dep:hickory-resolver"]
 telemetry =["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-http"]
 openapi = ["dep:utoipa"]
 redis = ["dep:redis"]
@@ -127,6 +127,11 @@ opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-http = { workspace = true, optional = true }
 
 log = "0.4"
+
+# Feature-gated: verified-domain DNS TXT challenge (issue #90, `organizations` feature).
+# Async resolver. tokio-runtime + system-config keeps the dep light and graceful
+# when /etc/resolv.conf is unreadable (we fall back to HTTP .well-known).
+hickory-resolver = { version = "0.24", default-features = false, features = ["tokio-runtime", "system-config"], optional = true }
 
 [dev-dependencies]
 yauth-entity = { path = "../yauth-entity", version = "0.12.3" }

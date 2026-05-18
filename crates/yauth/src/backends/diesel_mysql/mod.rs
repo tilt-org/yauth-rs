@@ -151,6 +151,10 @@ impl DatabaseBackend for DieselMysqlBackend {
             memberships: Arc::new(membership_repo::MysqlMembershipRepo::new(self.pool.clone())),
             #[cfg(feature = "organizations")]
             invitations: Arc::new(invitation_repo::MysqlInvitationRepo::new(self.pool.clone())),
+            #[cfg(feature = "organizations")]
+            organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
+                "diesel-mysql",
+            )),
         }
     }
 }

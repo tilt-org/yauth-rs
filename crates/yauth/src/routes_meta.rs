@@ -308,7 +308,13 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             // Active org (#89)
             .schema_from::<SetActiveOrgRequest>()
             .schema_from::<ActiveOrgResponse>()
-            .schema_from::<ActiveOrgEntry>();
+            .schema_from::<ActiveOrgEntry>()
+            // Verified domains (#90)
+            .schema_from::<CreateDomainRequest>()
+            .schema_from::<UpdateDomainRequest>()
+            .schema_from::<DomainResponse>()
+            .schema_from::<CreateDomainResponse>()
+            .schema_from::<VerifyDomainResponse>();
     }
 
     b
@@ -1703,6 +1709,87 @@ fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
                         .pipe(|b| with_response(b, "PermissionsResponse"))
                         .security(auth_req())
                         .build(),
+                )
+                .build(),
+        )
+        // ── Verified domains (#90) ───────────────────────────────────
+        .path(
+            "/organizations/{id}/domains",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("organizations_listDomains", "organizations"), "id")
+                        .pipe(|b| with_array_response(b, "DomainResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .operation(
+                    HttpMethod::Post,
+                    with_path_param(
+                        with_body(
+                            with_response(
+                                op("organizations_createDomain", "organizations"),
+                                "CreateDomainResponse",
+                            ),
+                            "CreateDomainRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/organizations/{id}/domains/{did}",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_path_param(
+                            with_body(
+                                with_response(
+                                    op("organizations_updateDomain", "organizations"),
+                                    "DomainResponse",
+                                ),
+                                "UpdateDomainRequest",
+                            ),
+                            "id",
+                        ),
+                        "did",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Delete,
+                    with_path_param(
+                        with_path_param(op("organizations_deleteDomain", "organizations"), "id"),
+                        "did",
+                    )
+                    .pipe(with_empty_response)
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/organizations/{id}/domains/{did}/verify",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_path_param(
+                        with_path_param(
+                            with_response(
+                                op("organizations_verifyDomain", "organizations"),
+                                "VerifyDomainResponse",
+                            ),
+                            "id",
+                        ),
+                        "did",
+                    )
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
