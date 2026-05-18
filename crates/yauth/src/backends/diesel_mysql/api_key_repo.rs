@@ -72,9 +72,14 @@ impl ApiKeyRepository for MysqlApiKeyRepo {
     fn create(&self, input: domain::NewApiKey) -> RepoFuture<'_, ()> {
         Box::pin(async move {
             let mut c = get_conn(&self.pool).await?;
+            // Issue #91: legacy schema only carries user_id. Org-scoped
+            // keys fall back to the creator's user_id for storage; the
+            // org-scoped repo methods on this backend return
+            // `NotImplemented`, so org keys never reach this path in
+            // practice.
             let (id, uid, kp, kh, nm, sc, ea, ca) = (
                 uuid_to_str(input.id),
-                uuid_to_str(input.user_id),
+                uuid_to_str(input.user_id.unwrap_or(input.created_by_user_id)),
                 input.key_prefix,
                 input.key_hash,
                 input.name,

@@ -203,17 +203,20 @@ CREATE TABLE IF NOT EXISTS yauth_refresh_tokens (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- API keys. Identified by prefix, verified by hash.
+-- API keys. Identified by prefix, verified by hash. Owned by either a user OR an organization (#91).
 CREATE TABLE IF NOT EXISTS yauth_api_keys (
     id TEXT PRIMARY KEY,
     user_id TEXT REFERENCES yauth_users(id) ON DELETE CASCADE,
+    organization_id TEXT,
     key_prefix TEXT NOT NULL UNIQUE,
     key_hash TEXT NOT NULL,
     name TEXT NOT NULL,
     scopes TEXT,
+    role TEXT,
     last_used_at TEXT,
     expires_at TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id TEXT REFERENCES yauth_users(id) ON DELETE RESTRICT
 );
 
 -- OAuth2 authorization codes. Single-use, time-limited.

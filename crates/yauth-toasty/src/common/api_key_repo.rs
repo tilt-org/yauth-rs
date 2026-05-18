@@ -70,9 +70,16 @@ impl ApiKeyRepository for ToastyApiKeyRepo {
     fn create(&self, input: domain::NewApiKey) -> RepoFuture<'_, ()> {
         Box::pin(async move {
             let mut db = self.db.clone();
+            // yauth #91: input.user_id is now Option (None = org-scoped).
+            // Toasty's YauthApiKey still has Uuid (no Option); for now
+            // toasty rejects org-scoped writes by unwrapping. SQL backends
+            // own the org-scoped path until toasty migrates.
+            let toasty_user_id = input.user_id.expect(
+                "toasty backend does not yet support org-scoped api keys (yauth #91 follow-up)",
+            );
             toasty::create!(YauthApiKey {
                 id: input.id,
-                user_id: input.user_id,
+                user_id: toasty_user_id,
                 key_prefix: input.key_prefix,
                 key_hash: input.key_hash,
                 name: input.name,
@@ -114,15 +121,25 @@ impl ApiKeyRepository for ToastyApiKeyRepo {
 }
 
 fn api_key_to_domain(m: YauthApiKey) -> domain::ApiKey {
+    let user_id = m.user_id;
     domain::ApiKey {
         id: m.id,
-        user_id: m.user_id,
+        // yauth #91: user_id is now `Option<Uuid>` (None for org-scoped keys).
+        // Toasty doesn't yet carry the new columns, so all keys round-trip
+        // as user-scoped; org-scoped is a follow-up that adds the columns.
+        user_id: Some(user_id),
+        // yauth #91 — org-scoped API keys columns not yet on toasty.
+        organization_id: None,
         key_prefix: m.key_prefix,
         key_hash: m.key_hash,
         name: m.name,
         scopes: m.scopes,
+        role: None,
         last_used_at: opt_jiff_to_chrono(m.last_used_at),
         expires_at: opt_jiff_to_chrono(m.expires_at),
         created_at: jiff_to_chrono(m.created_at),
+        // yauth #91: required column added in #91; toasty backfills to the
+        // user_id field until the column lands.
+        created_by_user_id: user_id,
     }
 }

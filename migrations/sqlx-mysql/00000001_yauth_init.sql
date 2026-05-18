@@ -214,18 +214,22 @@ CREATE TABLE IF NOT EXISTS `yauth_refresh_tokens` (
     FOREIGN KEY (`user_id`) REFERENCES `yauth_users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- API keys. Identified by prefix, verified by hash.
+-- API keys. Identified by prefix, verified by hash. Owned by either a user OR an organization (#91).
 CREATE TABLE IF NOT EXISTS `yauth_api_keys` (
     `id` CHAR(36) PRIMARY KEY,
     `user_id` CHAR(36),
+    `organization_id` CHAR(36),
     `key_prefix` VARCHAR(12) NOT NULL UNIQUE,
     `key_hash` VARCHAR(64) NOT NULL,
     `name` VARCHAR(255) NOT NULL,
     `scopes` JSON,
+    `role` VARCHAR(255),
     `last_used_at` DATETIME,
     `expires_at` DATETIME,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (`user_id`) REFERENCES `yauth_users`(`id`) ON DELETE CASCADE
+    `created_by_user_id` CHAR(36),
+    FOREIGN KEY (`user_id`) REFERENCES `yauth_users`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`created_by_user_id`) REFERENCES `yauth_users`(`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
 -- OAuth2 authorization codes. Single-use, time-limited.

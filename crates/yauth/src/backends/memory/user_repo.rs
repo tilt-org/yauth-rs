@@ -186,7 +186,9 @@ impl UserRepository for InMemoryUserRepo {
             #[cfg(feature = "api-key")]
             {
                 let mut map = self.storage.api_keys.write().unwrap();
-                map.retain(|_, k| k.user_id != id);
+                // Issue #91: cascade only user-scoped keys; org-scoped
+                // keys survive their creator (the org outlives the user).
+                map.retain(|_, k| k.user_id != Some(id));
             }
 
             // Cascade: refresh tokens

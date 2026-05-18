@@ -228,13 +228,16 @@ diesel::table! {
     yauth_api_keys (id) {
         id -> Uuid,
         user_id -> Nullable<Uuid>,
+        organization_id -> Nullable<Uuid>,
         key_prefix -> Varchar,
         key_hash -> Varchar,
         name -> Varchar,
         scopes -> Nullable<Jsonb>,
+        role -> Nullable<Varchar>,
         last_used_at -> Nullable<Timestamptz>,
         expires_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
+        created_by_user_id -> Nullable<Uuid>,
     }
 }
 
@@ -374,6 +377,7 @@ diesel::joinable!(yauth_backup_codes -> yauth_users (user_id));
 diesel::joinable!(yauth_oauth_accounts -> yauth_users (user_id));
 diesel::joinable!(yauth_refresh_tokens -> yauth_users (user_id));
 diesel::joinable!(yauth_api_keys -> yauth_users (user_id));
+diesel::joinable!(yauth_api_keys -> yauth_users (created_by_user_id));
 diesel::joinable!(yauth_authorization_codes -> yauth_users (user_id));
 diesel::joinable!(yauth_consents -> yauth_users (user_id));
 diesel::joinable!(yauth_device_codes -> yauth_users (user_id));

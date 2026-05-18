@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::crypto;
-use crate::middleware::{AuthMethod, AuthUser};
+use crate::middleware::{AuthMethod, AuthUser, Principal};
 use crate::plugin::{PluginContext, YAuthPlugin};
 use crate::state::YAuthState;
 
@@ -106,16 +106,16 @@ async fn create_api_key(
 
     let api_key_id = Uuid::now_v7();
 
-    let new_key = crate::domain::NewApiKey {
-        id: api_key_id,
-        user_id: user.id,
-        key_prefix: prefix.clone(),
+    let new_key = crate::domain::NewApiKey::for_user(
+        api_key_id,
+        user.id,
+        prefix.clone(),
         key_hash,
-        name: name.clone(),
-        scopes: scopes_json,
+        name.clone(),
+        scopes_json,
         expires_at,
-        created_at: now,
-    };
+        now,
+    );
 
     state.repos.api_keys.create(new_key).await.map_err(|e| {
         crate::otel::record_error("api_key_create_failed", &e);
@@ -258,7 +258,16 @@ async fn delete_api_key(
 }
 
 /// Validate an API key from the `X-Api-Key` header. Called from the auth middleware.
-pub async fn validate_api_key(key: &str, state: &YAuthState) -> Result<AuthUser, String> {
+///
+/// Returns the [`AuthUser`] the request acts as plus a [`Principal`] describing
+/// what owns the credential. For user-scoped keys, `Principal::User(user.id)`.
+/// For org-scoped keys (issue #91), `Principal::ServiceAccount { … }` — the
+/// `AuthUser.id` carries the *creator* user for the audit trail, while
+/// `active_org_id` / `org_role` are populated from the key's own org binding.
+pub async fn validate_api_key(
+    key: &str,
+    state: &YAuthState,
+) -> Result<(AuthUser, Principal), String> {
     // Parse the key format: yauth_<prefix>_<secret>
     let parts: Vec<&str> = key.splitn(3, '_').collect();
     if parts.len() != 3 || parts[0] != "yauth" {
@@ -320,11 +329,15 @@ pub async fn validate_api_key(key: &str, state: &YAuthState) -> Result<AuthUser,
         crate::otel::record_error("api_key_last_used_update_failed", &e);
     }
 
-    // Look up the user
+    // For service-account keys (issue #91): the AuthUser carries the
+    // *creator*'s identity (audit trail) and the principal is the org.
+    // For user-scoped keys: AuthUser carries the owner's identity and
+    // the principal is the user.
+    let acting_user_id = api_key.user_id.unwrap_or(api_key.created_by_user_id);
     let user = state
         .repos
         .users
-        .find_by_id(api_key.user_id)
+        .find_by_id(acting_user_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or_else(|| "User not found".to_string())?;
@@ -346,7 +359,21 @@ pub async fn validate_api_key(key: &str, state: &YAuthState) -> Result<AuthUser,
     // Wire API key scopes into AuthUser
     let scopes: Option<Vec<String>> = api_key.scopes.and_then(|v| serde_json::from_value(v).ok());
 
-    Ok(AuthUser {
+    // Build the principal + populate org context for org-scoped keys.
+    let (principal, active_org_id, org_role) = match (api_key.organization_id, api_key.user_id) {
+        (Some(org_id), None) => (
+            Principal::ServiceAccount {
+                org_id,
+                key_id: api_key.id,
+                created_by: api_key.created_by_user_id,
+            },
+            Some(org_id),
+            api_key.role.clone(),
+        ),
+        _ => (Principal::User(user.id), None, None),
+    };
+
+    let auth_user = AuthUser {
         id: user.id,
         email: user.email,
         display_name: user.display_name,
@@ -355,12 +382,13 @@ pub async fn validate_api_key(key: &str, state: &YAuthState) -> Result<AuthUser,
         banned: user.banned,
         auth_method: AuthMethod::ApiKey,
         scopes,
-        // Issue #89: API keys are org-scoped at creation (per the spec)
-        // and never switch — they DO NOT inherit the user's active org.
-        // The org-aware fields stay empty; a follow-up will attach the
-        // key's own organization_id when that column lands.
-        active_org_id: None,
-        org_role: None,
+        // Issue #91: org-scoped keys carry their own org binding —
+        // surface it so RBAC helpers (rbac::require_org_*) work as
+        // expected. User-scoped keys keep the legacy behavior (None).
+        active_org_id,
+        org_role,
         all_orgs: Vec::new(),
-    })
+    };
+
+    Ok((auth_user, principal))
 }

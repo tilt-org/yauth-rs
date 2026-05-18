@@ -315,6 +315,16 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<DomainResponse>()
             .schema_from::<CreateDomainResponse>()
             .schema_from::<VerifyDomainResponse>();
+        // Org-scoped API keys (#91) — schemas only when the api-key
+        // plugin is also active.
+        #[cfg(feature = "api-key")]
+        {
+            b = b
+                .schema_from::<CreateOrgApiKeyRequest>()
+                .schema_from::<CreateOrgApiKeyResponse>()
+                .schema_from::<OrgApiKeyResponse>()
+                .schema_from::<OrgApiKeyUsageResponse>();
+        }
     }
 
     b

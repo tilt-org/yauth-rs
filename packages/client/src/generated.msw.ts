@@ -363,6 +363,52 @@ export interface CreateInvitationResponse {
   token: string;
 }
 
+export interface CreateOrgApiKeyRequest {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  expires_in_days?: number | null;
+  name: string;
+  /**
+     * Free-form permission list. The handler enforces that every
+  requested permission is a subset of what the caller's own role
+  allows by default.
+     * @nullable
+     */
+  permissions?: string[] | null;
+  /**
+     * Org-role the bearer acts as. Must be one of the built-in roles
+  except `owner` (defense-in-depth: a leaked service-account key
+  must not be able to delete the org). Defaults to `member`.
+     * @nullable
+     */
+  role?: string | null;
+}
+
+export interface OrgApiKeyResponse {
+  created_at: string;
+  created_by_user_id: string;
+  /** @nullable */
+  expires_at?: string | null;
+  id: string;
+  /** @nullable */
+  last_used_at?: string | null;
+  name: string;
+  organization_id: string;
+  /** @nullable */
+  permissions?: string[] | null;
+  prefix: string;
+  /** @nullable */
+  role?: string | null;
+}
+
+export interface CreateOrgApiKeyResponse {
+  api_key: OrgApiKeyResponse;
+  /** Plaintext secret — returned exactly once at creation. */
+  secret: string;
+}
+
 export interface CreateOrgRequest {
   /** @nullable */
   display_name?: string | null;
@@ -797,6 +843,15 @@ export interface Oauth2PatchClientRequest {
   banned_reason?: string | null;
   /** @nullable */
   public_key_pem?: string | null;
+}
+
+export interface OrgApiKeyUsageResponse {
+  created_at: string;
+  /** @nullable */
+  expires_at?: string | null;
+  id: string;
+  /** @nullable */
+  last_used_at?: string | null;
 }
 
 export interface OrganizationResponse {

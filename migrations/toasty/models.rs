@@ -51,6 +51,8 @@ pub struct YauthUser {
     #[has_many]
     pub api_keys: toasty::HasMany<YauthApiKey>,
     #[has_many]
+    pub api_keys: toasty::HasMany<YauthApiKey>,
+    #[has_many]
     pub authorization_codes: toasty::HasMany<YauthAuthorizationCode>,
     #[has_many]
     pub consents: toasty::HasMany<YauthConsent>,
@@ -382,15 +384,20 @@ pub struct YauthApiKey {
     pub user_id: Option<uuid::Uuid>,
     #[belongs_to(key = user_id, references = id)]
     pub yauth_user: toasty::BelongsTo<YauthUser>,
+    pub organization_id: Option<uuid::Uuid>,
     #[unique]
     pub key_prefix: String,
     pub key_hash: String,
     pub name: String,
     #[serialize(json)]
     pub scopes: Option<serde_json::Value>,
+    pub role: Option<String>,
     pub last_used_at: Option<jiff::Timestamp>,
     pub expires_at: Option<jiff::Timestamp>,
     pub created_at: jiff::Timestamp,
+    pub created_by_user_id: Option<uuid::Uuid>,
+    #[belongs_to(key = created_by_user_id, references = id)]
+    pub yauth_user: toasty::BelongsTo<YauthUser>,
 }
 
 /// Toasty model for `yauth_authorization_codes`.

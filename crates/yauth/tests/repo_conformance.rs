@@ -1024,13 +1024,16 @@ fn api_key_create_find_delete() {
                 .api_keys
                 .create(domain::NewApiKey {
                     id: ak_id,
-                    user_id: uid,
+                    user_id: Some(uid),
+                    organization_id: None,
                     key_prefix: prefix.clone(),
                     key_hash: format!("hashed_key_{}", Uuid::now_v7()),
                     name: "My API Key".into(),
                     scopes: Some(json!(["read", "write"])),
+                    role: None,
                     expires_at: None,
                     created_at: now(),
+                    created_by_user_id: uid,
                 })
                 .await
                 .unwrap_or_else(|e| panic!("{name}: create api key: {e}"));
@@ -2339,13 +2342,16 @@ fn api_key_list_by_user_id() {
                     .api_keys
                     .create(domain::NewApiKey {
                         id: Uuid::now_v7(),
-                        user_id: uid_a,
+                        user_id: Some(uid_a),
+                        organization_id: None,
                         key_prefix: prefix,
                         key_hash: format!("hash_a_{i}_{}", Uuid::now_v7()),
                         name: format!("Key A{i}"),
                         scopes: None,
+                        role: None,
                         expires_at: None,
                         created_at: now(),
+                        created_by_user_id: uid_a,
                     })
                     .await
                     .unwrap_or_else(|e| panic!("{name}: create key A{i}: {e}"));
@@ -2357,13 +2363,16 @@ fn api_key_list_by_user_id() {
                 .api_keys
                 .create(domain::NewApiKey {
                     id: Uuid::now_v7(),
-                    user_id: uid_b,
+                    user_id: Some(uid_b),
+                    organization_id: None,
                     key_prefix: prefix_b,
                     key_hash: format!("hash_b_{}", Uuid::now_v7()),
                     name: "Key B".into(),
                     scopes: None,
+                    role: None,
                     expires_at: None,
                     created_at: now(),
+                    created_by_user_id: uid_b,
                 })
                 .await
                 .unwrap_or_else(|e| panic!("{name}: create key B: {e}"));
@@ -2404,13 +2413,16 @@ fn api_key_update_last_used() {
                 .api_keys
                 .create(domain::NewApiKey {
                     id: ak_id,
-                    user_id: uid,
+                    user_id: Some(uid),
+                    organization_id: None,
                     key_prefix: prefix.clone(),
                     key_hash: format!("hash_lu_{}", Uuid::now_v7()),
                     name: "Last Used Test".into(),
                     scopes: None,
+                    role: None,
                     expires_at: None,
                     created_at: now(),
+                    created_by_user_id: uid,
                 })
                 .await
                 .unwrap_or_else(|e| panic!("{name}: create api key: {e}"));
@@ -2929,13 +2941,16 @@ fn expired_api_key_returns_none() {
                 .api_keys
                 .create(domain::NewApiKey {
                     id: Uuid::now_v7(),
-                    user_id: uid,
+                    user_id: Some(uid),
+                    organization_id: None,
                     key_prefix: prefix.clone(),
                     key_hash: format!("expired_key_{}", Uuid::now_v7()),
                     name: "Expired Key".into(),
                     scopes: None,
+                    role: None,
                     expires_at: Some(now() - Duration::seconds(60)),
                     created_at: now(),
+                    created_by_user_id: uid,
                 })
                 .await
                 .unwrap_or_else(|e| panic!("{name}: create expired api key: {e}"));
@@ -3258,13 +3273,16 @@ fn user_delete_cascades() {
                     .api_keys
                     .create(domain::NewApiKey {
                         id: Uuid::now_v7(),
-                        user_id: uid,
+                        user_id: Some(uid),
+                        organization_id: None,
                         key_prefix: prefix,
                         key_hash: format!("cascade_key_{}", Uuid::now_v7()),
                         name: "Cascade Key".into(),
                         scopes: None,
+                        role: None,
                         expires_at: None,
                         created_at: now(),
+                        created_by_user_id: uid,
                     })
                     .await
                     .unwrap_or_else(|e| panic!("{name}: create api key: {e}"));
@@ -3900,13 +3918,16 @@ fn api_key_find_by_id_and_user() {
                 .api_keys
                 .create(domain::NewApiKey {
                     id: ak_id,
-                    user_id: uid,
+                    user_id: Some(uid),
+                    organization_id: None,
                     key_prefix: prefix,
                     key_hash: format!("hashed_id_{}", Uuid::now_v7()),
                     name: "ID Lookup Key".into(),
                     scopes: None,
+                    role: None,
                     expires_at: None,
                     created_at: now(),
+                    created_by_user_id: uid,
                 })
                 .await
                 .unwrap_or_else(|e| panic!("{name}: create api key: {e}"));

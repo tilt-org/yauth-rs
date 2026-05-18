@@ -3866,6 +3866,58 @@
           }
         }
       },
+      "CreateOrgApiKeyRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "expires_in_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Free-form permission list. The handler enforces that every\nrequested permission is a subset of what the caller's own role\nallows by default."
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Org-role the bearer acts as. Must be one of the built-in roles\nexcept `owner` (defense-in-depth: a leaked service-account key\nmust not be able to delete the org). Defaults to `member`."
+          }
+        }
+      },
+      "CreateOrgApiKeyResponse": {
+        "type": "object",
+        "required": [
+          "api_key",
+          "secret"
+        ],
+        "properties": {
+          "api_key": {
+            "$ref": "#/components/schemas/OrgApiKeyResponse"
+          },
+          "secret": {
+            "type": "string",
+            "description": "Plaintext secret — returned exactly once at creation."
+          }
+        }
+      },
       "CreateOrgRequest": {
         "type": "object",
         "required": [
@@ -4838,6 +4890,101 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "OrgApiKeyResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "name",
+          "prefix",
+          "created_by_user_id",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "permissions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "OrgApiKeyUsageResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       },
