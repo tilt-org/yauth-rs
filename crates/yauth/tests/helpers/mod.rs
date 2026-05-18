@@ -2,6 +2,10 @@ pub mod otel;
 #[allow(dead_code)]
 pub mod schema;
 
+#[cfg(feature = "organizations")]
+#[allow(dead_code)]
+pub mod saml_idp_fixture;
+
 #[cfg(feature = "oauth2-server")]
 #[allow(dead_code)]
 mod oauth2;

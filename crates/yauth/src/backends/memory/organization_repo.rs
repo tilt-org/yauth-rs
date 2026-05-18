@@ -841,6 +841,26 @@ impl SsoConnectionRepository for InMemorySsoConnectionRepo {
             Ok(v.into_iter().next())
         })
     }
+
+    fn find_active_saml_for_org(
+        &self,
+        organization_id: Uuid,
+    ) -> RepoFuture<'_, Option<domain::SsoConnection>> {
+        Box::pin(async move {
+            let map = self.connections.read().unwrap();
+            let mut v: Vec<_> = map
+                .values()
+                .filter(|c| {
+                    c.organization_id == organization_id
+                        && c.kind == domain::ConnectionKind::SamlSp
+                        && c.status == domain::ConnectionStatus::Active
+                })
+                .cloned()
+                .collect();
+            v.sort_by_key(|c| c.created_at);
+            Ok(v.into_iter().next())
+        })
+    }
 }
 
 // ──────────────────────────────────────────────

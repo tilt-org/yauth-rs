@@ -66,9 +66,34 @@ pub fn oidc_provider(issuer: &str) -> String {
     format!("oidc:{no_slash}")
 }
 
+/// Build a canonical provider string for a SAML IdP.
+///
+/// Distinct namespace from [`oidc_provider`] so a SAML IdP and an
+/// OIDC IdP that happen to share an issuer URI never collide on the
+/// `(provider, external_id)` unique constraint.
+pub fn saml_provider(idp_entity_id: &str) -> String {
+    let trimmed = idp_entity_id.trim();
+    let no_slash = trimmed.trim_end_matches('/');
+    format!("saml:{no_slash}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saml_provider_namespaces_separately_from_oidc() {
+        let s = saml_provider("urn:idp:acme:saml");
+        let o = oidc_provider("urn:idp:acme:saml");
+        assert_ne!(s, o);
+        assert!(s.starts_with("saml:"));
+        assert!(o.starts_with("oidc:"));
+    }
+
+    #[test]
+    fn saml_provider_strips_trailing_slash_and_whitespace() {
+        assert_eq!(saml_provider("  urn:idp:acme/  "), "saml:urn:idp:acme");
+    }
 
     #[test]
     fn oidc_provider_strips_trailing_slash() {

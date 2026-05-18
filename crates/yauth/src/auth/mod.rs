@@ -20,6 +20,7 @@ pub mod policy_enforcer;
 pub mod rate_limit;
 #[cfg(feature = "organizations")]
 pub mod rbac;
+pub mod saml_sp;
 pub mod session;
 #[cfg(feature = "bearer")]
 pub mod signing;

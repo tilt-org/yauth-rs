@@ -46,4 +46,15 @@ pub trait SsoConnectionRepository: sealed::Sealed + Send + Sync {
         &self,
         organization_id: Uuid,
     ) -> RepoFuture<'_, Option<domain::SsoConnection>>;
+
+    /// Find the **first active** SAML connection for an org, used by
+    /// the SAML SP-initiated login path (`/sso/saml/login?org=...`).
+    /// Returns `None` if the org has no active SAML connection.
+    ///
+    /// Determinism: rows are ordered by `created_at` ASC, so adding a
+    /// fresh connection cannot silently shadow a still-active older one.
+    fn find_active_saml_for_org(
+        &self,
+        organization_id: Uuid,
+    ) -> RepoFuture<'_, Option<domain::SsoConnection>>;
 }

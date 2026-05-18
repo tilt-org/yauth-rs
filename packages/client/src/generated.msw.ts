@@ -459,17 +459,68 @@ export interface OidcConfigInput {
   scopes?: string[] | null;
 }
 
+/**
+ * @nullable
+ */
+export type SamlAttributeMappingsInputGroupToRole = {[key: string]: string} | null;
+
+export interface SamlAttributeMappingsInput {
+  /** @nullable */
+  display_name?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  external_id?: string | null;
+  /** @nullable */
+  group_to_role?: SamlAttributeMappingsInputGroupToRole;
+  /** @nullable */
+  groups?: string | null;
+}
+
+/**
+ * Admin payload for a SAML SP connection (issue #94).
+
+`assertion_signed_required` and `response_signed_required` are
+**strict booleans** — omitting them defaults to `true`, but
+explicitly passing `false` is a knowingly-accepted footgun and is
+recorded in the audit log.
+ */
+export interface SamlConfigInput {
+  /** @nullable */
+  assertion_signed_required?: boolean | null;
+  attribute_mappings?: null | SamlAttributeMappingsInput;
+  idp_entity_id: string;
+  /** @nullable */
+  idp_initiated_sso_allowed?: boolean | null;
+  /** @nullable */
+  idp_slo_url?: string | null;
+  idp_sso_url: string;
+  idp_x509_cert: string;
+  /** @nullable */
+  response_signed_required?: boolean | null;
+  /**
+     * Optional SP private key (PEM). yauth encrypts at rest. Plaintext
+  NEVER leaves this request boundary — list/get masks to a fixed
+  `"********"`. Only needed when SP signing or encrypted-assertion
+  decryption is required.
+     * @nullable
+     */
+  sp_private_key?: string | null;
+  /** @nullable */
+  want_encrypted_assertions?: boolean | null;
+}
+
 export interface CreateSsoConnectionRequest {
   /** @nullable */
   default_role_on_jit?: string | null;
   /** @nullable */
   jit_provisioning_enabled?: boolean | null;
-  /** Protocol kind — only `"oidc_client"` accepted in #93. SAML
-  (`"saml_sp"`) lands in #94. */
+  /** Protocol kind — `"oidc_client"` (#93) or `"saml_sp"` (#94). */
   kind: string;
   /** Operator-friendly name (`"Acme Okta"`). */
   name: string;
   oidc?: null | OidcConfigInput;
+  saml?: null | SamlConfigInput;
 }
 
 export interface CreateWebhookRequest {
@@ -1057,6 +1108,43 @@ export interface RevokeRequest {
   refresh_token: string;
 }
 
+export type SamlAttributeMappingsResponseGroupToRole = {[key: string]: string};
+
+export interface SamlAttributeMappingsResponse {
+  /** @nullable */
+  display_name?: string | null;
+  email: string;
+  external_id: string;
+  group_to_role: SamlAttributeMappingsResponseGroupToRole;
+  /** @nullable */
+  groups?: string | null;
+}
+
+export interface SamlConfigResponse {
+  assertion_signed_required: boolean;
+  attribute_mappings: SamlAttributeMappingsResponse;
+  idp_entity_id: string;
+  idp_initiated_sso_allowed: boolean;
+  /** @nullable */
+  idp_slo_url?: string | null;
+  idp_sso_url: string;
+  /** **Masked** when set — always `"********"`. The IdP cert is
+  non-secret but we still don't echo it on list to keep response
+  sizes small; admins refetch it from the IdP if they need to
+  re-import. */
+  idp_x509_cert: string;
+  response_signed_required: boolean;
+  sp_acs_url: string;
+  sp_entity_id: string;
+  /**
+     * **Masked** when set — always `"********"`. `None` if SP signing
+  was never configured.
+     * @nullable
+     */
+  sp_private_key?: string | null;
+  want_encrypted_assertions: boolean;
+}
+
 /**
  * Envelope returned by `GET /session` — wraps the authenticated user and
 surfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`
@@ -1091,6 +1179,7 @@ export interface SsoConnectionResponse {
   name: string;
   oidc?: null | OidcConfigResponse;
   organization_id: string;
+  saml?: null | SamlConfigResponse;
   status: string;
   updated_at: string;
 }
@@ -1196,6 +1285,7 @@ export interface UpdateSsoConnectionRequest {
   /** @nullable */
   name?: string | null;
   oidc?: null | OidcConfigInput;
+  saml?: null | SamlConfigInput;
   /** @nullable */
   status?: string | null;
 }
@@ -3816,19 +3906,31 @@ export const getOrganizationsListSsoConnectionsResponseOidcConfigResponseMock = 
         [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
       }, groups: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, client_id: faker.string.alpha({length: {min: 10, max: 20}}), client_secret: faker.string.alpha({length: {min: 10, max: 20}}), discovery_url: faker.string.alpha({length: {min: 10, max: 20}}), scopes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))}, ...overrideResponse});
 
-export const getOrganizationsListSsoConnectionsResponseMock = (): SsoConnectionResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_jit: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), jit_provisioning_enabled: faker.datatype.boolean(), kind: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), oidc: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsListSsoConnectionsResponseOidcConfigResponseMock()},]), undefined]), organization_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+export const getOrganizationsListSsoConnectionsResponseSamlConfigResponseMock = (overrideResponse: Partial<SamlConfigResponse> = {}): SamlConfigResponse => ({...{assertion_signed_required: faker.datatype.boolean(), attribute_mappings: {display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), external_id: faker.string.alpha({length: {min: 10, max: 20}}), group_to_role: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, groups: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, idp_entity_id: faker.string.alpha({length: {min: 10, max: 20}}), idp_initiated_sso_allowed: faker.datatype.boolean(), idp_slo_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), idp_sso_url: faker.string.alpha({length: {min: 10, max: 20}}), idp_x509_cert: faker.string.alpha({length: {min: 10, max: 20}}), response_signed_required: faker.datatype.boolean(), sp_acs_url: faker.string.alpha({length: {min: 10, max: 20}}), sp_entity_id: faker.string.alpha({length: {min: 10, max: 20}}), sp_private_key: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), want_encrypted_assertions: faker.datatype.boolean()}, ...overrideResponse});
+
+export const getOrganizationsListSsoConnectionsResponseMock = (): SsoConnectionResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_jit: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), jit_provisioning_enabled: faker.datatype.boolean(), kind: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), oidc: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsListSsoConnectionsResponseOidcConfigResponseMock()},]), undefined]), organization_id: faker.string.uuid(), saml: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsListSsoConnectionsResponseSamlConfigResponseMock()},]), undefined]), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
 
 export const getOrganizationsCreateSsoConnectionResponseOidcConfigResponseMock = (overrideResponse: Partial<OidcConfigResponse> = {}): OidcConfigResponse => ({...{claim_mappings: {display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), external_id: faker.string.alpha({length: {min: 10, max: 20}}), group_to_role: {
         [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
       }, groups: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, client_id: faker.string.alpha({length: {min: 10, max: 20}}), client_secret: faker.string.alpha({length: {min: 10, max: 20}}), discovery_url: faker.string.alpha({length: {min: 10, max: 20}}), scopes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))}, ...overrideResponse});
 
-export const getOrganizationsCreateSsoConnectionResponseMock = (overrideResponse: Partial<Extract<SsoConnectionResponse, object>> = {}): SsoConnectionResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_jit: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), jit_provisioning_enabled: faker.datatype.boolean(), kind: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), oidc: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsCreateSsoConnectionResponseOidcConfigResponseMock()},]), undefined]), organization_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getOrganizationsCreateSsoConnectionResponseSamlConfigResponseMock = (overrideResponse: Partial<SamlConfigResponse> = {}): SamlConfigResponse => ({...{assertion_signed_required: faker.datatype.boolean(), attribute_mappings: {display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), external_id: faker.string.alpha({length: {min: 10, max: 20}}), group_to_role: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, groups: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, idp_entity_id: faker.string.alpha({length: {min: 10, max: 20}}), idp_initiated_sso_allowed: faker.datatype.boolean(), idp_slo_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), idp_sso_url: faker.string.alpha({length: {min: 10, max: 20}}), idp_x509_cert: faker.string.alpha({length: {min: 10, max: 20}}), response_signed_required: faker.datatype.boolean(), sp_acs_url: faker.string.alpha({length: {min: 10, max: 20}}), sp_entity_id: faker.string.alpha({length: {min: 10, max: 20}}), sp_private_key: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), want_encrypted_assertions: faker.datatype.boolean()}, ...overrideResponse});
+
+export const getOrganizationsCreateSsoConnectionResponseMock = (overrideResponse: Partial<Extract<SsoConnectionResponse, object>> = {}): SsoConnectionResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_jit: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), jit_provisioning_enabled: faker.datatype.boolean(), kind: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), oidc: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsCreateSsoConnectionResponseOidcConfigResponseMock()},]), undefined]), organization_id: faker.string.uuid(), saml: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsCreateSsoConnectionResponseSamlConfigResponseMock()},]), undefined]), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
 export const getOrganizationsUpdateSsoConnectionResponseOidcConfigResponseMock = (overrideResponse: Partial<OidcConfigResponse> = {}): OidcConfigResponse => ({...{claim_mappings: {display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), external_id: faker.string.alpha({length: {min: 10, max: 20}}), group_to_role: {
         [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
       }, groups: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, client_id: faker.string.alpha({length: {min: 10, max: 20}}), client_secret: faker.string.alpha({length: {min: 10, max: 20}}), discovery_url: faker.string.alpha({length: {min: 10, max: 20}}), scopes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))}, ...overrideResponse});
 
-export const getOrganizationsUpdateSsoConnectionResponseMock = (overrideResponse: Partial<Extract<SsoConnectionResponse, object>> = {}): SsoConnectionResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_jit: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), jit_provisioning_enabled: faker.datatype.boolean(), kind: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), oidc: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsUpdateSsoConnectionResponseOidcConfigResponseMock()},]), undefined]), organization_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getOrganizationsUpdateSsoConnectionResponseSamlConfigResponseMock = (overrideResponse: Partial<SamlConfigResponse> = {}): SamlConfigResponse => ({...{assertion_signed_required: faker.datatype.boolean(), attribute_mappings: {display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), external_id: faker.string.alpha({length: {min: 10, max: 20}}), group_to_role: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, groups: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, idp_entity_id: faker.string.alpha({length: {min: 10, max: 20}}), idp_initiated_sso_allowed: faker.datatype.boolean(), idp_slo_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), idp_sso_url: faker.string.alpha({length: {min: 10, max: 20}}), idp_x509_cert: faker.string.alpha({length: {min: 10, max: 20}}), response_signed_required: faker.datatype.boolean(), sp_acs_url: faker.string.alpha({length: {min: 10, max: 20}}), sp_entity_id: faker.string.alpha({length: {min: 10, max: 20}}), sp_private_key: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), want_encrypted_assertions: faker.datatype.boolean()}, ...overrideResponse});
+
+export const getOrganizationsUpdateSsoConnectionResponseMock = (overrideResponse: Partial<Extract<SsoConnectionResponse, object>> = {}): SsoConnectionResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_jit: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), jit_provisioning_enabled: faker.datatype.boolean(), kind: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), oidc: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsUpdateSsoConnectionResponseOidcConfigResponseMock()},]), undefined]), organization_id: faker.string.uuid(), saml: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsUpdateSsoConnectionResponseSamlConfigResponseMock()},]), undefined]), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
 export const getOrganizationsTestSsoConnectionResponseMock = (overrideResponse: Partial<Extract<SsoConnectionTestResponse, object>> = {}): SsoConnectionTestResponse => ({detail: faker.string.alpha({length: {min: 10, max: 20}}), ok: faker.datatype.boolean(), ...overrideResponse})
 

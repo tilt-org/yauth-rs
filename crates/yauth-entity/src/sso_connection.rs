@@ -178,6 +178,122 @@ impl OidcConnectionConfig {
     }
 }
 
+/// Attribute → identity mapping for a SAML connection. Mirrors
+/// [`ClaimMappings`] but on SAML attribute names instead of OIDC claim
+/// names. Defaults match the schemas.xmlsoap.org URIs that every major
+/// IdP (Okta, Entra, OneLogin, ADFS, Auth0, Ping) emits out of the
+/// box.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SamlAttributeMappings {
+    /// SAML attribute carrying the user's email. Default
+    /// `"http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"`.
+    pub email: String,
+    /// SAML attribute carrying display name. Default
+    /// `"http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"`.
+    pub display_name: Option<String>,
+    /// Where to source the **stable** external id from. Special value
+    /// `"NameID"` means use the assertion's `<NameID>` element; any
+    /// other value is treated as an attribute name.
+    pub external_id: String,
+    /// SAML attribute carrying group membership (multi-valued). `None` =
+    /// skip group-based role assignment.
+    pub groups: Option<String>,
+    /// Map of IdP group name → yauth org role.
+    pub group_to_role: HashMap<String, String>,
+}
+
+impl Default for SamlAttributeMappings {
+    fn default() -> Self {
+        Self {
+            email: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress".into(),
+            display_name: Some("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name".into()),
+            external_id: "NameID".into(),
+            groups: None,
+            group_to_role: HashMap::new(),
+        }
+    }
+}
+
+/// Per-connection SAML 2.0 Service Provider configuration. Serialised
+/// into [`SsoConnection::config`].
+///
+/// The `sp_private_key` field carries an **encrypted** PEM as stored;
+/// it is decrypted only at the moment of use (assertion decryption or
+/// AuthnRequest signing) and never surfaced on the admin API.
+///
+/// # Security defaults
+///
+/// `assertion_signed_required` and `response_signed_required` default
+/// to `true`. They CANNOT be turned off at the application layer
+/// without an explicit admin override — leaving either field set to
+/// `false` is a knowingly accepted footgun.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SamlConnectionConfig {
+    /// IdP's entity ID (`urn:idp:acme:saml`). MUST match the assertion
+    /// `<Issuer>` value to prove the assertion came from the IdP we
+    /// expect.
+    pub idp_entity_id: String,
+    /// IdP's SSO endpoint — yauth redirects users here on SP-initiated
+    /// login.
+    pub idp_sso_url: String,
+    /// IdP's optional SLO endpoint. `None` = SLO not supported.
+    #[serde(default)]
+    pub idp_slo_url: Option<String>,
+    /// PEM-encoded X.509 certificate (`-----BEGIN CERTIFICATE-----…`).
+    /// Used to verify XML-DSig signatures on `<Response>` and/or
+    /// `<Assertion>`.
+    pub idp_x509_cert: String,
+    /// SP's entity ID. Derived per-connection so two connections on
+    /// the same yauth deployment cannot be cross-confused
+    /// (CVE-2022-class issue). Always
+    /// `<base_url>/sso/saml/metadata/<connection-uuid>`.
+    pub sp_entity_id: String,
+    /// SP's Assertion Consumer Service URL — where the IdP POSTs the
+    /// SAMLResponse. Always `<base_url>/sso/saml/acs`.
+    pub sp_acs_url: String,
+    /// PEM private key for AuthnRequest signing / encrypted-assertion
+    /// decryption. **Encrypted at rest** (AEAD via `SecretCipher`).
+    /// `None` = SP signing disabled.
+    #[serde(default)]
+    pub sp_private_key: Option<String>,
+    /// Allow IdP-initiated SSO (no SP-side AuthnRequest). **Default
+    /// `false`** — there's no CSRF binding on the IdP-initiated path,
+    /// so admins must consciously opt in.
+    #[serde(default)]
+    pub idp_initiated_sso_allowed: bool,
+    /// Require the `<Assertion>` to carry an XML signature. **Default
+    /// `true`.**
+    pub assertion_signed_required: bool,
+    /// Require the wrapping `<Response>` to carry an XML signature.
+    /// **Default `true`.**
+    pub response_signed_required: bool,
+    /// Reject `<Response>` whose `<Assertion>` is not encrypted.
+    /// Default `false` — encrypted assertions are rare; turn on if
+    /// regulatory regime requires it.
+    #[serde(default)]
+    pub want_encrypted_assertions: bool,
+    pub attribute_mappings: SamlAttributeMappings,
+}
+
+impl SamlConnectionConfig {
+    /// Default sp_entity_id given a base URL and connection UUID. The
+    /// per-connection derivation is load-bearing: it defeats the class
+    /// of attacks where IdP A's assertion is replayed at connection B
+    /// on the same deployment (the audience won't match).
+    pub fn default_sp_entity_id(base_url: &str, conn_id: Uuid) -> String {
+        format!(
+            "{}/sso/saml/metadata/{}",
+            base_url.trim_end_matches('/'),
+            conn_id
+        )
+    }
+
+    /// Default `sp_acs_url` given a base URL.
+    pub fn default_sp_acs_url(base_url: &str) -> String {
+        format!("{}/sso/saml/acs", base_url.trim_end_matches('/'))
+    }
+}
+
 /// A federation connection row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SsoConnection {
@@ -189,7 +305,8 @@ pub struct SsoConnection {
     pub name: String,
     pub status: ConnectionStatus,
     /// Protocol-specific configuration. See
-    /// [`OidcConnectionConfig`] for `oidc_client`.
+    /// [`OidcConnectionConfig`] for `oidc_client` and
+    /// [`SamlConnectionConfig`] for `saml_sp`.
     pub config: serde_json::Value,
     pub jit_provisioning_enabled: bool,
     pub default_role_on_jit: String,
@@ -204,6 +321,15 @@ impl SsoConnection {
         match self.kind {
             ConnectionKind::OidcClient => serde_json::from_value(self.config.clone()).ok(),
             ConnectionKind::SamlSp => None,
+        }
+    }
+
+    /// Parse the embedded [`SamlConnectionConfig`] when `kind` is
+    /// `SamlSp`. Returns `None` on an OIDC row.
+    pub fn saml_config(&self) -> Option<SamlConnectionConfig> {
+        match self.kind {
+            ConnectionKind::SamlSp => serde_json::from_value(self.config.clone()).ok(),
+            ConnectionKind::OidcClient => None,
         }
     }
 }
@@ -319,6 +445,87 @@ mod tests {
         };
         let parsed = conn.oidc_config().expect("config must parse");
         assert_eq!(parsed, cfg);
+    }
+
+    #[test]
+    fn saml_attribute_mappings_default_uses_schemas_xmlsoap_uris() {
+        let m = SamlAttributeMappings::default();
+        assert!(m.email.contains("schemas.xmlsoap.org"));
+        assert_eq!(m.external_id, "NameID");
+        assert!(
+            m.display_name
+                .as_ref()
+                .unwrap()
+                .contains("schemas.xmlsoap.org")
+        );
+        assert!(m.groups.is_none());
+    }
+
+    #[test]
+    fn saml_config_round_trips_through_json() {
+        let cfg = SamlConnectionConfig {
+            idp_entity_id: "urn:idp:acme:saml".into(),
+            idp_sso_url: "https://acme.okta.com/sso/saml".into(),
+            idp_slo_url: None,
+            idp_x509_cert: "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----".into(),
+            sp_entity_id: "https://app/sso/saml/metadata/abc".into(),
+            sp_acs_url: "https://app/sso/saml/acs".into(),
+            sp_private_key: Some("ENC:key".into()),
+            idp_initiated_sso_allowed: false,
+            assertion_signed_required: true,
+            response_signed_required: true,
+            want_encrypted_assertions: false,
+            attribute_mappings: SamlAttributeMappings::default(),
+        };
+        let now = chrono::Utc::now().naive_utc();
+        let conn = SsoConnection {
+            id: Uuid::nil(),
+            organization_id: Uuid::nil(),
+            kind: ConnectionKind::SamlSp,
+            name: "Acme SAML".into(),
+            status: ConnectionStatus::Draft,
+            config: serde_json::to_value(&cfg).unwrap(),
+            jit_provisioning_enabled: true,
+            default_role_on_jit: "member".into(),
+            created_at: now,
+            updated_at: now,
+        };
+        let parsed = conn.saml_config().expect("config must parse");
+        assert_eq!(parsed, cfg);
+        // Mutually exclusive: parsing as OIDC must yield None.
+        assert!(conn.oidc_config().is_none());
+    }
+
+    #[test]
+    fn default_sp_entity_id_is_connection_scoped() {
+        let id = Uuid::nil();
+        let a = SamlConnectionConfig::default_sp_entity_id("https://app", id);
+        let b = SamlConnectionConfig::default_sp_entity_id("https://app/", id);
+        assert_eq!(a, b);
+        assert!(a.ends_with(&id.to_string()));
+    }
+
+    #[test]
+    fn saml_config_security_defaults_are_strict() {
+        // Defaults established by the admin code path (not by Default
+        // impl — we want a missing field on PATCH to fail closed).
+        let cfg = SamlConnectionConfig {
+            idp_entity_id: "urn:idp:acme:saml".into(),
+            idp_sso_url: "https://idp/sso".into(),
+            idp_slo_url: None,
+            idp_x509_cert: "PEM".into(),
+            sp_entity_id: "sp".into(),
+            sp_acs_url: "acs".into(),
+            sp_private_key: None,
+            idp_initiated_sso_allowed: false,
+            assertion_signed_required: true,
+            response_signed_required: true,
+            want_encrypted_assertions: false,
+            attribute_mappings: SamlAttributeMappings::default(),
+        };
+        assert!(cfg.assertion_signed_required);
+        assert!(cfg.response_signed_required);
+        assert!(!cfg.idp_initiated_sso_allowed);
     }
 
     #[test]

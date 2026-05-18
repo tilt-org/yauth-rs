@@ -407,6 +407,18 @@ impl SsoConnectionRepository for StubSsoConnectionRepo {
             ))
         })
     }
+    fn find_active_saml_for_org(
+        &self,
+        _organization_id: Uuid,
+    ) -> RepoFuture<'_, Option<domain::SsoConnection>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "SsoConnectionRepository",
+                "find_active_saml_for_org",
+            ))
+        })
+    }
 }
 
 /// Stub `ExternalIdentityRepository` (issue #93).

@@ -1,15 +1,18 @@
 <script setup lang="ts">
 /**
- * SSO connection list (issue #93, Phase B).
+ * SSO connection list (issue #93 + #94, Phase B).
  *
- * Admin-side. Lists this org's federation connections, surfaces
- * status, and offers per-row test/enable/disable/delete actions.
+ * Admin-side. Lists this org's federation connections (OIDC and SAML),
+ * surfaces status, and offers per-row test/enable/disable/delete
+ * actions. SAML rows additionally expose a one-click "Download
+ * SP metadata" link pointing at `/sso/saml/metadata/{cid}`.
  *
  * Renders nothing useful when the user isn't an org admin — the
  * underlying API enforces RBAC (see auth::rbac::require_org_admin).
  */
 import { toRef } from "vue";
 import { useSsoConnections } from "../composables/useSsoConnections";
+import { useYAuth } from "../provider";
 
 const props = defineProps<{
 	organizationId: string;
@@ -19,10 +22,22 @@ const props = defineProps<{
 const orgIdRef = toRef(props, "organizationId");
 const { connections, loading, error, disable, enable, remove, test } =
 	useSsoConnections(() => orgIdRef.value);
+const yauth = useYAuth();
 
 const handleTest = async (id: string) => {
 	const r = await test(id);
 	if (r) props.onTest?.(id, r.ok, r.detail);
+};
+
+const samlMetadataUrl = (id: string) => yauth.client.sso.samlMetadataUrl(id);
+
+const signingSummary = (saml: NonNullable<(typeof connections.value)[number]["saml"]>) => {
+	const parts: string[] = [];
+	if (saml.assertion_signed_required) parts.push("assertion signed");
+	if (saml.response_signed_required) parts.push("response signed");
+	if (saml.want_encrypted_assertions) parts.push("encrypted");
+	if (saml.idp_initiated_sso_allowed) parts.push("IdP-init allowed");
+	return parts.length ? parts.join(" · ") : "no signing required";
 };
 </script>
 
@@ -67,8 +82,28 @@ const handleTest = async (id: string) => {
 						<div v-if="c.oidc" class="mt-1 text-xs text-muted-foreground">
 							client_id: <code>{{ c.oidc.client_id }}</code>
 						</div>
+						<div v-if="c.saml" class="mt-1 space-y-1">
+							<div class="text-xs text-muted-foreground">
+								IdP entity: <code>{{ c.saml.idp_entity_id }}</code>
+							</div>
+							<div class="text-xs text-muted-foreground">
+								SP entity: <code>{{ c.saml.sp_entity_id }}</code>
+							</div>
+							<div class="text-xs text-muted-foreground">
+								{{ signingSummary(c.saml) }}
+							</div>
+						</div>
 					</div>
-					<div class="flex gap-2">
+					<div class="flex flex-wrap gap-2">
+						<a
+							v-if="c.saml"
+							:href="samlMetadataUrl(c.id)"
+							:download="`sp-metadata-${c.id}.xml`"
+							class="rounded-md border px-3 py-1 text-xs hover:bg-accent"
+							data-testid="saml-metadata-download"
+						>
+							SP metadata
+						</a>
 						<button
 							type="button"
 							class="rounded-md border px-3 py-1 text-xs"

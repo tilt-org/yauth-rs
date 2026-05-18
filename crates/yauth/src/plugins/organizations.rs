@@ -31,9 +31,9 @@ use yauth_entity::{
     AuthMethod as PolicyAuthMethod, ClaimMappings, ConnectionKind, ConnectionStatus, DomainStatus,
     Invitation, Membership, MembershipStatus, NewInvitation, NewMembership, NewOrganization,
     NewOrganizationDomain, NewOrganizationPolicy, NewSsoConnection, OidcConnectionConfig,
-    Organization, OrganizationDomain, OrganizationPolicy, SessionBinding, SsoConnection,
-    UpdateMembership, UpdateOrganization, UpdateOrganizationDomain, UpdateOrganizationPolicy,
-    UpdateSsoConnection, domain_from_email,
+    Organization, OrganizationDomain, OrganizationPolicy, SamlAttributeMappings,
+    SamlConnectionConfig, SessionBinding, SsoConnection, UpdateMembership, UpdateOrganization,
+    UpdateOrganizationDomain, UpdateOrganizationPolicy, UpdateSsoConnection, domain_from_email,
 };
 
 use crate::auth::oidc_client;
@@ -65,7 +65,13 @@ impl YAuthPlugin for OrganizationsPlugin {
     fn public_routes(&self, _ctx: &PluginContext) -> Option<Router<YAuthState>> {
         // Issue #93 Phase B: federated `/sso/login` + `/sso/callback`
         // ship as PUBLIC routes (user isn't authenticated yet).
-        Some(crate::plugins::sso_oidc::public_routes())
+        // Issue #94 adds the parallel SAML SP routes
+        // (`/sso/saml/login`, `/sso/saml/acs`, `/sso/saml/metadata/:cid`,
+        // `/sso/saml/logout`, `/sso/saml/slo`).
+        Some(
+            crate::plugins::sso_oidc::public_routes()
+                .merge(crate::plugins::sso_saml::public_routes()),
+        )
     }
 
     fn protected_routes(&self, _ctx: &PluginContext) -> Option<Router<YAuthState>> {
@@ -849,6 +855,7 @@ async fn set_active_org_route(
         .filter(|m| m.status == MembershipStatus::Active)
         .ok_or_else(|| forbid("not a member of this organization"))?;
 
+    #[allow(unused_assignments, clippy::collapsible_match)]
     let mut bearer_token: Option<String> = None;
 
     match user.auth_method {
@@ -930,6 +937,7 @@ async fn clear_active_org(
     Extension(user): Extension<AuthUser>,
     jar: CookieJar,
 ) -> Result<Json<ActiveOrgResponse>, ApiError> {
+    #[allow(unused_assignments, clippy::collapsible_match)]
     let mut bearer_token: Option<String> = None;
     match user.auth_method {
         crate::middleware::AuthMethod::Session => {
@@ -2136,6 +2144,22 @@ async fn update_policy(
 const RATE_LIMIT_SSO_WRITE: (u32, u64) = (20, 3600); // 20 / hour / org
 const RATE_LIMIT_SSO_TEST: (u32, u64) = (60, 3600); // 60 / hour / org
 
+/// Pick the encrypt-at-rest cipher for the SSO `client_secret` /
+/// `sp_private_key` round-trip. Shared between OIDC + SAML admin
+/// paths. Mirrors `cipher_for_state` in `plugins::sso_oidc` (kept
+/// duplicated here because that module's helper is `pub(crate)` only
+/// for the public route handlers and adding a re-export would widen
+/// the API surface).
+fn encrypt_at_rest_cipher() -> Box<dyn oidc_client::SecretCipher> {
+    if let Ok(hex_key) = std::env::var("YAUTH_SSO_AEAD_KEY")
+        && let Ok(bytes) = hex::decode(hex_key.trim())
+        && let Some(c) = oidc_client::ChaCha20Poly1305Cipher::new(&bytes)
+    {
+        return Box::new(c);
+    }
+    Box::new(oidc_client::PassthroughCipher)
+}
+
 // ── Request/response shapes ───────────────────────────────────
 
 #[derive(Deserialize)]
@@ -2170,11 +2194,12 @@ pub struct ClaimMappingsInput {
 pub struct CreateSsoConnectionRequest {
     /// Operator-friendly name (`"Acme Okta"`).
     pub name: String,
-    /// Protocol kind — only `"oidc_client"` accepted in #93. SAML
-    /// (`"saml_sp"`) lands in #94.
+    /// Protocol kind — `"oidc_client"` (#93) or `"saml_sp"` (#94).
     pub kind: String,
     /// Protocol config. For `oidc_client` see [`OidcConfigInput`].
     pub oidc: Option<OidcConfigInput>,
+    /// Protocol config. For `saml_sp` see [`SamlConfigInput`].
+    pub saml: Option<SamlConfigInput>,
     #[serde(default)]
     pub jit_provisioning_enabled: Option<bool>,
     #[serde(default)]
@@ -2193,10 +2218,102 @@ pub struct UpdateSsoConnectionRequest {
     /// the whole document instead.
     #[serde(default)]
     pub oidc: Option<OidcConfigInput>,
+    /// Replaces the full SAML config blob. Same merge semantics as
+    /// `oidc`.
+    #[serde(default)]
+    pub saml: Option<SamlConfigInput>,
     #[serde(default)]
     pub jit_provisioning_enabled: Option<bool>,
     #[serde(default)]
     pub default_role_on_jit: Option<String>,
+}
+
+/// Admin payload for a SAML SP connection (issue #94).
+///
+/// `assertion_signed_required` and `response_signed_required` are
+/// **strict booleans** — omitting them defaults to `true`, but
+/// explicitly passing `false` is a knowingly-accepted footgun and is
+/// recorded in the audit log.
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SamlConfigInput {
+    pub idp_entity_id: String,
+    pub idp_sso_url: String,
+    #[serde(default)]
+    pub idp_slo_url: Option<String>,
+    pub idp_x509_cert: String,
+    /// Optional SP private key (PEM). yauth encrypts at rest. Plaintext
+    /// NEVER leaves this request boundary — list/get masks to a fixed
+    /// `"********"`. Only needed when SP signing or encrypted-assertion
+    /// decryption is required.
+    #[serde(default)]
+    pub sp_private_key: Option<String>,
+    #[serde(default)]
+    pub idp_initiated_sso_allowed: Option<bool>,
+    #[serde(default)]
+    pub assertion_signed_required: Option<bool>,
+    #[serde(default)]
+    pub response_signed_required: Option<bool>,
+    #[serde(default)]
+    pub want_encrypted_assertions: Option<bool>,
+    #[serde(default)]
+    pub attribute_mappings: Option<SamlAttributeMappingsInput>,
+}
+
+#[derive(Deserialize, Default)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SamlAttributeMappingsInput {
+    pub email: Option<String>,
+    pub display_name: Option<Option<String>>,
+    pub external_id: Option<String>,
+    pub groups: Option<Option<String>>,
+    #[serde(default)]
+    pub group_to_role: Option<std::collections::HashMap<String, String>>,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SamlAttributeMappingsResponse {
+    pub email: String,
+    pub display_name: Option<String>,
+    pub external_id: String,
+    pub groups: Option<String>,
+    pub group_to_role: std::collections::HashMap<String, String>,
+}
+
+impl From<SamlAttributeMappings> for SamlAttributeMappingsResponse {
+    fn from(m: SamlAttributeMappings) -> Self {
+        Self {
+            email: m.email,
+            display_name: m.display_name,
+            external_id: m.external_id,
+            groups: m.groups,
+            group_to_role: m.group_to_role,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SamlConfigResponse {
+    pub idp_entity_id: String,
+    pub idp_sso_url: String,
+    pub idp_slo_url: Option<String>,
+    /// **Masked** when set — always `"********"`. The IdP cert is
+    /// non-secret but we still don't echo it on list to keep response
+    /// sizes small; admins refetch it from the IdP if they need to
+    /// re-import.
+    pub idp_x509_cert: String,
+    pub sp_entity_id: String,
+    pub sp_acs_url: String,
+    /// **Masked** when set — always `"********"`. `None` if SP signing
+    /// was never configured.
+    pub sp_private_key: Option<&'static str>,
+    pub idp_initiated_sso_allowed: bool,
+    pub assertion_signed_required: bool,
+    pub response_signed_required: bool,
+    pub want_encrypted_assertions: bool,
+    pub attribute_mappings: SamlAttributeMappingsResponse,
 }
 
 #[derive(Serialize)]
@@ -2244,6 +2361,9 @@ pub struct SsoConnectionResponse {
     /// Present when `kind == "oidc_client"`. Always carries the
     /// masked secret form — see [`OidcConfigResponse`].
     pub oidc: Option<OidcConfigResponse>,
+    /// Present when `kind == "saml_sp"`. Always carries the masked
+    /// private-key form — see [`SamlConfigResponse`].
+    pub saml: Option<SamlConfigResponse>,
     pub jit_provisioning_enabled: bool,
     pub default_role_on_jit: String,
     pub created_at: chrono::NaiveDateTime,
@@ -2334,6 +2454,23 @@ fn connection_to_response(c: SsoConnection) -> SsoConnectionResponse {
         scopes: cfg.scopes,
         claim_mappings: cfg.claim_mappings.into(),
     });
+    let saml = c.saml_config().map(|cfg| SamlConfigResponse {
+        idp_entity_id: cfg.idp_entity_id,
+        idp_sso_url: cfg.idp_sso_url,
+        idp_slo_url: cfg.idp_slo_url,
+        // IdP cert is technically not secret, but trimming to a fixed
+        // sentinel keeps response sizes predictable and prevents leaks
+        // to non-admin org members on the list endpoint.
+        idp_x509_cert: "********".to_string(),
+        sp_entity_id: cfg.sp_entity_id,
+        sp_acs_url: cfg.sp_acs_url,
+        sp_private_key: cfg.sp_private_key.as_ref().map(|_| "********"),
+        idp_initiated_sso_allowed: cfg.idp_initiated_sso_allowed,
+        assertion_signed_required: cfg.assertion_signed_required,
+        response_signed_required: cfg.response_signed_required,
+        want_encrypted_assertions: cfg.want_encrypted_assertions,
+        attribute_mappings: cfg.attribute_mappings.into(),
+    });
     SsoConnectionResponse {
         id: c.id,
         organization_id: c.organization_id,
@@ -2341,11 +2478,95 @@ fn connection_to_response(c: SsoConnection) -> SsoConnectionResponse {
         name: c.name,
         status: c.status.as_str().to_string(),
         oidc,
+        saml,
         jit_provisioning_enabled: c.jit_provisioning_enabled,
         default_role_on_jit: c.default_role_on_jit,
         created_at: c.created_at,
         updated_at: c.updated_at,
     }
+}
+
+/// Build a [`SamlConnectionConfig`] from admin input. Enforces the
+/// strict defaults: both `assertion_signed_required` and
+/// `response_signed_required` default to `true`. The `sp_private_key`,
+/// if present, is encrypted at rest via `cipher`.
+fn saml_config_from_input(
+    input: SamlConfigInput,
+    cipher: &dyn oidc_client::SecretCipher,
+    base_url: &str,
+    conn_id: Uuid,
+) -> Result<SamlConnectionConfig, ApiError> {
+    if input.idp_entity_id.trim().is_empty() {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "idp_entity_id is required",
+        ));
+    }
+    if input.idp_sso_url.trim().is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "idp_sso_url is required"));
+    }
+    if !input.idp_sso_url.starts_with("https://") {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "idp_sso_url must be https://",
+        ));
+    }
+    if input.idp_x509_cert.trim().is_empty() {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "idp_x509_cert is required",
+        ));
+    }
+    if let Some(url) = &input.idp_slo_url
+        && !url.starts_with("https://")
+    {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "idp_slo_url must be https://",
+        ));
+    }
+
+    let attribute_mappings = saml_mappings_from_input(input.attribute_mappings);
+    let sp_private_key = input.sp_private_key.map(|pem| cipher.encrypt(&pem));
+
+    Ok(SamlConnectionConfig {
+        idp_entity_id: input.idp_entity_id,
+        idp_sso_url: input.idp_sso_url,
+        idp_slo_url: input.idp_slo_url,
+        idp_x509_cert: input.idp_x509_cert,
+        sp_entity_id: SamlConnectionConfig::default_sp_entity_id(base_url, conn_id),
+        sp_acs_url: SamlConnectionConfig::default_sp_acs_url(base_url),
+        sp_private_key,
+        idp_initiated_sso_allowed: input.idp_initiated_sso_allowed.unwrap_or(false),
+        // Strict-by-default: both default true. An explicit false is
+        // accepted but logged in the audit trail.
+        assertion_signed_required: input.assertion_signed_required.unwrap_or(true),
+        response_signed_required: input.response_signed_required.unwrap_or(true),
+        want_encrypted_assertions: input.want_encrypted_assertions.unwrap_or(false),
+        attribute_mappings,
+    })
+}
+
+fn saml_mappings_from_input(input: Option<SamlAttributeMappingsInput>) -> SamlAttributeMappings {
+    let mut m = SamlAttributeMappings::default();
+    if let Some(i) = input {
+        if let Some(v) = i.email {
+            m.email = v;
+        }
+        if let Some(v) = i.display_name {
+            m.display_name = v;
+        }
+        if let Some(v) = i.external_id {
+            m.external_id = v;
+        }
+        if let Some(v) = i.groups {
+            m.groups = v;
+        }
+        if let Some(v) = i.group_to_role {
+            m.group_to_role = v;
+        }
+    }
+    m
 }
 
 // ── Handlers ──────────────────────────────────────────────────
@@ -2386,38 +2607,56 @@ async fn create_sso_connection(
             "kind must be one of: oidc_client, saml_sp",
         )
     })?;
-    if kind == ConnectionKind::SamlSp {
-        return Err(api_err(
-            StatusCode::NOT_IMPLEMENTED,
-            "SAML SP support tracked in issue #94",
-        ));
-    }
-    let oidc_input = req
-        .oidc
-        .ok_or_else(|| api_err(StatusCode::BAD_REQUEST, "oidc config is required"))?;
-    // PassthroughCipher today; KMS plug-in lands when ops actually
-    // demand it. Same encryption boundary either way.
-    let cipher = oidc_client::PassthroughCipher;
-    let cfg = oidc_config_from_input(oidc_input, &cipher)?;
     let default_role = req
         .default_role_on_jit
         .unwrap_or_else(|| "member".to_string());
     validate_default_role(&default_role)?;
+
+    // Encrypt-at-rest cipher — applies to OIDC `client_secret` and
+    // SAML `sp_private_key`. AEAD via `YAUTH_SSO_AEAD_KEY`; falls back
+    // to passthrough in local dev.
+    let cipher: Box<dyn oidc_client::SecretCipher> = encrypt_at_rest_cipher();
+
+    let new_id = Uuid::now_v7();
+    let cfg_json = match kind {
+        ConnectionKind::OidcClient => {
+            let oidc_input = req
+                .oidc
+                .ok_or_else(|| api_err(StatusCode::BAD_REQUEST, "oidc config is required"))?;
+            let cfg = oidc_config_from_input(oidc_input, cipher.as_ref())?;
+            serde_json::to_value(&cfg).map_err(|e| {
+                crate::otel::record_error("sso_config_encode_failed", &e);
+                api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+            })?
+        }
+        ConnectionKind::SamlSp => {
+            let saml_input = req
+                .saml
+                .ok_or_else(|| api_err(StatusCode::BAD_REQUEST, "saml config is required"))?;
+            let cfg = saml_config_from_input(
+                saml_input,
+                cipher.as_ref(),
+                &state.config.base_url,
+                new_id,
+            )?;
+            serde_json::to_value(&cfg).map_err(|e| {
+                crate::otel::record_error("sso_config_encode_failed", &e);
+                api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+            })?
+        }
+    };
 
     let now = Utc::now().naive_utc();
     let row = state
         .repos
         .sso_connections
         .create(NewSsoConnection {
-            id: Uuid::now_v7(),
+            id: new_id,
             organization_id: id,
             kind,
             name: req.name,
             status: ConnectionStatus::Draft,
-            config: serde_json::to_value(&cfg).map_err(|e| {
-                crate::otel::record_error("sso_config_encode_failed", &e);
-                api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
-            })?,
+            config: cfg_json,
             jit_provisioning_enabled: req.jit_provisioning_enabled.unwrap_or(true),
             default_role_on_jit: default_role,
             created_at: now,
@@ -2472,15 +2711,36 @@ async fn update_sso_connection(
         })?),
     };
 
-    let cipher = oidc_client::PassthroughCipher;
-    let new_config = match req.oidc {
-        None => None,
-        Some(input) => Some(
-            serde_json::to_value(oidc_config_from_input(input, &cipher)?).map_err(|e| {
+    let cipher = encrypt_at_rest_cipher();
+    let new_config = match (existing.kind, req.oidc, req.saml) {
+        (_, None, None) => None,
+        (ConnectionKind::OidcClient, Some(input), _) => Some(
+            serde_json::to_value(oidc_config_from_input(input, cipher.as_ref())?).map_err(|e| {
                 crate::otel::record_error("sso_config_encode_failed", &e);
                 api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
             })?,
         ),
+        (ConnectionKind::SamlSp, _, Some(input)) => Some(
+            serde_json::to_value(saml_config_from_input(
+                input,
+                cipher.as_ref(),
+                &state.config.base_url,
+                cid,
+            )?)
+            .map_err(|e| {
+                crate::otel::record_error("sso_config_encode_failed", &e);
+                api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+            })?,
+        ),
+        (k, _, _) => {
+            return Err(api_err(
+                StatusCode::BAD_REQUEST,
+                &format!(
+                    "config payload does not match connection kind {}",
+                    k.as_str()
+                ),
+            ));
+        }
     };
     if let Some(ref default_role) = req.default_role_on_jit {
         validate_default_role(default_role)?;
@@ -2560,39 +2820,80 @@ async fn test_sso_connection(
     if existing.organization_id != id {
         return Err(api_err(StatusCode::NOT_FOUND, "connection not found"));
     }
-    // Structural test only in Phase A — verify the config parses
-    // back into `OidcConnectionConfig`, validate URL + scopes, and
-    // confirm the encrypted secret round-trips through the cipher.
-    let cipher = oidc_client::PassthroughCipher;
-    let cfg = match existing.oidc_config() {
-        None => {
-            return Ok(Json(SsoConnectionTestResponse {
-                ok: false,
-                detail: "non-OIDC kind (SAML SP arrives in #94)".to_string(),
-            }));
+    // Structural test only — verify the config parses, the URL shape
+    // is sane, and any encrypted secret round-trips through the
+    // cipher.
+    let cipher = encrypt_at_rest_cipher();
+    match existing.kind {
+        ConnectionKind::OidcClient => {
+            let cfg = match existing.oidc_config() {
+                Some(c) => c,
+                None => {
+                    return Ok(Json(SsoConnectionTestResponse {
+                        ok: false,
+                        detail: "OIDC config did not decode".into(),
+                    }));
+                }
+            };
+            if oidc_client::validate_discovery_url(&cfg.discovery_url).is_err() {
+                return Ok(Json(SsoConnectionTestResponse {
+                    ok: false,
+                    detail: "discovery_url is not well-formed".to_string(),
+                }));
+            }
+            if oidc_client::validate_scopes(&cfg.scopes).is_err() {
+                return Ok(Json(SsoConnectionTestResponse {
+                    ok: false,
+                    detail: "scopes are not well-formed".to_string(),
+                }));
+            }
+            if oidc_client::SecretCipher::decrypt(cipher.as_ref(), &cfg.client_secret).is_err() {
+                return Ok(Json(SsoConnectionTestResponse {
+                    ok: false,
+                    detail: "client_secret ciphertext failed to decrypt".to_string(),
+                }));
+            }
+            Ok(Json(SsoConnectionTestResponse {
+                ok: true,
+                detail: "OIDC config decoded; live IdP probe runs on first /sso/login".into(),
+            }))
         }
-        Some(c) => c,
-    };
-    if oidc_client::validate_discovery_url(&cfg.discovery_url).is_err() {
-        return Ok(Json(SsoConnectionTestResponse {
-            ok: false,
-            detail: "discovery_url is not well-formed".to_string(),
-        }));
+        ConnectionKind::SamlSp => {
+            let cfg = match existing.saml_config() {
+                Some(c) => c,
+                None => {
+                    return Ok(Json(SsoConnectionTestResponse {
+                        ok: false,
+                        detail: "SAML config did not decode".into(),
+                    }));
+                }
+            };
+            if !cfg.idp_sso_url.starts_with("https://") {
+                return Ok(Json(SsoConnectionTestResponse {
+                    ok: false,
+                    detail: "idp_sso_url must be https://".into(),
+                }));
+            }
+            if !cfg.idp_x509_cert.contains("CERTIFICATE")
+                && !cfg.idp_x509_cert.contains("PUBLIC KEY")
+            {
+                return Ok(Json(SsoConnectionTestResponse {
+                    ok: false,
+                    detail: "idp_x509_cert is not PEM-shaped".into(),
+                }));
+            }
+            if let Some(enc) = &cfg.sp_private_key
+                && oidc_client::SecretCipher::decrypt(cipher.as_ref(), enc).is_err()
+            {
+                return Ok(Json(SsoConnectionTestResponse {
+                    ok: false,
+                    detail: "sp_private_key ciphertext failed to decrypt".into(),
+                }));
+            }
+            Ok(Json(SsoConnectionTestResponse {
+                ok: true,
+                detail: "SAML config decoded; live IdP probe runs on first /sso/saml/login".into(),
+            }))
+        }
     }
-    if oidc_client::validate_scopes(&cfg.scopes).is_err() {
-        return Ok(Json(SsoConnectionTestResponse {
-            ok: false,
-            detail: "scopes are not well-formed".to_string(),
-        }));
-    }
-    if oidc_client::SecretCipher::decrypt(&cipher, &cfg.client_secret).is_err() {
-        return Ok(Json(SsoConnectionTestResponse {
-            ok: false,
-            detail: "client_secret ciphertext failed to decrypt".to_string(),
-        }));
-    }
-    Ok(Json(SsoConnectionTestResponse {
-        ok: true,
-        detail: "config decoded; live IdP probe arrives in Phase B".to_string(),
-    }))
 }

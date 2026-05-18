@@ -4327,7 +4327,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "Protocol kind — only `\"oidc_client\"` accepted in #93. SAML\n(`\"saml_sp\"`) lands in #94."
+            "description": "Protocol kind — `\"oidc_client\"` (#93) or `\"saml_sp\"` (#94)."
           },
           "name": {
             "type": "string",
@@ -4341,6 +4341,17 @@
               {
                 "$ref": "#/components/schemas/OidcConfigInput",
                 "description": "Protocol config. For `oidc_client` see [`OidcConfigInput`]."
+              }
+            ]
+          },
+          "saml": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SamlConfigInput",
+                "description": "Protocol config. For `saml_sp` see [`SamlConfigInput`]."
               }
             ]
           }
@@ -5865,6 +5876,212 @@
           }
         }
       },
+      "SamlAttributeMappingsInput": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_to_role": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "groups": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SamlAttributeMappingsResponse": {
+        "type": "object",
+        "required": [
+          "email",
+          "external_id",
+          "group_to_role"
+        ],
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "group_to_role": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "groups": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SamlConfigInput": {
+        "type": "object",
+        "description": "Admin payload for a SAML SP connection (issue #94).\n\n`assertion_signed_required` and `response_signed_required` are\n**strict booleans** — omitting them defaults to `true`, but\nexplicitly passing `false` is a knowingly-accepted footgun and is\nrecorded in the audit log.",
+        "required": [
+          "idp_entity_id",
+          "idp_sso_url",
+          "idp_x509_cert"
+        ],
+        "properties": {
+          "assertion_signed_required": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "attribute_mappings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SamlAttributeMappingsInput"
+              }
+            ]
+          },
+          "idp_entity_id": {
+            "type": "string"
+          },
+          "idp_initiated_sso_allowed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "idp_slo_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "idp_sso_url": {
+            "type": "string"
+          },
+          "idp_x509_cert": {
+            "type": "string"
+          },
+          "response_signed_required": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sp_private_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional SP private key (PEM). yauth encrypts at rest. Plaintext\nNEVER leaves this request boundary — list/get masks to a fixed\n`\"********\"`. Only needed when SP signing or encrypted-assertion\ndecryption is required."
+          },
+          "want_encrypted_assertions": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "SamlConfigResponse": {
+        "type": "object",
+        "required": [
+          "idp_entity_id",
+          "idp_sso_url",
+          "idp_x509_cert",
+          "sp_entity_id",
+          "sp_acs_url",
+          "idp_initiated_sso_allowed",
+          "assertion_signed_required",
+          "response_signed_required",
+          "want_encrypted_assertions",
+          "attribute_mappings"
+        ],
+        "properties": {
+          "assertion_signed_required": {
+            "type": "boolean"
+          },
+          "attribute_mappings": {
+            "$ref": "#/components/schemas/SamlAttributeMappingsResponse"
+          },
+          "idp_entity_id": {
+            "type": "string"
+          },
+          "idp_initiated_sso_allowed": {
+            "type": "boolean"
+          },
+          "idp_slo_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "idp_sso_url": {
+            "type": "string"
+          },
+          "idp_x509_cert": {
+            "type": "string",
+            "description": "**Masked** when set — always `\"********\"`. The IdP cert is\nnon-secret but we still don't echo it on list to keep response\nsizes small; admins refetch it from the IdP if they need to\nre-import."
+          },
+          "response_signed_required": {
+            "type": "boolean"
+          },
+          "sp_acs_url": {
+            "type": "string"
+          },
+          "sp_entity_id": {
+            "type": "string"
+          },
+          "sp_private_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "**Masked** when set — always `\"********\"`. `None` if SP signing\nwas never configured."
+          },
+          "want_encrypted_assertions": {
+            "type": "boolean"
+          }
+        }
+      },
       "SessionResponse": {
         "type": "object",
         "description": "Envelope returned by `GET /session` — wraps the authenticated user and\nsurfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`\nshape so a single TypeScript client serves both backends.",
@@ -5971,6 +6188,17 @@
           "organization_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "saml": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SamlConfigResponse",
+                "description": "Present when `kind == \"saml_sp\"`. Always carries the masked\nprivate-key form — see [`SamlConfigResponse`]."
+              }
+            ]
           },
           "status": {
             "type": "string"
@@ -6244,6 +6472,17 @@
               {
                 "$ref": "#/components/schemas/OidcConfigInput",
                 "description": "Replaces the full OIDC config blob. PATCH-merging into a JSON\nblob that holds an encrypted secret is gnarly; admins re-send\nthe whole document instead."
+              }
+            ]
+          },
+          "saml": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SamlConfigInput",
+                "description": "Replaces the full SAML config blob. Same merge semantics as\n`oidc`."
               }
             ]
           },

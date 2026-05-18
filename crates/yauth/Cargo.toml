@@ -47,7 +47,7 @@ oidc = ["bearer", "oauth2-server"]
 # `jsonwebtoken` for id_token validation against the IdP's JWKS and
 # `chacha20poly1305` for client_secret encrypt-at-rest. Bringing them
 # into the same gate keeps the dep tree simple.
-organizations = ["dep:hickory-resolver", "dep:base64", "dep:serde_urlencoded", "dep:jsonwebtoken", "dep:chacha20poly1305"]
+organizations = ["dep:hickory-resolver", "dep:base64", "dep:serde_urlencoded", "dep:jsonwebtoken", "dep:chacha20poly1305", "dep:quick-xml", "dep:x509-parser", "dep:flate2", "dep:rsa"]
 telemetry =["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-http"]
 openapi = ["dep:utoipa"]
 redis = ["dep:redis"]
@@ -119,7 +119,7 @@ serde_urlencoded = { version = "0.7", optional = true }
 
 # Feature-gated: asymmetric JWT signing (RS256/ES256) + JWKS publication.
 # Pinned to 0.9 / 0.13 stable — RC releases would block downstream crates.io users.
-rsa = { version = "0.9", optional = true }
+rsa = { version = "0.9", features = ["sha2"], optional = true }
 p256 = { version = "0.13", features = ["pem"], optional = true }
 
 # Feature-gated: Webhooks
@@ -143,6 +143,20 @@ hickory-resolver = { version = "0.24", default-features = false, features = ["to
 # is constant-time without hardware AES, which matches the
 # pure-Rust-by-default story.
 chacha20poly1305 = { workspace = true, optional = true }
+
+# Feature-gated: SSO SAML 2.0 SP (issue #94, `organizations` feature).
+# Pure-Rust XML parser + writer; no libxml/xmlsec C bindings. The
+# audited XML-DSig subset we use is narrow (RSA-SHA256 enveloped
+# signatures with exclusive c14n on a single referenced element), so
+# leaning on a hand-rolled verifier behind `samael::SamlProvider` is
+# safer than depending on samael 0.0.20 (open signature-verification
+# bugs — see #82 in njaremko/samael).
+quick-xml = { version = "0.37", optional = true }
+# X.509 cert parser to extract RSA SPKI from the IdP's PEM cert at
+# verify time. Pure Rust.
+x509-parser = { version = "0.18", optional = true }
+# DEFLATE for the SAML HTTP-Redirect binding (raw DEFLATE, NOT zlib).
+flate2 = { version = "1", default-features = false, features = ["rust_backend"], optional = true }
 
 [dev-dependencies]
 yauth-entity = { path = "../yauth-entity", version = "0.12.3" }

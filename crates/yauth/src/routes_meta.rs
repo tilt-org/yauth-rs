@@ -326,7 +326,14 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<SsoConnectionResponse>()
             .schema_from::<OidcConfigResponse>()
             .schema_from::<ClaimMappingsResponse>()
-            .schema_from::<SsoConnectionTestResponse>();
+            .schema_from::<SsoConnectionTestResponse>()
+            // SSO SAML SP (#94) — schema additions for the same admin
+            // CRUD shell. Routes are unchanged; the request/response
+            // payloads gain the `saml` discriminator branch.
+            .schema_from::<SamlConfigInput>()
+            .schema_from::<SamlAttributeMappingsInput>()
+            .schema_from::<SamlConfigResponse>()
+            .schema_from::<SamlAttributeMappingsResponse>();
         // Org-scoped API keys (#91) — schemas only when the api-key
         // plugin is also active.
         #[cfg(feature = "api-key")]

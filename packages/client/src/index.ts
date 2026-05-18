@@ -198,6 +198,21 @@ export function createYAuthClient(options: YAuthClientOptions) {
         if (opts.redirectTo) params.set("redirect_to", opts.redirectTo);
         return `${options.baseUrl}/sso/login?${params.toString()}`;
       },
+      /** Build the user-facing `/sso/saml/login` redirect URL (issue #94). */
+      samlLoginUrl: (opts: { org?: string; domain?: string; redirectTo?: string }) => {
+        const params = new URLSearchParams();
+        if (opts.org) params.set("org", opts.org);
+        if (opts.domain) params.set("domain", opts.domain);
+        if (opts.redirectTo) params.set("redirect_to", opts.redirectTo);
+        return `${options.baseUrl}/sso/saml/login?${params.toString()}`;
+      },
+      /**
+       * Build the SP metadata XML download URL for a SAML connection
+       * (issue #94). Public endpoint — IdP admins import the XML to
+       * wire yauth as a service provider on their side.
+       */
+      samlMetadataUrl: (connectionId: string) =>
+        `${options.baseUrl}/sso/saml/metadata/${connectionId}`,
     },
 
     oauth: {

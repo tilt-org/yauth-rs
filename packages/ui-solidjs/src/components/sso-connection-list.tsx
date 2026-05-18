@@ -1,25 +1,41 @@
+import type { SamlConfigResponse } from "@yackey-labs/yauth-client";
 import { For, Show } from "solid-js";
 import { createSsoConnections } from "../hooks/create-sso-connections";
+import { useYAuth } from "../provider";
 
 /**
- * SSO connection list (issue #93, Phase B).
+ * SSO connection list (issue #93 + #94, Phase B).
  *
  * Mirror of the Vue component — admin view of one org's federation
- * connections with per-row test/enable/disable/delete actions.
+ * connections (OIDC and SAML) with per-row test/enable/disable/delete
+ * actions. SAML rows additionally expose a "Download SP metadata"
+ * link pointing at `/sso/saml/metadata/{cid}`.
  */
 export interface SsoConnectionListProps {
   organizationId: string;
   onTest?: (id: string, ok: boolean, detail: string) => void;
 }
 
+const signingSummary = (saml: SamlConfigResponse) => {
+  const parts: string[] = [];
+  if (saml.assertion_signed_required) parts.push("assertion signed");
+  if (saml.response_signed_required) parts.push("response signed");
+  if (saml.want_encrypted_assertions) parts.push("encrypted");
+  if (saml.idp_initiated_sso_allowed) parts.push("IdP-init allowed");
+  return parts.length > 0 ? parts.join(" · ") : "no signing required";
+};
+
 export function SsoConnectionList(props: SsoConnectionListProps) {
   const { connections, loading, error, disable, enable, remove, test } =
     createSsoConnections(() => props.organizationId);
+  const yauth = useYAuth();
 
   const handleTest = async (id: string) => {
     const r = await test(id);
     if (r) props.onTest?.(id, r.ok, r.detail);
   };
+
+  const samlMetadataUrl = (id: string) => yauth.client.sso.samlMetadataUrl(id);
 
   return (
     <div class="space-y-4">
@@ -69,8 +85,33 @@ export function SsoConnectionList(props: SsoConnectionListProps) {
                         client_id: <code>{c.oidc?.client_id}</code>
                       </div>
                     </Show>
+                    <Show when={c.saml}>
+                      {(saml) => (
+                        <div class="mt-1 space-y-1">
+                          <div class="text-xs text-muted-foreground">
+                            IdP entity: <code>{saml().idp_entity_id}</code>
+                          </div>
+                          <div class="text-xs text-muted-foreground">
+                            SP entity: <code>{saml().sp_entity_id}</code>
+                          </div>
+                          <div class="text-xs text-muted-foreground">
+                            {signingSummary(saml())}
+                          </div>
+                        </div>
+                      )}
+                    </Show>
                   </div>
-                  <div class="flex gap-2">
+                  <div class="flex flex-wrap gap-2">
+                    <Show when={c.saml}>
+                      <a
+                        href={samlMetadataUrl(c.id)}
+                        download={`sp-metadata-${c.id}.xml`}
+                        class="rounded-md border px-3 py-1 text-xs hover:bg-accent"
+                        data-testid="saml-metadata-download"
+                      >
+                        SP metadata
+                      </a>
+                    </Show>
                     <button
                       type="button"
                       class="rounded-md border px-3 py-1 text-xs"
