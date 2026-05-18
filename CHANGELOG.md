@@ -1,3 +1,25 @@
+## 0.12.4 (2026-05-18)
+
+### Features
+
+- organizations primitive (Org + Membership + Invitation) — closes #87 (#98)
+- org-scoped RBAC — closes #88 (#110)
+- active-org claim on session/JWT + switcher endpoint — closes #89 (#100)
+- verified domains + JIT membership — closes #90 (#101)
+- org-scoped API keys (service accounts) — closes #91 (#102)
+- per-org auth policy — closes #92 (#103)
+- OIDC client (federated sign-in from external IdP) — Phase A, closes #93 (#104)
+- SAML 2.0 Service Provider — closes #94 (#105)
+- SCIM 2.0 endpoints — closes #95 (#107)
+- audit log SIEM/syslog export — closes #96 (#106)
+- cross-IdP federation walkthrough (#108)
+
+### Fixes
+
+- use INFRA_DEPLOY_TOKEN in prepare-release so PR CI fires (#86)
+- demote GO-EXTRA from blocking to informational in conformance gate (#112)
+- hoist @vitejs/plugin-vue to root workspace devDependencies (#113)
+
 ## 0.12.3 (2026-05-11)
 
 ### Fixes
