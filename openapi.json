@@ -1942,6 +1942,168 @@
         ]
       }
     },
+    "/organizations/{id}/members/{user_id}": {
+      "delete": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_removeMember",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/organizations/{id}/members/{user_id}/role": {
+      "post": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_changeRole",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembershipResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/organizations/{id}/permissions": {
+      "get": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_listPermissions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/organizations/{id}/transfer-ownership": {
+      "post": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_transferOwnership",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferOwnershipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/passkey/login/begin": {
       "post": {
         "tags": [
@@ -3050,6 +3212,18 @@
           },
           "new_password": {
             "type": "string"
+          }
+        }
+      },
+      "ChangeRoleRequest": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "New role to assign. Must be a built-in role (`admin`,\n`billing_admin`, `member`, `viewer`) or a custom string the\napplication recognizes. `owner` is rejected — use the\ntransfer-ownership endpoint instead."
           }
         }
       },
@@ -4361,6 +4535,30 @@
           }
         }
       },
+      "PermissionsResponse": {
+        "type": "object",
+        "required": [
+          "organization_id",
+          "role",
+          "permissions"
+        ],
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Permission identifiers in `domain:verb` form (e.g.\n`members:invite`, `billing:view`). Stable identifiers — safe to\npin in UI guards."
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
       "RefreshRequest": {
         "type": "object",
         "required": [
@@ -4583,6 +4781,19 @@
           },
           "token_type": {
             "type": "string"
+          }
+        }
+      },
+      "TransferOwnershipRequest": {
+        "type": "object",
+        "required": [
+          "new_owner_user_id"
+        ],
+        "properties": {
+          "new_owner_user_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the existing member who should become the new owner."
           }
         }
       },

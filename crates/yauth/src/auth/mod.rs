@@ -12,6 +12,8 @@ pub mod password_policy;
 #[cfg(test)]
 mod pentest;
 pub mod rate_limit;
+#[cfg(feature = "organizations")]
+pub mod rbac;
 pub mod session;
 #[cfg(feature = "bearer")]
 pub mod signing;

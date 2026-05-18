@@ -18,12 +18,18 @@ export { PasskeyButton } from "./components/passkey-button";
 export { ProfileSettings } from "./components/profile-settings";
 export { RegisterForm } from "./components/register-form";
 export { ResetPasswordForm } from "./components/reset-password-form";
+export { RoleSelector } from "./components/role-selector";
+export { TransferOwnership } from "./components/transfer-ownership";
 export { VerifyEmail } from "./components/verify-email";
 export {
+	type BuiltinRole,
 	createInvitation,
 	createMembers,
 	createOrganization,
 	createOrganizations,
+	createOrgPermissions,
+	createOrgRoles,
+	ROLES,
 	slugify,
 } from "./hooks/create-organizations";
 export type { YAuthClient } from "./provider";

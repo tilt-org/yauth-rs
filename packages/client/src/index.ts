@@ -15,6 +15,7 @@ import type {
 	BanRequest,
 	CallbackBody,
 	ChangePasswordRequest,
+	ChangeRoleRequest,
 	ClientRegistrationRequest,
 	ConfirmTotpRequest,
 	CreateApiKeyRequest,
@@ -36,6 +37,7 @@ import type {
 	RevokeRequest,
 	TokenRequest,
 	UnlockAccountRequest,
+	TransferOwnershipRequest,
 	UpdateOrgRequest,
 	UpdateProfileRequest,
 	UpdateUserRequest,
@@ -99,12 +101,16 @@ import {
 	oidcOpenidConfiguration,
 	oidcUserinfo,
 	organizationsAcceptInvitation,
+	organizationsChangeRole,
 	organizationsCreate,
 	organizationsCreateInvitation,
 	organizationsDelete,
 	organizationsGet,
 	organizationsList,
 	organizationsListMembers,
+	organizationsListPermissions,
+	organizationsRemoveMember,
+	organizationsTransferOwnership,
 	organizationsUpdate,
 	passkeyDelete,
 	passkeyList,
@@ -271,6 +277,14 @@ export function createYAuthClient(options: YAuthClientOptions) {
 				organizationsCreateInvitation(id, body),
 			acceptInvitation: (body: AcceptInvitationRequest) =>
 				organizationsAcceptInvitation(body),
+			// RBAC (#88)
+			listPermissions: (id: string) => organizationsListPermissions(id),
+			changeRole: (id: string, userId: string, body: ChangeRoleRequest) =>
+				organizationsChangeRole(id, userId, body),
+			removeMember: (id: string, userId: string) =>
+				organizationsRemoveMember(id, userId),
+			transferOwnership: (id: string, body: TransferOwnershipRequest) =>
+				organizationsTransferOwnership(id, body),
 		},
 	};
 }

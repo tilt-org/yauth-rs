@@ -18,14 +18,20 @@ export { default as PasskeyButton } from "./components/PasskeyButton.vue";
 export { default as ProfileSettings } from "./components/ProfileSettings.vue";
 export { default as RegisterForm } from "./components/RegisterForm.vue";
 export { default as ResetPasswordForm } from "./components/ResetPasswordForm.vue";
+export { default as RoleSelector } from "./components/RoleSelector.vue";
+export { default as TransferOwnership } from "./components/TransferOwnership.vue";
 export { default as VerifyEmail } from "./components/VerifyEmail.vue";
 export { useAuth } from "./composables/useAuth";
 export {
+	type BuiltinRole,
+	ROLES,
 	slugify,
 	useInvitation,
 	useMembers,
 	useOrganization,
 	useOrganizations,
+	useOrgPermissions,
+	useOrgRoles,
 } from "./composables/useOrganizations";
 export { useSession } from "./composables/useSession";
 export {

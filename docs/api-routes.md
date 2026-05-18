@@ -169,17 +169,45 @@ machine callers. See [configuration.md](configuration.md#oauth-20-m2m--client_cr
 ## Organizations
 
 Requires the `organizations` Cargo feature. Multi-tenancy primitive — org
-CRUD, member listing, and invitation create/accept. Roles are free-form
-strings; the only authorization check inside these handlers is "is the
-caller a member of the org?" (admin role required for mutating endpoints).
+CRUD, member listing, and invitation create/accept.
+
+### RBAC model (#88)
+
+Each `Membership` row carries a `role` string. yauth ships **five built-in
+roles** with default permission grants — applications may also store any
+custom role string (which receives no permissions by default; the calling
+app is responsible for its semantics).
+
+| Role | Members perms | Billing perms | Settings perms |
+|---|---|---|---|
+| `owner` | `invite`, `remove`, `change_role` | `view`, `update`, `cancel` | `read`, `write` |
+| `admin` | `invite`, `remove`, `change_role` | `view` | `read`, `write` |
+| `billing_admin` | — | `view`, `update`, `cancel` | `read` |
+| `member` | — | — | `read` |
+| `viewer` | — | — | `read` |
+
+**Owner-protection invariant**: every org has exactly one `owner`. The
+last owner cannot be demoted or removed via any route; callers must use
+`POST /organizations/{id}/transfer-ownership` first. The check is
+enforced both in the route handlers and as defense-in-depth inside the
+in-memory `MembershipRepository::update`/`delete`.
+
+`User.role` (the global yauth role) is unrelated — it represents the
+deployment-wide role and is independent of org membership.
+
+### Routes
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/organizations` | Yes | Create org; caller becomes admin |
+| POST | `/organizations` | Yes | Create org; caller becomes **owner** |
 | GET | `/organizations` | Yes | List orgs the caller is a member of |
 | GET | `/organizations/{id}` | Yes | Get org (member-gated) |
-| PATCH | `/organizations/{id}` | Yes | Update org (admin-gated) |
-| DELETE | `/organizations/{id}` | Yes | Delete org (admin-gated) |
+| PATCH | `/organizations/{id}` | Yes | Update org (admin/owner-gated) |
+| DELETE | `/organizations/{id}` | Yes | Delete org (admin/owner-gated) |
 | GET | `/organizations/{id}/members` | Yes | List org members (member-gated) |
-| POST | `/organizations/{id}/invitations` | Yes | Create invitation (admin-gated); returns one-shot token |
+| POST | `/organizations/{id}/members/{user_id}/role` | Yes | Change a member's role; requires `members:change_role` |
+| DELETE | `/organizations/{id}/members/{user_id}` | Yes | Remove a member; requires `members:remove` |
+| POST | `/organizations/{id}/transfer-ownership` | Yes | Owner-only; promotes target to `owner` and demotes self to `admin` |
+| GET | `/organizations/{id}/permissions` | Yes | Returns the caller's role and effective permission identifiers |
+| POST | `/organizations/{id}/invitations` | Yes | Create invitation (admin/owner-gated); returns one-shot token |
 | POST | `/invitations/accept` | Yes | Accept an invitation by token |

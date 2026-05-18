@@ -1,12 +1,15 @@
 import type {
+	ChangeRoleRequest,
 	CreateInvitationRequest,
 	CreateInvitationResponse,
 	CreateOrgRequest,
 	MembershipResponse,
 	OrganizationResponse,
+	PermissionsResponse,
+	TransferOwnershipRequest,
 	UpdateOrgRequest,
 } from "@yackey-labs/yauth-client";
-import { type Accessor, createSignal } from "solid-js";
+import { type Accessor, createEffect, createSignal } from "solid-js";
 import { useYAuth } from "../provider";
 
 /**
@@ -228,4 +231,138 @@ export function createInvitation() {
 	};
 
 	return { submitting, error, accept };
+}
+// ──────────────────────────────────────────────
+// RBAC (#88) hooks
+// ──────────────────────────────────────────────
+
+/**
+ * Built-in role string constants — mirrors `yauth::auth::rbac::roles`.
+ * Custom role strings are permitted but receive no default permissions.
+ */
+export const ROLES = {
+	OWNER: "owner",
+	ADMIN: "admin",
+	BILLING_ADMIN: "billing_admin",
+	MEMBER: "member",
+	VIEWER: "viewer",
+} as const;
+
+export type BuiltinRole = (typeof ROLES)[keyof typeof ROLES];
+
+/**
+ * Headless hook for the calling user's effective permissions in an org.
+ * Auto-fetches when `orgId` changes.
+ */
+export function createOrgPermissions(orgId: Accessor<string | null | undefined>) {
+	const { client } = useYAuth();
+	const [permissions, setPermissions] = createSignal<PermissionsResponse | null>(
+		null,
+	);
+	const [loading, setLoading] = createSignal(false);
+	const [error, setError] = createSignal<string | null>(null);
+
+	const refetch = async () => {
+		const current = orgId();
+		if (!current) {
+			setPermissions(null);
+			return;
+		}
+		if (!client?.organizations) {
+			setError("Organizations feature is not enabled on this server.");
+			return;
+		}
+		setLoading(true);
+		setError(null);
+		try {
+			const next = await client.organizations.listPermissions(current);
+			setPermissions(next);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const hasPermission = (perm: string): boolean =>
+		permissions()?.permissions.includes(perm) ?? false;
+
+	const isRole = (role: string): boolean => permissions()?.role === role;
+
+	createEffect(() => {
+		orgId();
+		void refetch();
+	});
+
+	return {
+		permissions,
+		loading,
+		error,
+		refetch,
+		hasPermission,
+		isRole,
+	};
+}
+
+/**
+ * Headless hook for the change-role + remove-member + transfer actions.
+ */
+export function createOrgRoles(orgId: Accessor<string | null | undefined>) {
+	const { client } = useYAuth();
+	const [submitting, setSubmitting] = createSignal(false);
+	const [error, setError] = createSignal<string | null>(null);
+
+	const changeRole = async (
+		userId: string,
+		body: ChangeRoleRequest,
+	): Promise<MembershipResponse | null> => {
+		const current = orgId();
+		if (!current || !client?.organizations) return null;
+		setSubmitting(true);
+		setError(null);
+		try {
+			return await client.organizations.changeRole(current, userId, body);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+			return null;
+		} finally {
+			setSubmitting(false);
+		}
+	};
+
+	const removeMember = async (userId: string): Promise<boolean> => {
+		const current = orgId();
+		if (!current || !client?.organizations) return false;
+		setSubmitting(true);
+		setError(null);
+		try {
+			await client.organizations.removeMember(current, userId);
+			return true;
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+			return false;
+		} finally {
+			setSubmitting(false);
+		}
+	};
+
+	const transferOwnership = async (
+		body: TransferOwnershipRequest,
+	): Promise<boolean> => {
+		const current = orgId();
+		if (!current || !client?.organizations) return false;
+		setSubmitting(true);
+		setError(null);
+		try {
+			await client.organizations.transferOwnership(current, body);
+			return true;
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+			return false;
+		} finally {
+			setSubmitting(false);
+		}
+	};
+
+	return { submitting, error, changeRole, removeMember, transferOwnership };
 }

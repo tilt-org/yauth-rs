@@ -150,6 +150,14 @@ export interface ChangePasswordRequest {
   new_password: string;
 }
 
+export interface ChangeRoleRequest {
+  /** New role to assign. Must be a built-in role (`admin`,
+  `billing_admin`, `member`, `viewer`) or a custom string the
+  application recognizes. `owner` is rejected — use the
+  transfer-ownership endpoint instead. */
+  role: string;
+}
+
 /**
  * RFC 7591 §2 Dynamic Client Registration request body. Matches yauth-go's
 `dcrRegisterRequest` exactly so the TS client serves both backends.
@@ -743,6 +751,15 @@ export interface PatchMeResponse {
   user: AuthUser;
 }
 
+export interface PermissionsResponse {
+  organization_id: string;
+  /** Permission identifiers in `domain:verb` form (e.g.
+  `members:invite`, `billing:view`). Stable identifiers — safe to
+  pin in UI guards. */
+  permissions: string[];
+  role: string;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
 }
@@ -834,6 +851,11 @@ export interface TokenResponse {
   expires_in: number;
   refresh_token: string;
   token_type: string;
+}
+
+export interface TransferOwnershipRequest {
+  /** UUID of the existing member who should become the new owner. */
+  new_owner_user_id: string;
 }
 
 export interface UnlockAccountRequest {
@@ -2390,6 +2412,98 @@ export const organizationsListMembers = async (id: string, options?: RequestInit
 
 
 
+export const getOrganizationsRemoveMemberUrl = (id: string,
+    userId: string,) => {
+
+
+
+
+  return `/organizations/${id}/members/${userId}`
+}
+
+export const organizationsRemoveMember = async (id: string,
+    userId: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOrganizationsRemoveMemberUrl(id,userId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsChangeRoleUrl = (id: string,
+    userId: string,) => {
+
+
+
+
+  return `/organizations/${id}/members/${userId}/role`
+}
+
+export const organizationsChangeRole = async (id: string,
+    userId: string,
+    changeRoleRequest: ChangeRoleRequest, options?: RequestInit): Promise<MembershipResponse> => {
+
+  return customFetch<MembershipResponse>(getOrganizationsChangeRoleUrl(id,userId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      changeRoleRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsListPermissionsUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/permissions`
+}
+
+export const organizationsListPermissions = async (id: string, options?: RequestInit): Promise<PermissionsResponse> => {
+
+  return customFetch<PermissionsResponse>(getOrganizationsListPermissionsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsTransferOwnershipUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/transfer-ownership`
+}
+
+export const organizationsTransferOwnership = async (id: string,
+    transferOwnershipRequest: TransferOwnershipRequest, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOrganizationsTransferOwnershipUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      transferOwnershipRequest,)
+  }
+);}
+
+
+
 export const getPasskeyLoginBeginUrl = () => {
 
 
@@ -3016,6 +3130,10 @@ export const getOrganizationsUpdateResponseMock = (overrideResponse: Partial<Ext
 export const getOrganizationsCreateInvitationResponseMock = (overrideResponse: Partial<Extract<CreateInvitationResponse, object>> = {}): CreateInvitationResponse => ({invitation: {created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', email: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}})}, token: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getOrganizationsListMembersResponseMock = (): MembershipResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid()})))
+
+export const getOrganizationsChangeRoleResponseMock = (overrideResponse: Partial<Extract<MembershipResponse, object>> = {}): MembershipResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid(), ...overrideResponse})
+
+export const getOrganizationsListPermissionsResponseMock = (overrideResponse: Partial<Extract<PermissionsResponse, object>> = {}): PermissionsResponse => ({organization_id: faker.string.uuid(), permissions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), role: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getPasskeyListResponseMock = (overrideResponse: Partial<Extract<ListPasskeysResponse, object>> = {}): ListPasskeysResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}})})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
@@ -3786,6 +3904,50 @@ export const getOrganizationsListMembersMockHandler = (overrideResponse?: Member
   }, options)
 }
 
+export const getOrganizationsRemoveMemberMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.delete('*/organizations/:id/members/:userId', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsChangeRoleMockHandler = (overrideResponse?: MembershipResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<MembershipResponse> | MembershipResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/organizations/:id/members/:userId/role', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsChangeRoleResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsListPermissionsMockHandler = (overrideResponse?: PermissionsResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PermissionsResponse> | PermissionsResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/organizations/:id/permissions', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsListPermissionsResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsTransferOwnershipMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.post('*/organizations/:id/transfer-ownership', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 200
+      })
+  }, options)
+}
+
 export const getPasskeyLoginBeginMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.post('*/passkey/login/begin', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
@@ -4123,6 +4285,10 @@ export const getYauthMock = () => [
   getOrganizationsUpdateMockHandler(),
   getOrganizationsCreateInvitationMockHandler(),
   getOrganizationsListMembersMockHandler(),
+  getOrganizationsRemoveMemberMockHandler(),
+  getOrganizationsChangeRoleMockHandler(),
+  getOrganizationsListPermissionsMockHandler(),
+  getOrganizationsTransferOwnershipMockHandler(),
   getPasskeyLoginBeginMockHandler(),
   getPasskeyLoginFinishMockHandler(),
   getPasskeyListMockHandler(),

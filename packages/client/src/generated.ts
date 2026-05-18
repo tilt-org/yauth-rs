@@ -138,6 +138,14 @@ export interface ChangePasswordRequest {
   new_password: string;
 }
 
+export interface ChangeRoleRequest {
+  /** New role to assign. Must be a built-in role (`admin`,
+  `billing_admin`, `member`, `viewer`) or a custom string the
+  application recognizes. `owner` is rejected — use the
+  transfer-ownership endpoint instead. */
+  role: string;
+}
+
 /**
  * RFC 7591 §2 Dynamic Client Registration request body. Matches yauth-go's
 `dcrRegisterRequest` exactly so the TS client serves both backends.
@@ -731,6 +739,15 @@ export interface PatchMeResponse {
   user: AuthUser;
 }
 
+export interface PermissionsResponse {
+  organization_id: string;
+  /** Permission identifiers in `domain:verb` form (e.g.
+  `members:invite`, `billing:view`). Stable identifiers — safe to
+  pin in UI guards. */
+  permissions: string[];
+  role: string;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
 }
@@ -822,6 +839,11 @@ export interface TokenResponse {
   expires_in: number;
   refresh_token: string;
   token_type: string;
+}
+
+export interface TransferOwnershipRequest {
+  /** UUID of the existing member who should become the new owner. */
+  new_owner_user_id: string;
 }
 
 export interface UnlockAccountRequest {
@@ -2373,6 +2395,98 @@ export const organizationsListMembers = async (id: string, options?: RequestInit
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getOrganizationsRemoveMemberUrl = (id: string,
+    userId: string,) => {
+
+
+
+
+  return `/organizations/${id}/members/${userId}`
+}
+
+export const organizationsRemoveMember = async (id: string,
+    userId: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOrganizationsRemoveMemberUrl(id,userId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsChangeRoleUrl = (id: string,
+    userId: string,) => {
+
+
+
+
+  return `/organizations/${id}/members/${userId}/role`
+}
+
+export const organizationsChangeRole = async (id: string,
+    userId: string,
+    changeRoleRequest: ChangeRoleRequest, options?: RequestInit): Promise<MembershipResponse> => {
+
+  return customFetch<MembershipResponse>(getOrganizationsChangeRoleUrl(id,userId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      changeRoleRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsListPermissionsUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/permissions`
+}
+
+export const organizationsListPermissions = async (id: string, options?: RequestInit): Promise<PermissionsResponse> => {
+
+  return customFetch<PermissionsResponse>(getOrganizationsListPermissionsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsTransferOwnershipUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/transfer-ownership`
+}
+
+export const organizationsTransferOwnership = async (id: string,
+    transferOwnershipRequest: TransferOwnershipRequest, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOrganizationsTransferOwnershipUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      transferOwnershipRequest,)
   }
 );}
 

@@ -258,6 +258,40 @@ impl MembershipRepository for InMemoryMembershipRepo {
     ) -> RepoFuture<'_, domain::Membership> {
         Box::pin(async move {
             let mut map = self.memberships.write().unwrap();
+            // Owner-protection invariant (#88): a role change that demotes
+            // the *last* owner of an organization is rejected at the repo
+            // layer. The handler-side `rbac::guard_role_change` is the
+            // primary gate; this is defense-in-depth so any caller that
+            // bypasses the helper still gets the safety. Promotions to
+            // `owner` are constrained — at most one owner per org outside
+            // the short window where `transfer_ownership` holds two
+            // owners simultaneously.
+            const OWNER: &str = "owner";
+            if let Some(new_role) = &changes.role {
+                let current = map.get(&id).ok_or(RepoError::NotFound)?.clone();
+                let org_id = current.organization_id;
+                let owners_in_org = map
+                    .values()
+                    .filter(|m| m.organization_id == org_id && m.role == OWNER)
+                    .count();
+                let demoting_owner = current.role == OWNER && new_role != OWNER;
+                // Promotion-to-owner is allowed when there are 0 or 1
+                // existing owners — the second slot is reserved for the
+                // brief two-owner window during `transfer_ownership`. If
+                // the org already has two owners, an unrelated caller is
+                // doing something invalid.
+                let promoting_to_owner = new_role == OWNER && current.role != OWNER;
+                if promoting_to_owner && owners_in_org >= 2 {
+                    return Err(RepoError::Conflict(
+                        "organization already has the maximum number of owners".to_string(),
+                    ));
+                }
+                if demoting_owner && owners_in_org <= 1 {
+                    return Err(RepoError::Conflict(
+                        "cannot demote the last owner; transfer ownership first".to_string(),
+                    ));
+                }
+            }
             let m = map.get_mut(&id).ok_or(RepoError::NotFound)?;
             if let Some(v) = changes.role {
                 m.role = v;
@@ -278,6 +312,24 @@ impl MembershipRepository for InMemoryMembershipRepo {
     fn delete(&self, id: Uuid) -> RepoFuture<'_, ()> {
         Box::pin(async move {
             let mut map = self.memberships.write().unwrap();
+            // Owner-protection invariant (#88): if the target is the last
+            // owner of its org, delete is rejected. Handler-side
+            // `rbac::guard_delete` is primary; this is defense-in-depth.
+            const OWNER: &str = "owner";
+            if let Some(target) = map.get(&id)
+                && target.role == OWNER
+            {
+                let org_id = target.organization_id;
+                let owners_in_org = map
+                    .values()
+                    .filter(|m| m.organization_id == org_id && m.role == OWNER)
+                    .count();
+                if owners_in_org <= 1 {
+                    return Err(RepoError::Conflict(
+                        "cannot remove the last owner; transfer ownership first".to_string(),
+                    ));
+                }
+            }
             map.remove(&id);
             Ok(())
         })

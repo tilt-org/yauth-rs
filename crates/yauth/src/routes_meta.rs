@@ -299,7 +299,11 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<CreateInvitationRequest>()
             .schema_from::<CreateInvitationResponse>()
             .schema_from::<InvitationResponse>()
-            .schema_from::<AcceptInvitationRequest>();
+            .schema_from::<AcceptInvitationRequest>()
+            // RBAC (#88)
+            .schema_from::<ChangeRoleRequest>()
+            .schema_from::<TransferOwnershipRequest>()
+            .schema_from::<PermissionsResponse>();
     }
 
     b
@@ -1625,6 +1629,75 @@ fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
                     )
                     .security(auth_req())
                     .build(),
+                )
+                .build(),
+        )
+        // ── RBAC (#88) ────────────────────────────────────────────────
+        .path(
+            "/organizations/{id}/members/{user_id}/role",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_path_param(
+                        with_path_param(
+                            with_body(
+                                with_response(
+                                    op("organizations_changeRole", "organizations"),
+                                    "MembershipResponse",
+                                ),
+                                "ChangeRoleRequest",
+                            ),
+                            "id",
+                        ),
+                        "user_id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/organizations/{id}/members/{user_id}",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Delete,
+                    with_path_param(
+                        with_path_param(op("organizations_removeMember", "organizations"), "id"),
+                        "user_id",
+                    )
+                    .pipe(with_empty_response)
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/organizations/{id}/transfer-ownership",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_path_param(
+                        with_body(
+                            op("organizations_transferOwnership", "organizations"),
+                            "TransferOwnershipRequest",
+                        ),
+                        "id",
+                    )
+                    .pipe(with_empty_response)
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/organizations/{id}/permissions",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("organizations_listPermissions", "organizations"), "id")
+                        .pipe(|b| with_response(b, "PermissionsResponse"))
+                        .security(auth_req())
+                        .build(),
                 )
                 .build(),
         )

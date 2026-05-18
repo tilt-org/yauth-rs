@@ -163,14 +163,18 @@ Routes mounted (all under `/api/auth` and require an authenticated session):
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/organizations` | Caller becomes admin of the new org |
+| `POST` | `/organizations` | Caller becomes **owner** of the new org |
 | `GET` | `/organizations` | Lists only orgs the caller is a member of |
 | `GET` | `/organizations/{id}` | Member-only |
-| `PATCH` | `/organizations/{id}` | Admin-only |
-| `DELETE` | `/organizations/{id}` | Admin-only; cascades to memberships + invitations |
+| `PATCH` | `/organizations/{id}` | Admin/owner-only |
+| `DELETE` | `/organizations/{id}` | Admin/owner-only; cascades to memberships + invitations |
 | `GET` | `/organizations/{id}/members` | Member-only |
-| `POST` | `/organizations/{id}/invitations` | Admin-only; returns the plaintext token **once** |
-| `POST` | `/invitations/accept` | Caller's email must match the invite |
+| `POST` | `/organizations/{id}/members/{user_id}/role` | Requires `members:change_role`; cannot demote the last owner |
+| `DELETE` | `/organizations/{id}/members/{user_id}` | Requires `members:remove`; cannot remove the last owner |
+| `POST` | `/organizations/{id}/transfer-ownership` | Owner-only; promotes target to `owner`, demotes self to `admin` |
+| `GET` | `/organizations/{id}/permissions` | Member-only; returns caller\'s role + effective permissions |
+| `POST` | `/organizations/{id}/invitations` | Admin/owner-only; returns the plaintext token **once** |
+| `POST` | `/invitations/accept` | Caller\'s email must match the invite |
 
 **Backend status:** the in-memory backend ships a complete implementation;
 SQL backends are stubbed (any call returns `RepoError::Internal` with a
@@ -178,8 +182,52 @@ SQL backends are stubbed (any call returns `RepoError::Internal` with a
 SQL backend are generated and committed — concrete repository impls land in
 follow-up issues.
 
-**Roles** are free-form strings (`admin`, `member`, …). RBAC enforcement
-beyond the two checks above (member, admin) lives in a separate issue.
+## Org-scoped RBAC (#88)
+
+The `organizations` feature ships with org-scoped RBAC primitives in
+[`yauth::auth::rbac`]:
+
+```rust
+use yauth::auth::rbac::{self, roles, Permission, MemberPerm};
+
+// In a route handler:
+rbac::require_org_role(&state.repos, &user, org_id, roles::OWNER).await?;
+rbac::require_org_permission(
+    &state.repos, &user, org_id,
+    Permission::Members(MemberPerm::Invite),
+).await?;
+```
+
+### Built-in roles
+
+| Role | Default permissions |
+|---|---|
+| `owner` | All members + billing + settings perms; **exactly one per org** |
+| `admin` | All members perms; billing view; settings read+write |
+| `billing_admin` | Billing view+update+cancel; settings read |
+| `member` | Settings read |
+| `viewer` | Settings read |
+
+Custom role strings are permitted on `Membership.role`; they receive no
+permissions by default and must be wired up by the calling application.
+
+### Owner-protection invariant
+
+Every org has exactly one user with `role = "owner"`. The owner cannot be
+demoted or removed without first transferring ownership via
+`POST /organizations/{id}/transfer-ownership`. This is enforced:
+
+- In the change-role and remove-member handlers via
+  `rbac::guard_role_change` / `rbac::guard_delete`.
+- As defense-in-depth inside the in-memory `MembershipRepository` —
+  attempts to demote the last owner return
+  `RepoError::Conflict(..)` which maps to HTTP 409.
+
+### Relationship to `User.role`
+
+`User.role` (the global yauth deployment role) is **independent** of
+`Membership.role` (the per-org role). A user can be a deployment admin
+and an org viewer at the same time, or vice versa.
 
 See [docs/plans/organizations/README.md](plans/organizations/README.md) for
 the full design + open work.

@@ -1,9 +1,12 @@
 import type {
+	ChangeRoleRequest,
 	CreateInvitationRequest,
 	CreateInvitationResponse,
 	CreateOrgRequest,
 	MembershipResponse,
 	OrganizationResponse,
+	PermissionsResponse,
+	TransferOwnershipRequest,
 	UpdateOrgRequest,
 } from "@yackey-labs/yauth-client";
 import { onMounted, ref, watch } from "vue";
@@ -240,4 +243,132 @@ export function useInvitation() {
 	};
 
 	return { submitting, error, accept };
+}
+// ──────────────────────────────────────────────
+// RBAC (#88) composables
+// ──────────────────────────────────────────────
+
+/**
+ * Built-in role string constants — mirrors `yauth::auth::rbac::roles`.
+ * Custom role strings are permitted but receive no default permissions.
+ */
+export const ROLES = {
+	OWNER: "owner",
+	ADMIN: "admin",
+	BILLING_ADMIN: "billing_admin",
+	MEMBER: "member",
+	VIEWER: "viewer",
+} as const;
+
+export type BuiltinRole = (typeof ROLES)[keyof typeof ROLES];
+
+/**
+ * Headless composable for the calling user's effective permissions in
+ * an org. Auto-fetches on mount and when `orgId` changes.
+ */
+export function useOrgPermissions(orgId: () => string | null | undefined) {
+	const { client } = useYAuth();
+	const permissions = ref<PermissionsResponse | null>(null);
+	const loading = ref(false);
+	const error = ref<string | null>(null);
+
+	const refetch = async () => {
+		const current = orgId();
+		if (!current) {
+			permissions.value = null;
+			return;
+		}
+		if (!client.organizations) {
+			error.value = "Organizations feature is not enabled on this server.";
+			return;
+		}
+		loading.value = true;
+		error.value = null;
+		try {
+			permissions.value = await client.organizations.listPermissions(current);
+		} catch (err) {
+			error.value = err instanceof Error ? err.message : String(err);
+		} finally {
+			loading.value = false;
+		}
+	};
+
+	const hasPermission = (perm: string): boolean =>
+		permissions.value?.permissions.includes(perm) ?? false;
+
+	const isRole = (role: string): boolean => permissions.value?.role === role;
+
+	watch(orgId, () => {
+		void refetch();
+	});
+
+	onMounted(() => {
+		void refetch();
+	});
+
+	return { permissions, loading, error, refetch, hasPermission, isRole };
+}
+
+/**
+ * Headless composable for the change-role + remove-member + transfer
+ * actions. Stateless — caller invokes the action explicitly.
+ */
+export function useOrgRoles(orgId: () => string | null | undefined) {
+	const { client } = useYAuth();
+	const submitting = ref(false);
+	const error = ref<string | null>(null);
+
+	const changeRole = async (
+		userId: string,
+		body: ChangeRoleRequest,
+	): Promise<MembershipResponse | null> => {
+		const current = orgId();
+		if (!current || !client.organizations) return null;
+		submitting.value = true;
+		error.value = null;
+		try {
+			return await client.organizations.changeRole(current, userId, body);
+		} catch (err) {
+			error.value = err instanceof Error ? err.message : String(err);
+			return null;
+		} finally {
+			submitting.value = false;
+		}
+	};
+
+	const removeMember = async (userId: string): Promise<boolean> => {
+		const current = orgId();
+		if (!current || !client.organizations) return false;
+		submitting.value = true;
+		error.value = null;
+		try {
+			await client.organizations.removeMember(current, userId);
+			return true;
+		} catch (err) {
+			error.value = err instanceof Error ? err.message : String(err);
+			return false;
+		} finally {
+			submitting.value = false;
+		}
+	};
+
+	const transferOwnership = async (
+		body: TransferOwnershipRequest,
+	): Promise<boolean> => {
+		const current = orgId();
+		if (!current || !client.organizations) return false;
+		submitting.value = true;
+		error.value = null;
+		try {
+			await client.organizations.transferOwnership(current, body);
+			return true;
+		} catch (err) {
+			error.value = err instanceof Error ? err.message : String(err);
+			return false;
+		} finally {
+			submitting.value = false;
+		}
+	};
+
+	return { submitting, error, changeRole, removeMember, transferOwnership };
 }
