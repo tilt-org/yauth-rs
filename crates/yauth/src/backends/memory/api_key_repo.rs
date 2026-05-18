@@ -150,7 +150,7 @@ impl ApiKeyRepository for InMemoryApiKeyRepo {
                 .filter(|k| k.organization_id == Some(organization_id))
                 .cloned()
                 .collect();
-            out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            out.sort_by_key(|k| std::cmp::Reverse(k.created_at));
             Ok(out)
         })
     }
