@@ -371,6 +371,81 @@ pub fn webhooks_schema() -> Vec<TableDef> {
     ]
 }
 
+/// Organizations plugin: organizations, memberships, invitations.
+///
+/// This is the foundational multi-tenancy primitive — see issue #87.
+/// All three tables are additive; existing single-tenant deployments are
+/// unaffected when the `organizations` feature is off.
+pub fn organizations_schema() -> Vec<TableDef> {
+    vec![
+        TableDef::new("yauth_organizations")
+            .description("Organizations / tenants / workspaces. Top-level multi-tenant boundary.")
+            .column(
+                ColumnDef::new("id", ColumnType::Uuid)
+                    .primary_key()
+                    .default("gen_random_uuid()"),
+            )
+            .column(ColumnDef::new("name", ColumnType::Varchar))
+            // Slug uniqueness is case-insensitive per the trait contract
+            // (see `crates/yauth/src/repo/organization.rs`). The DDL
+            // generator enforces this via a functional unique index on
+            // `LOWER(slug)` (Postgres/SQLite) or a generated `slug_lower`
+            // shadow column (MySQL).
+            .column(ColumnDef::new("slug", ColumnType::Varchar).case_insensitive_unique())
+            .column(ColumnDef::new("display_name", ColumnType::Varchar).nullable())
+            .column(ColumnDef::new("avatar_url", ColumnType::Varchar).nullable())
+            .column(ColumnDef::new("metadata", ColumnType::Json).nullable())
+            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
+            .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()")),
+        TableDef::new("yauth_memberships")
+            .description("Many-to-many: which users belong to which organizations + role.")
+            .column(
+                ColumnDef::new("id", ColumnType::Uuid)
+                    .primary_key()
+                    .default("gen_random_uuid()"),
+            )
+            .column(
+                ColumnDef::new("organization_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_organizations", "id", OnDelete::Cascade),
+            )
+            .column(
+                ColumnDef::new("user_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_users", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("role", ColumnType::Varchar).default("'member'"))
+            .column(ColumnDef::new("status", ColumnType::Varchar).default("'active'"))
+            .column(ColumnDef::new("invited_at", ColumnType::DateTime).nullable())
+            .column(ColumnDef::new("joined_at", ColumnType::DateTime).nullable())
+            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
+            .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()")),
+        TableDef::new("yauth_invitations")
+            .description("Pending invitations to join an organization. Single-use, time-limited.")
+            .column(
+                ColumnDef::new("id", ColumnType::Uuid)
+                    .primary_key()
+                    .default("gen_random_uuid()"),
+            )
+            .column(
+                ColumnDef::new("organization_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_organizations", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("email", ColumnType::Varchar))
+            .column(ColumnDef::new("role", ColumnType::Varchar).default("'member'"))
+            .column(ColumnDef::new("token_hash", ColumnType::VarcharN(64)).unique())
+            .column(
+                ColumnDef::new("invited_by_user_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_users", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("expires_at", ColumnType::DateTime))
+            .column(ColumnDef::new("accepted_at", ColumnType::DateTime).nullable())
+            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()")),
+    ]
+}
+
 /// OIDC plugin: oidc_nonces.
 pub fn oidc_schema() -> Vec<TableDef> {
     vec![

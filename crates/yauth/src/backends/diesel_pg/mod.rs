@@ -34,6 +34,13 @@ mod user_repo;
 #[cfg(feature = "webhooks")]
 mod webhooks_repo;
 
+#[cfg(feature = "organizations")]
+mod invitation_repo;
+#[cfg(feature = "organizations")]
+mod membership_repo;
+#[cfg(feature = "organizations")]
+mod organization_repo;
+
 use std::sync::Arc;
 
 use crate::repo::{DatabaseBackend, RepoError, Repositories};
@@ -155,6 +162,22 @@ impl DatabaseBackend for DieselPgBackend {
             webhooks_repo: Arc::new(webhooks_repo::DieselWebhookRepo::new(self.pool.clone())),
             #[cfg(feature = "webhooks")]
             webhook_deliveries: Arc::new(webhooks_repo::DieselWebhookDeliveryRepo::new(
+                self.pool.clone(),
+            )),
+
+            // Organizations primitive (issue #87). Diesel-PG ships the first
+            // real SQL impl; the other SQL backends still wire up stubs
+            // returning `RepoError::NotImplemented` (HTTP 501).
+            #[cfg(feature = "organizations")]
+            organizations: Arc::new(organization_repo::DieselOrganizationRepo::new(
+                self.pool.clone(),
+            )),
+            #[cfg(feature = "organizations")]
+            memberships: Arc::new(membership_repo::DieselMembershipRepo::new(
+                self.pool.clone(),
+            )),
+            #[cfg(feature = "organizations")]
+            invitations: Arc::new(invitation_repo::DieselInvitationRepo::new(
                 self.pool.clone(),
             )),
         }

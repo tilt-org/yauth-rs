@@ -48,6 +48,17 @@ pub enum RepoError {
     /// An internal/infrastructure error (connection pool, query failure, etc.).
     #[error("{0}")]
     Internal(#[from] Box<dyn std::error::Error + Send + Sync>),
+
+    /// A repository method exists on the trait but has no concrete impl on
+    /// this backend yet (e.g., SQL backend stubs for features still in
+    /// rollout). Maps to HTTP 501 so callers can distinguish "feature not
+    /// wired" from a real internal error.
+    ///
+    /// The payload should follow the convention `"<backend>::<method>"`
+    /// (e.g. `"diesel-mysql::OrganizationRepository::create"`) so operators
+    /// can see at a glance which backend is missing what.
+    #[error("feature not implemented on this backend: {0}")]
+    NotImplemented(String),
 }
 
 impl From<RepoError> for ApiError {
@@ -58,6 +69,11 @@ impl From<RepoError> for ApiError {
             RepoError::Internal(e) => {
                 crate::otel::record_error("repo_error", &e);
                 api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+            }
+            RepoError::NotImplemented(detail) => {
+                // 501 Not Implemented — server understands the request method
+                // but has not implemented it for the configured backend.
+                api_err(StatusCode::NOT_IMPLEMENTED, &detail)
             }
         }
     }
@@ -95,6 +111,7 @@ pub struct EnabledFeatures {
     pub account_lockout: bool,
     pub webhooks: bool,
     pub oidc: bool,
+    pub organizations: bool,
 }
 
 impl EnabledFeatures {
@@ -112,6 +129,7 @@ impl EnabledFeatures {
             account_lockout: cfg!(feature = "account-lockout"),
             webhooks: cfg!(feature = "webhooks"),
             oidc: cfg!(feature = "oidc"),
+            organizations: cfg!(feature = "organizations"),
         }
     }
 }
@@ -188,6 +206,16 @@ mod webhooks;
 #[cfg(feature = "webhooks")]
 pub use webhooks::*;
 
+#[cfg(feature = "organizations")]
+mod organization;
+#[cfg(feature = "organizations")]
+pub use organization::*;
+
+#[cfg(feature = "organizations")]
+mod organization_stub;
+#[cfg(feature = "organizations")]
+pub use organization_stub::*;
+
 // ──────────────────────────────────────────────
 // Repositories struct
 // ──────────────────────────────────────────────
@@ -252,6 +280,13 @@ pub struct Repositories {
     pub webhooks_repo: Arc<dyn WebhookRepository>,
     #[cfg(feature = "webhooks")]
     pub webhook_deliveries: Arc<dyn WebhookDeliveryRepository>,
+
+    #[cfg(feature = "organizations")]
+    pub organizations: Arc<dyn OrganizationRepository>,
+    #[cfg(feature = "organizations")]
+    pub memberships: Arc<dyn MembershipRepository>,
+    #[cfg(feature = "organizations")]
+    pub invitations: Arc<dyn InvitationRepository>,
 }
 
 // ──────────────────────────────────────────────

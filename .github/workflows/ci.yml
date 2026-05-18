@@ -119,12 +119,28 @@ jobs:
           SQLX_PG_DATABASE_URL: postgres://yauth:yauth@127.0.0.1:5433/yauth_test
           SQLX_MYSQL_DATABASE_URL: mysql://yauth:yauth@127.0.0.1:3307/yauth_test
           SQLX_SQLITE_DATABASE_URL: "sqlite::memory:"
-        run: cargo test --workspace --features full,all-backends --test repo_conformance
+        run: cargo test --workspace --features full,all-backends,organizations --test repo_conformance
+
+      - name: Run organizations tests (7 backends)
+        env:
+          SQLX_OFFLINE: "true"
+          DATABASE_URL: postgres://yauth:yauth@127.0.0.1:5433/yauth_test
+          MYSQL_DATABASE_URL: mysql://yauth:yauth@127.0.0.1:3307/yauth_test
+          SQLITE_DATABASE_URL: ":memory:"
+          SQLX_PG_DATABASE_URL: postgres://yauth:yauth@127.0.0.1:5433/yauth_test
+          SQLX_MYSQL_DATABASE_URL: mysql://yauth:yauth@127.0.0.1:3307/yauth_test
+          SQLX_SQLITE_DATABASE_URL: "sqlite::memory:"
+        run: cargo test --workspace --features full,all-backends,organizations --test organizations --test organizations_diesel_pg --test organizations_diesel_mysql --test organizations_diesel_sqlite --test organizations_sqlx_pg --test organizations_sqlx_mysql --test organizations_sqlx_sqlite --test organizations_seaorm_pg --test organizations_seaorm_mysql --test organizations_seaorm_sqlite
 
       - name: Run conformance tests (diesel-libsql, tested separately)
         env:
           SQLX_OFFLINE: "true"
-        run: cargo test --workspace --features full,diesel-libsql-backend,memory-backend --test repo_conformance
+        run: cargo test --workspace --features full,diesel-libsql-backend,memory-backend,organizations --test repo_conformance
+
+      - name: Run organizations tests (diesel-libsql, tested separately)
+        env:
+          SQLX_OFFLINE: "true"
+        run: cargo test --workspace --features full,diesel-libsql-backend,memory-backend,organizations --test organizations_diesel_libsql
 
       - name: Run integration tests (parallel-safe)
         env:

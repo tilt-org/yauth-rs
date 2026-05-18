@@ -213,7 +213,11 @@ fn generate_model(
                 out.push_str("    #[auto]\n");
             }
         }
-        if col.unique && !col.primary_key {
+        // Both plain `unique` and `case_insensitive_unique` emit `#[unique]`
+        // for toasty. The toasty repo layer lowercases the column on every
+        // write, so the column uniqueness IS case-insensitive in practice
+        // (see `crates/yauth-toasty/src/common/organization_repo.rs`).
+        if (col.unique || col.case_insensitive_unique) && !col.primary_key {
             out.push_str("    #[unique]\n");
         }
 

@@ -89,6 +89,19 @@ CREATE TABLE IF NOT EXISTS yauth_oidc_nonces (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Organizations / tenants / workspaces. Top-level multi-tenant boundary.
+CREATE TABLE IF NOT EXISTS yauth_organizations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    display_name TEXT,
+    avatar_url TEXT,
+    metadata TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS yauth_organizations_slug_lower_key ON yauth_organizations (LOWER(slug));
+
 -- Active user sessions. One row per login.
 CREATE TABLE IF NOT EXISTS yauth_sessions (
     id TEXT PRIMARY KEY,
@@ -273,6 +286,32 @@ CREATE TABLE IF NOT EXISTS yauth_webhook_deliveries (
     response_body TEXT,
     success INTEGER NOT NULL DEFAULT false,
     attempt INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Many-to-many: which users belong to which organizations + role.
+CREATE TABLE IF NOT EXISTS yauth_memberships (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT REFERENCES yauth_organizations(id) ON DELETE CASCADE,
+    user_id TEXT REFERENCES yauth_users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'member',
+    status TEXT NOT NULL DEFAULT 'active',
+    invited_at TEXT,
+    joined_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Pending invitations to join an organization. Single-use, time-limited.
+CREATE TABLE IF NOT EXISTS yauth_invitations (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT REFERENCES yauth_organizations(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    token_hash TEXT NOT NULL UNIQUE,
+    invited_by_user_id TEXT REFERENCES yauth_users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    accepted_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

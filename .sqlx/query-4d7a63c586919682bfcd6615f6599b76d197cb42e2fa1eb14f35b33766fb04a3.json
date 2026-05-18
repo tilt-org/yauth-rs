@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT organization_id FROM yauth_memberships WHERE user_id = ? AND organization_id IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "organization_id",
+        "type_info": {
+          "type": "String",
+          "flags": "MULTIPLE_KEY",
+          "max_size": 144
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "4d7a63c586919682bfcd6615f6599b76d197cb42e2fa1eb14f35b33766fb04a3"
+}

@@ -62,6 +62,7 @@ pub const ALL_PLUGINS: &[&str] = &[
     "account-lockout",
     "webhooks",
     "oidc",
+    "organizations",
 ];
 
 /// Get the schema tables for a plugin by name.
@@ -80,6 +81,7 @@ pub fn plugin_schema_by_name(name: &str) -> Option<Vec<TableDef>> {
         "account-lockout" => Some(plugin_schemas::account_lockout_schema()),
         "webhooks" => Some(plugin_schemas::webhooks_schema()),
         "oidc" => Some(plugin_schemas::oidc_schema()),
+        "organizations" => Some(plugin_schemas::organizations_schema()),
         _ => None,
     }
 }
@@ -102,6 +104,7 @@ pub fn is_known_plugin(name: &str) -> bool {
             | "account-lockout"
             | "webhooks"
             | "oidc"
+            | "organizations"
             | "telemetry"
             | "openapi"
     )

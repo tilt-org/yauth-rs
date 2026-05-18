@@ -45,6 +45,13 @@ mod password_repo;
 #[cfg(feature = "webhooks")]
 mod webhooks_repo;
 
+#[cfg(feature = "organizations")]
+mod invitation_repo;
+#[cfg(feature = "organizations")]
+mod membership_repo;
+#[cfg(feature = "organizations")]
+mod organization_repo;
+
 // Re-export repo structs for build_repositories()
 use audit_repo::*;
 use challenge_repo::*;
@@ -73,6 +80,13 @@ use passkey_repo::*;
 use password_repo::*;
 #[cfg(feature = "webhooks")]
 use webhooks_repo::*;
+
+#[cfg(feature = "organizations")]
+use invitation_repo::*;
+#[cfg(feature = "organizations")]
+use membership_repo::*;
+#[cfg(feature = "organizations")]
+use organization_repo::*;
 
 /// SeaORM-based SQLite backend.
 pub struct SeaOrmSqliteBackend {
@@ -155,6 +169,14 @@ fn build_repositories(db: &DatabaseConnection) -> Repositories {
         webhooks_repo: Arc::new(SeaOrmWebhookRepo::new(db.clone())),
         #[cfg(feature = "webhooks")]
         webhook_deliveries: Arc::new(SeaOrmWebhookDeliveryRepo::new(db.clone())),
+
+        // Organizations primitive (issue #87)
+        #[cfg(feature = "organizations")]
+        organizations: Arc::new(SeaOrmOrganizationRepo::new(db.clone())),
+        #[cfg(feature = "organizations")]
+        memberships: Arc::new(SeaOrmMembershipRepo::new(db.clone())),
+        #[cfg(feature = "organizations")]
+        invitations: Arc::new(SeaOrmInvitationRepo::new(db.clone())),
     }
 }
 

@@ -125,6 +125,7 @@ fn full_schema_topological_order() {
         plugin_schemas::account_lockout_schema(),
         plugin_schemas::webhooks_schema(),
         plugin_schemas::oidc_schema(),
+        plugin_schemas::organizations_schema(),
     ])
     .unwrap();
 
@@ -167,6 +168,7 @@ fn generated_ddl_has_all_tables() {
         plugin_schemas::account_lockout_schema(),
         plugin_schemas::webhooks_schema(),
         plugin_schemas::oidc_schema(),
+        plugin_schemas::organizations_schema(),
     ])
     .unwrap();
     let ddl = generate_postgres_ddl(&schema);
@@ -198,6 +200,9 @@ fn generated_ddl_has_all_tables() {
         "yauth_webhooks",
         "yauth_webhook_deliveries",
         "yauth_oidc_nonces",
+        "yauth_organizations",
+        "yauth_memberships",
+        "yauth_invitations",
     ];
 
     for table in &expected_tables {
@@ -290,12 +295,13 @@ fn sqlite_ddl_has_all_tables() {
         plugin_schemas::account_lockout_schema(),
         plugin_schemas::webhooks_schema(),
         plugin_schemas::oidc_schema(),
+        plugin_schemas::organizations_schema(),
     ])
     .unwrap();
     let ddl = generate_sqlite_ddl(&schema);
 
     let create_count = ddl.matches("CREATE TABLE IF NOT EXISTS").count();
-    assert_eq!(create_count, 26);
+    assert_eq!(create_count, 29);
 }
 
 #[test]
@@ -423,12 +429,13 @@ fn mysql_ddl_has_all_tables() {
         plugin_schemas::account_lockout_schema(),
         plugin_schemas::webhooks_schema(),
         plugin_schemas::oidc_schema(),
+        plugin_schemas::organizations_schema(),
     ])
     .unwrap();
     let ddl = generate_mysql_ddl(&schema);
 
     let create_count = ddl.matches("CREATE TABLE IF NOT EXISTS").count();
-    assert_eq!(create_count, 26);
+    assert_eq!(create_count, 29);
 }
 
 // -- Plugin lookup tests --

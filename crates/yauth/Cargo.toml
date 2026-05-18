@@ -39,12 +39,16 @@ oauth2-server = ["dep:url", "dep:base64", "dep:serde_urlencoded"]
 account-lockout = []
 webhooks = ["dep:hmac", "dep:url"]
 oidc = ["bearer", "oauth2-server"]
-telemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-http"]
+# Multi-tenancy primitive (issue #87). Adds Organization + Membership + Invitation
+# entities, repos, and routes. Default OFF — flipping the flag on must not change any
+# existing single-tenant behavior.
+organizations = []
+telemetry =["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-http"]
 openapi = ["dep:utoipa"]
 redis = ["dep:redis"]
 # All auth plugins — this is what "full" means to users.
 # Real apps use `full` + one backend (e.g., `yauth = { features = ["full", "diesel-pg-backend"] }`).
-full = ["email-password", "passkey", "mfa", "oauth", "bearer", "api-key", "magic-link", "admin", "status", "oauth2-server", "account-lockout", "webhooks", "oidc", "asymmetric-jwt", "telemetry", "openapi"]
+full = ["email-password", "passkey", "mfa", "oauth", "bearer", "api-key", "magic-link", "admin", "status", "oauth2-server", "account-lockout", "webhooks", "oidc", "asymmetric-jwt", "telemetry", "openapi", "organizations"]
 # CI-only — every backend + redis, for conformance testing. Never recommended for production.
 # NOTE: diesel-libsql-backend is excluded because libsql-ffi bundles its own sqlite3.c,
 # which produces duplicate symbols with libsqlite3-sys (used by diesel-sqlite + sqlx-sqlite).
@@ -144,6 +148,7 @@ opentelemetry-semantic-conventions = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-opentelemetry = "0.32"
+serial_test = "3"
 
 
 [[example]]

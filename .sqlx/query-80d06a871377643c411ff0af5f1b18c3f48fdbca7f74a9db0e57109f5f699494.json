@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM yauth_invitations WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "80d06a871377643c411ff0af5f1b18c3f48fdbca7f74a9db0e57109f5f699494"
+}

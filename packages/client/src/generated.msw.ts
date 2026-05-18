@@ -18,6 +18,10 @@ import type {
 } from 'msw';
 
 import { customFetch } from './mutator';
+export interface AcceptInvitationRequest {
+  token: string;
+}
+
 export interface AccountLockoutMessageResponse {
   message: string;
 }
@@ -221,6 +225,35 @@ export interface CreateApiKeyRequest {
 export interface CreateApiKeyResponse {
   api_key: ApiKeyResponse;
   secret: string;
+}
+
+export interface CreateInvitationRequest {
+  email: string;
+  /** @nullable */
+  role?: string | null;
+}
+
+export interface InvitationResponse {
+  created_at: string;
+  email: string;
+  expires_at: string;
+  id: string;
+  organization_id: string;
+  role: string;
+}
+
+export interface CreateInvitationResponse {
+  invitation: InvitationResponse;
+  /** Plaintext token — returned exactly once at creation. Caller is
+  responsible for delivering it to the invitee (email, etc.). */
+  token: string;
+}
+
+export interface CreateOrgRequest {
+  /** @nullable */
+  display_name?: string | null;
+  name: string;
+  slug: string;
 }
 
 export interface CreateWebhookRequest {
@@ -504,6 +537,17 @@ export interface MagicLinkVerifyRequest {
   token: string;
 }
 
+export interface MembershipResponse {
+  created_at: string;
+  id: string;
+  /** @nullable */
+  joined_at?: string | null;
+  organization_id: string;
+  role: string;
+  status: string;
+  user_id: string;
+}
+
 export interface MessageResponse {
   message: string;
 }
@@ -639,6 +683,18 @@ export interface Oauth2PatchClientRequest {
   banned_reason?: string | null;
   /** @nullable */
   public_key_pem?: string | null;
+}
+
+export interface OrganizationResponse {
+  /** @nullable */
+  avatar_url?: string | null;
+  created_at: string;
+  /** @nullable */
+  display_name?: string | null;
+  id: string;
+  name: string;
+  slug: string;
+  updated_at: string;
 }
 
 /**
@@ -782,6 +838,17 @@ export interface TokenResponse {
 
 export interface UnlockAccountRequest {
   token: string;
+}
+
+export interface UpdateOrgRequest {
+  /** @nullable */
+  avatar_url?: string | null;
+  /** @nullable */
+  display_name?: string | null;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  slug?: string | null;
 }
 
 export interface UpdateProfileRequest {
@@ -1422,6 +1489,28 @@ export const emailPasswordForgotPassword = async (forgotPasswordRequest: ForgotP
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       forgotPasswordRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsAcceptInvitationUrl = () => {
+
+
+
+
+  return `/invitations/accept`
+}
+
+export const organizationsAcceptInvitation = async (acceptInvitationRequest: AcceptInvitationRequest, options?: RequestInit): Promise<MembershipResponse> => {
+
+  return customFetch<MembershipResponse>(getOrganizationsAcceptInvitationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      acceptInvitationRequest,)
   }
 );}
 
@@ -2149,6 +2238,158 @@ export const oauth2ServerConsent = async (oauth2ConsentRequest: Oauth2ConsentReq
 
 
 
+export const getOrganizationsListUrl = () => {
+
+
+
+
+  return `/organizations`
+}
+
+export const organizationsList = async ( options?: RequestInit): Promise<OrganizationResponse[]> => {
+
+  return customFetch<OrganizationResponse[]>(getOrganizationsListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsCreateUrl = () => {
+
+
+
+
+  return `/organizations`
+}
+
+export const organizationsCreate = async (createOrgRequest: CreateOrgRequest, options?: RequestInit): Promise<OrganizationResponse> => {
+
+  return customFetch<OrganizationResponse>(getOrganizationsCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createOrgRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsGetUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}`
+}
+
+export const organizationsGet = async (id: string, options?: RequestInit): Promise<OrganizationResponse> => {
+
+  return customFetch<OrganizationResponse>(getOrganizationsGetUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsDeleteUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}`
+}
+
+export const organizationsDelete = async (id: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOrganizationsDeleteUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsUpdateUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}`
+}
+
+export const organizationsUpdate = async (id: string,
+    updateOrgRequest: UpdateOrgRequest, options?: RequestInit): Promise<OrganizationResponse> => {
+
+  return customFetch<OrganizationResponse>(getOrganizationsUpdateUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateOrgRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsCreateInvitationUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/invitations`
+}
+
+export const organizationsCreateInvitation = async (id: string,
+    createInvitationRequest: CreateInvitationRequest, options?: RequestInit): Promise<CreateInvitationResponse> => {
+
+  return customFetch<CreateInvitationResponse>(getOrganizationsCreateInvitationUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createInvitationRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsListMembersUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/members`
+}
+
+export const organizationsListMembers = async (id: string, options?: RequestInit): Promise<MembershipResponse[]> => {
+
+  return customFetch<MembershipResponse[]>(getOrganizationsListMembersUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getPasskeyLoginBeginUrl = () => {
 
 
@@ -2724,6 +2965,8 @@ export const getGetConfigResponseMock = (overrideResponse: Partial<Extract<AuthC
 
 export const getEmailPasswordForgotPasswordResponseMock = (overrideResponse: Partial<Extract<MessageResponse, object>> = {}): MessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
+export const getOrganizationsAcceptInvitationResponseMock = (overrideResponse: Partial<Extract<MembershipResponse, object>> = {}): MembershipResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid(), ...overrideResponse})
+
 export const getAccountLockoutStateResponseMock = (overrideResponse: Partial<Extract<LockoutStateResponse, object>> = {}): LockoutStateResponse => ({locked: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({email: faker.string.alpha({length: {min: 10, max: 20}}), failed_count: faker.number.int(), lock_count: faker.number.int(), locked_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), locked_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), user_id: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
 
 export const getMagicLinkSendResponseMock = (overrideResponse: Partial<Extract<MagicLinkMessageResponse, object>> = {}): MagicLinkMessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
@@ -2761,6 +3004,18 @@ export const getOauth2AdminGetClientResponseMock = (overrideResponse: Partial<Ex
 export const getOauth2AdminPatchClientResponseMock = (overrideResponse: Partial<Extract<Oauth2ClientView, object>> = {}): Oauth2ClientView => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
 
 export const getOauth2ServerConsentResponseMock = (overrideResponse: Partial<Extract<Oauth2AuthorizeRedirect, object>> = {}): Oauth2AuthorizeRedirect => ({redirect_url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getOrganizationsListResponseMock = (): OrganizationResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+
+export const getOrganizationsCreateResponseMock = (overrideResponse: Partial<Extract<OrganizationResponse, object>> = {}): OrganizationResponse => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
+export const getOrganizationsGetResponseMock = (overrideResponse: Partial<Extract<OrganizationResponse, object>> = {}): OrganizationResponse => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
+export const getOrganizationsUpdateResponseMock = (overrideResponse: Partial<Extract<OrganizationResponse, object>> = {}): OrganizationResponse => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
+export const getOrganizationsCreateInvitationResponseMock = (overrideResponse: Partial<Extract<CreateInvitationResponse, object>> = {}): CreateInvitationResponse => ({invitation: {created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', email: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}})}, token: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getOrganizationsListMembersResponseMock = (): MembershipResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid()})))
 
 export const getPasskeyListResponseMock = (overrideResponse: Partial<Extract<ListPasskeysResponse, object>> = {}): ListPasskeysResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}})})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
@@ -3064,6 +3319,18 @@ export const getEmailPasswordForgotPasswordMockHandler = (overrideResponse?: Mes
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getEmailPasswordForgotPasswordResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsAcceptInvitationMockHandler = (overrideResponse?: MembershipResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<MembershipResponse> | MembershipResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/invitations/accept', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsAcceptInvitationResponseMock(),
       { status: 200
       })
   }, options)
@@ -3437,6 +3704,88 @@ export const getOauth2ServerConsentMockHandler = (overrideResponse?: Oauth2Autho
   }, options)
 }
 
+export const getOrganizationsListMockHandler = (overrideResponse?: OrganizationResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<OrganizationResponse[]> | OrganizationResponse[]), options?: RequestHandlerOptions) => {
+  return http.get('*/organizations', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsListResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsCreateMockHandler = (overrideResponse?: OrganizationResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OrganizationResponse> | OrganizationResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/organizations', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsCreateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsGetMockHandler = (overrideResponse?: OrganizationResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<OrganizationResponse> | OrganizationResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/organizations/:id', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsDeleteMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.delete('*/organizations/:id', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsUpdateMockHandler = (overrideResponse?: OrganizationResponse | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<OrganizationResponse> | OrganizationResponse), options?: RequestHandlerOptions) => {
+  return http.patch('*/organizations/:id', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsUpdateResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsCreateInvitationMockHandler = (overrideResponse?: CreateInvitationResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<CreateInvitationResponse> | CreateInvitationResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/organizations/:id/invitations', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsCreateInvitationResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsListMembersMockHandler = (overrideResponse?: MembershipResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MembershipResponse[]> | MembershipResponse[]), options?: RequestHandlerOptions) => {
+  return http.get('*/organizations/:id/members', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsListMembersResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getPasskeyLoginBeginMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.post('*/passkey/login/begin', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
@@ -3733,6 +4082,7 @@ export const getYauthMock = () => [
   getEmailPasswordChangePasswordMockHandler(),
   getGetConfigMockHandler(),
   getEmailPasswordForgotPasswordMockHandler(),
+  getOrganizationsAcceptInvitationMockHandler(),
   getAccountLockoutStateMockHandler(),
   getEmailPasswordLoginMockHandler(),
   getLogoutMockHandler(),
@@ -3766,6 +4116,13 @@ export const getYauthMock = () => [
   getOauth2AdminDeleteClientMockHandler(),
   getOauth2AdminPatchClientMockHandler(),
   getOauth2ServerConsentMockHandler(),
+  getOrganizationsListMockHandler(),
+  getOrganizationsCreateMockHandler(),
+  getOrganizationsGetMockHandler(),
+  getOrganizationsDeleteMockHandler(),
+  getOrganizationsUpdateMockHandler(),
+  getOrganizationsCreateInvitationMockHandler(),
+  getOrganizationsListMembersMockHandler(),
   getPasskeyLoginBeginMockHandler(),
   getPasskeyLoginFinishMockHandler(),
   getPasskeyListMockHandler(),

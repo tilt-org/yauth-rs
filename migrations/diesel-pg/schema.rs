@@ -101,6 +101,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    yauth_organizations (id) {
+        id -> Uuid,
+        name -> Varchar,
+        slug -> Varchar,
+        display_name -> Nullable<Varchar>,
+        avatar_url -> Nullable<Varchar>,
+        metadata -> Nullable<Jsonb>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     yauth_sessions (id) {
         id -> Uuid,
         user_id -> Uuid,
@@ -304,6 +317,34 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    yauth_memberships (id) {
+        id -> Uuid,
+        organization_id -> Nullable<Uuid>,
+        user_id -> Nullable<Uuid>,
+        role -> Varchar,
+        status -> Varchar,
+        invited_at -> Nullable<Timestamptz>,
+        joined_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    yauth_invitations (id) {
+        id -> Uuid,
+        organization_id -> Nullable<Uuid>,
+        email -> Varchar,
+        role -> Varchar,
+        token_hash -> Varchar,
+        invited_by_user_id -> Nullable<Uuid>,
+        expires_at -> Timestamptz,
+        accepted_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+    }
+}
+
 diesel::joinable!(yauth_sessions -> yauth_users (user_id));
 diesel::joinable!(yauth_audit_log -> yauth_users (user_id));
 diesel::joinable!(yauth_passwords -> yauth_users (user_id));
@@ -321,3 +362,7 @@ diesel::joinable!(yauth_device_codes -> yauth_users (user_id));
 diesel::joinable!(yauth_account_locks -> yauth_users (user_id));
 diesel::joinable!(yauth_unlock_tokens -> yauth_users (user_id));
 diesel::joinable!(yauth_webhook_deliveries -> yauth_webhooks (webhook_id));
+diesel::joinable!(yauth_memberships -> yauth_organizations (organization_id));
+diesel::joinable!(yauth_memberships -> yauth_users (user_id));
+diesel::joinable!(yauth_invitations -> yauth_organizations (organization_id));
+diesel::joinable!(yauth_invitations -> yauth_users (invited_by_user_id));

@@ -78,7 +78,10 @@ fn generate_create_table(table: &TableDef) -> String {
             if !col.nullable {
                 sql.push_str(" NOT NULL");
             }
-            if col.unique {
+            // case_insensitive_unique takes precedence over plain UNIQUE —
+            // the constraint is enforced by a functional index emitted after
+            // the CREATE TABLE.
+            if col.unique && !col.case_insensitive_unique {
                 sql.push_str(" UNIQUE");
             }
             if let Some(ref default) = col.default {
@@ -94,6 +97,18 @@ fn generate_create_table(table: &TableDef) -> String {
     }
 
     sql.push_str(");\n");
+
+    // Functional unique index for case-insensitive uniqueness.
+    for col in &table.columns {
+        if col.case_insensitive_unique {
+            sql.push_str(&format!(
+                "CREATE UNIQUE INDEX IF NOT EXISTS {table}_{col}_lower_key ON {table} (LOWER({col}));\n",
+                table = table.name,
+                col = col.name,
+            ));
+        }
+    }
+
     sql
 }
 

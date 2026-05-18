@@ -356,6 +356,61 @@ diesel::table! {
 }
 
 // ──────────────────────────────────────────────
+// organizations feature
+// ──────────────────────────────────────────────
+//
+// MySQL note: unlike Postgres we lean on `Text` everywhere a String is the
+// runtime representation (UUIDs stored as CHAR(36), JSON stored as `JSON` but
+// surfaced as Text to diesel and (de)serialized in the model layer). The FKs
+// for `organization_id` / `user_id` / `invited_by_user_id` are emitted as
+// `Nullable<Text>` mirroring the diesel-pg quirk where the cross-dialect
+// migration generator marks cascading-FK columns nullable.
+
+#[cfg(feature = "organizations")]
+diesel::table! {
+    yauth_organizations (id) {
+        id -> Text,
+        name -> Text,
+        slug -> Text,
+        display_name -> Nullable<Text>,
+        avatar_url -> Nullable<Text>,
+        metadata -> Nullable<Text>,
+        created_at -> Datetime,
+        updated_at -> Datetime,
+    }
+}
+
+#[cfg(feature = "organizations")]
+diesel::table! {
+    yauth_memberships (id) {
+        id -> Text,
+        organization_id -> Nullable<Text>,
+        user_id -> Nullable<Text>,
+        role -> Text,
+        status -> Text,
+        invited_at -> Nullable<Datetime>,
+        joined_at -> Nullable<Datetime>,
+        created_at -> Datetime,
+        updated_at -> Datetime,
+    }
+}
+
+#[cfg(feature = "organizations")]
+diesel::table! {
+    yauth_invitations (id) {
+        id -> Text,
+        organization_id -> Nullable<Text>,
+        email -> Text,
+        role -> Text,
+        token_hash -> Text,
+        invited_by_user_id -> Nullable<Text>,
+        expires_at -> Datetime,
+        accepted_at -> Nullable<Datetime>,
+        created_at -> Datetime,
+    }
+}
+
+// ──────────────────────────────────────────────
 // Foreign key joins
 // ──────────────────────────────────────────────
 
@@ -400,5 +455,14 @@ diesel::joinable!(yauth_webhook_deliveries -> yauth_webhooks (webhook_id));
 
 #[cfg(feature = "oidc")]
 diesel::joinable!(yauth_oidc_nonces -> yauth_authorization_codes (authorization_code_id));
+
+#[cfg(feature = "organizations")]
+diesel::joinable!(yauth_memberships -> yauth_organizations (organization_id));
+#[cfg(feature = "organizations")]
+diesel::joinable!(yauth_memberships -> yauth_users (user_id));
+#[cfg(feature = "organizations")]
+diesel::joinable!(yauth_invitations -> yauth_organizations (organization_id));
+#[cfg(feature = "organizations")]
+diesel::joinable!(yauth_invitations -> yauth_users (invited_by_user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(yauth_users, yauth_sessions, yauth_audit_log,);

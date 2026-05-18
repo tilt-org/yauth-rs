@@ -10,8 +10,8 @@
 
 use super::{
     YauthAccountLock, YauthApiKey, YauthAuthorizationCode, YauthBackupCode, YauthEmailVerification,
-    YauthOauthAccount, YauthPasskey, YauthPasswordReset, YauthRefreshToken, YauthSession,
-    YauthUnlockToken,
+    YauthMembership, YauthOauthAccount, YauthPasskey, YauthPasswordReset, YauthRefreshToken,
+    YauthSession, YauthUnlockToken,
 };
 use uuid::Uuid;
 
@@ -70,4 +70,16 @@ pub struct YauthUser {
     pub consents: toasty::HasMany<super::YauthConsent>,
     #[has_many]
     pub authorization_codes: toasty::HasMany<YauthAuthorizationCode>,
+
+    // Organizations primitive (issue #87). Always compiled; the repo layer
+    // is gated on the `organizations` feature in `common::build_repositories`.
+    // Inverse of `YauthMembership::yauth_user`. The invitation FK
+    // `invited_by` is intentionally NOT exposed as a `has_many` here because
+    // Toasty 0.4's relation pairing requires the child `belongs_to` field
+    // name to match the snake-cased parent type (`yauth_user`), and we want
+    // `invited_by` on `YauthInvitation` for readability. The FK still
+    // exists in the schema; we just don't navigate through it from the
+    // parent side.
+    #[has_many]
+    pub memberships: toasty::HasMany<YauthMembership>,
 }

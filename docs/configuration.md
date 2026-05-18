@@ -141,3 +141,45 @@ when the features are enabled.
 
 See [examples/m2m_auth.rs](../crates/yauth/examples/m2m_auth.rs) for an
 end-to-end walkthrough (register → mint → validate via JWKS → admin ban).
+
+## Organizations (multi-tenancy primitive)
+
+Enable with `--features organizations`. **Default OFF** — flipping the flag
+on must not change any existing single-tenant behavior. With the flag off,
+no org tables are touched, no new routes mount, and `Repositories` does
+not expose the org repos.
+
+Wire it up via the builder:
+
+```rust
+let yauth = YAuthBuilder::new(backend, config)
+    .with_email_password(ep)
+    .with_organizations()       // mounts the org routes
+    .build()
+    .await?;
+```
+
+Routes mounted (all under `/api/auth` and require an authenticated session):
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/organizations` | Caller becomes admin of the new org |
+| `GET` | `/organizations` | Lists only orgs the caller is a member of |
+| `GET` | `/organizations/{id}` | Member-only |
+| `PATCH` | `/organizations/{id}` | Admin-only |
+| `DELETE` | `/organizations/{id}` | Admin-only; cascades to memberships + invitations |
+| `GET` | `/organizations/{id}/members` | Member-only |
+| `POST` | `/organizations/{id}/invitations` | Admin-only; returns the plaintext token **once** |
+| `POST` | `/invitations/accept` | Caller's email must match the invite |
+
+**Backend status:** the in-memory backend ships a complete implementation;
+SQL backends are stubbed (any call returns `RepoError::Internal` with a
+"not yet implemented for this backend" message). Migration files for every
+SQL backend are generated and committed — concrete repository impls land in
+follow-up issues.
+
+**Roles** are free-form strings (`admin`, `member`, …). RBAC enforcement
+beyond the two checks above (member, admin) lives in a separate issue.
+
+See [docs/plans/organizations/README.md](plans/organizations/README.md) for
+the full design + open work.

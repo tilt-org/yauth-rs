@@ -30,14 +30,20 @@ mod account_lockout_repo;
 mod api_key_repo;
 #[cfg(feature = "bearer")]
 mod bearer_repo;
+#[cfg(feature = "organizations")]
+mod invitation_repo;
 #[cfg(feature = "magic-link")]
 mod magic_link_repo;
+#[cfg(feature = "organizations")]
+mod membership_repo;
 #[cfg(feature = "mfa")]
 mod mfa_repo;
 #[cfg(feature = "oauth2-server")]
 mod oauth2_server_repo;
 #[cfg(feature = "oauth")]
 mod oauth_repo;
+#[cfg(feature = "organizations")]
+mod organization_repo;
 #[cfg(feature = "passkey")]
 mod passkey_repo;
 #[cfg(feature = "email-password")]
@@ -59,14 +65,20 @@ use account_lockout_repo::*;
 use api_key_repo::*;
 #[cfg(feature = "bearer")]
 use bearer_repo::*;
+#[cfg(feature = "organizations")]
+use invitation_repo::*;
 #[cfg(feature = "magic-link")]
 use magic_link_repo::*;
+#[cfg(feature = "organizations")]
+use membership_repo::*;
 #[cfg(feature = "mfa")]
 use mfa_repo::*;
 #[cfg(feature = "oauth")]
 use oauth_repo::*;
 #[cfg(feature = "oauth2-server")]
 use oauth2_server_repo::*;
+#[cfg(feature = "organizations")]
+use organization_repo::*;
 #[cfg(feature = "passkey")]
 use passkey_repo::*;
 #[cfg(feature = "email-password")]
@@ -155,5 +167,13 @@ fn build_repositories(db: &DatabaseConnection) -> Repositories {
         webhooks_repo: Arc::new(SeaOrmWebhookRepo::new(db.clone())),
         #[cfg(feature = "webhooks")]
         webhook_deliveries: Arc::new(SeaOrmWebhookDeliveryRepo::new(db.clone())),
+
+        // Organizations primitive (issue #87) — concrete impl deferred.
+        #[cfg(feature = "organizations")]
+        organizations: Arc::new(SeaOrmOrganizationRepo::new(db.clone())),
+        #[cfg(feature = "organizations")]
+        memberships: Arc::new(SeaOrmMembershipRepo::new(db.clone())),
+        #[cfg(feature = "organizations")]
+        invitations: Arc::new(SeaOrmInvitationRepo::new(db.clone())),
     }
 }

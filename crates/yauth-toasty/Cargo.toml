@@ -25,6 +25,7 @@ admin = ["yauth/admin"]
 oauth2-server = ["yauth/oauth2-server"]
 account-lockout = ["yauth/account-lockout"]
 webhooks = ["yauth/webhooks"]
+organizations = ["yauth/organizations"]
 full = [
     "yauth/full",
     "email-password",
@@ -38,6 +39,7 @@ full = [
     "oauth2-server",
     "account-lockout",
     "webhooks",
+    "organizations",
 ]
 
 # Dev-only: CLI binary for generating migrations (not published)

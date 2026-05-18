@@ -60,6 +60,10 @@ pub struct YauthUser {
     pub account_lock: toasty::HasOne<YauthAccountLock>,
     #[has_many]
     pub unlock_tokens: toasty::HasMany<YauthUnlockToken>,
+    #[has_many]
+    pub memberships: toasty::HasMany<YauthMembership>,
+    #[has_many]
+    pub invitations: toasty::HasMany<YauthInvitation>,
 }
 
 /// Toasty model for `yauth_challenges`.
@@ -174,6 +178,28 @@ pub struct YauthOidcNonce {
     pub nonce_hash: String,
     pub authorization_code_id: uuid::Uuid,
     pub created_at: jiff::Timestamp,
+}
+
+/// Toasty model for `yauth_organizations`.
+#[derive(Debug, toasty::Model)]
+#[table = "organizations"]
+pub struct YauthOrganization {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+    pub name: String,
+    #[unique]
+    pub slug: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    #[serialize(json)]
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: jiff::Timestamp,
+    pub updated_at: jiff::Timestamp,
+    #[has_many]
+    pub memberships: toasty::HasMany<YauthMembership>,
+    #[has_many]
+    pub invitations: toasty::HasMany<YauthInvitation>,
 }
 
 /// Toasty model for `yauth_sessions`.
@@ -480,5 +506,48 @@ pub struct YauthWebhookDelivery {
     pub response_body: Option<String>,
     pub success: bool,
     pub attempt: i64,
+    pub created_at: jiff::Timestamp,
+}
+
+/// Toasty model for `yauth_memberships`.
+#[derive(Debug, toasty::Model)]
+#[table = "memberships"]
+pub struct YauthMembership {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+    pub organization_id: Option<uuid::Uuid>,
+    #[belongs_to(key = organization_id, references = id)]
+    pub yauth_organization: toasty::BelongsTo<YauthOrganization>,
+    pub user_id: Option<uuid::Uuid>,
+    #[belongs_to(key = user_id, references = id)]
+    pub yauth_user: toasty::BelongsTo<YauthUser>,
+    pub role: String,
+    pub status: String,
+    pub invited_at: Option<jiff::Timestamp>,
+    pub joined_at: Option<jiff::Timestamp>,
+    pub created_at: jiff::Timestamp,
+    pub updated_at: jiff::Timestamp,
+}
+
+/// Toasty model for `yauth_invitations`.
+#[derive(Debug, toasty::Model)]
+#[table = "invitations"]
+pub struct YauthInvitation {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+    pub organization_id: Option<uuid::Uuid>,
+    #[belongs_to(key = organization_id, references = id)]
+    pub yauth_organization: toasty::BelongsTo<YauthOrganization>,
+    pub email: String,
+    pub role: String,
+    #[unique]
+    pub token_hash: String,
+    pub invited_by_user_id: Option<uuid::Uuid>,
+    #[belongs_to(key = invited_by_user_id, references = id)]
+    pub yauth_user: toasty::BelongsTo<YauthUser>,
+    pub expires_at: jiff::Timestamp,
+    pub accepted_at: Option<jiff::Timestamp>,
     pub created_at: jiff::Timestamp,
 }

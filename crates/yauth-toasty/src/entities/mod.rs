@@ -87,3 +87,14 @@ pub use webhooks::*;
 
 mod webhook_deliveries;
 pub use webhook_deliveries::*;
+
+// Organizations primitive (issue #87). Always compiled; repo wiring is
+// gated on the `organizations` feature in `common::build_repositories`.
+mod organizations;
+pub use organizations::*;
+
+mod memberships;
+pub use memberships::*;
+
+mod invitations;
+pub use invitations::*;

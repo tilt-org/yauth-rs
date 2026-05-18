@@ -18,4 +18,5 @@ enabled = [
     "account-lockout",
     "webhooks",
     "oidc",
+    "organizations",
 ]

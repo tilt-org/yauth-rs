@@ -273,6 +273,16 @@ impl YAuthBuilder {
         self
     }
 
+    /// Mount the organizations primitive routes (issue #87). No-op unless the
+    /// `organizations` feature is on. The feature is opt-in precisely so
+    /// flipping it does not change any single-tenant behavior.
+    #[cfg(feature = "organizations")]
+    pub fn with_organizations(mut self) -> Self {
+        self.plugins
+            .push(Box::new(plugins::organizations::OrganizationsPlugin));
+        self
+    }
+
     pub fn with_plugin(mut self, plugin: Box<dyn YAuthPlugin>) -> Self {
         self.plugins.push(plugin);
         self

@@ -39,6 +39,9 @@ pub mod oidc;
 #[cfg(feature = "status")]
 pub mod status;
 
+#[cfg(feature = "organizations")]
+pub mod organizations;
+
 use axum::{
     Extension, Json, Router,
     extract::State,

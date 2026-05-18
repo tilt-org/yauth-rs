@@ -89,6 +89,20 @@ CREATE TABLE IF NOT EXISTS `yauth_oidc_nonces` (
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
+-- Organizations / tenants / workspaces. Top-level multi-tenant boundary.
+CREATE TABLE IF NOT EXISTS `yauth_organizations` (
+    `id` CHAR(36) PRIMARY KEY,
+    `name` VARCHAR(255) NOT NULL,
+    `slug` VARCHAR(255) NOT NULL,
+    `display_name` VARCHAR(255),
+    `avatar_url` VARCHAR(255),
+    `metadata` JSON,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `slug_lower` VARCHAR(255) GENERATED ALWAYS AS (LOWER(`slug`)) STORED,
+    UNIQUE KEY `yauth_organizations_slug_lower_key` (`slug_lower`)
+) ENGINE=InnoDB;
+
 -- Active user sessions. One row per login.
 CREATE TABLE IF NOT EXISTS `yauth_sessions` (
     `id` CHAR(36) PRIMARY KEY,
@@ -291,5 +305,35 @@ CREATE TABLE IF NOT EXISTS `yauth_webhook_deliveries` (
     `attempt` INT NOT NULL DEFAULT 1,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (`webhook_id`) REFERENCES `yauth_webhooks`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Many-to-many: which users belong to which organizations + role.
+CREATE TABLE IF NOT EXISTS `yauth_memberships` (
+    `id` CHAR(36) PRIMARY KEY,
+    `organization_id` CHAR(36),
+    `user_id` CHAR(36),
+    `role` VARCHAR(255) NOT NULL DEFAULT 'member',
+    `status` VARCHAR(255) NOT NULL DEFAULT 'active',
+    `invited_at` DATETIME,
+    `joined_at` DATETIME,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`organization_id`) REFERENCES `yauth_organizations`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`user_id`) REFERENCES `yauth_users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Pending invitations to join an organization. Single-use, time-limited.
+CREATE TABLE IF NOT EXISTS `yauth_invitations` (
+    `id` CHAR(36) PRIMARY KEY,
+    `organization_id` CHAR(36),
+    `email` VARCHAR(255) NOT NULL,
+    `role` VARCHAR(255) NOT NULL DEFAULT 'member',
+    `token_hash` VARCHAR(64) NOT NULL UNIQUE,
+    `invited_by_user_id` CHAR(36),
+    `expires_at` DATETIME NOT NULL,
+    `accepted_at` DATETIME,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`organization_id`) REFERENCES `yauth_organizations`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`invited_by_user_id`) REFERENCES `yauth_users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 

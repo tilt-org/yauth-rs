@@ -4817,7 +4817,7 @@ dependencies = [
 
 [[package]]
 name = "yauth"
-version = "0.12.0"
+version = "0.12.3"
 dependencies = [
  "argon2",
  "axum",
@@ -4858,7 +4858,7 @@ dependencies = [
 
 [[package]]
 name = "yauth-entity"
-version = "0.12.0"
+version = "0.12.3"
 dependencies = [
  "chrono",
  "serde",

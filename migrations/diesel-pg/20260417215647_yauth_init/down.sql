@@ -17,6 +17,8 @@ DROP TABLE IF EXISTS yauth_webhooks CASCADE;
 
 DROP TABLE IF EXISTS yauth_oidc_nonces CASCADE;
 
+DROP TABLE IF EXISTS yauth_organizations CASCADE;
+
 DROP TABLE IF EXISTS yauth_sessions CASCADE;
 
 DROP TABLE IF EXISTS yauth_audit_log CASCADE;
@@ -50,4 +52,8 @@ DROP TABLE IF EXISTS yauth_account_locks CASCADE;
 DROP TABLE IF EXISTS yauth_unlock_tokens CASCADE;
 
 DROP TABLE IF EXISTS yauth_webhook_deliveries CASCADE;
+
+DROP TABLE IF EXISTS yauth_memberships CASCADE;
+
+DROP TABLE IF EXISTS yauth_invitations CASCADE;
 

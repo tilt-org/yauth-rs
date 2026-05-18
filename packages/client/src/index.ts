@@ -9,6 +9,7 @@ export {
 } from "./mutator";
 
 import type {
+	AcceptInvitationRequest,
 	AdminListSessionsParams,
 	AdminListUsersParams,
 	BanRequest,
@@ -17,6 +18,8 @@ import type {
 	ClientRegistrationRequest,
 	ConfirmTotpRequest,
 	CreateApiKeyRequest,
+	CreateInvitationRequest,
+	CreateOrgRequest,
 	CreateWebhookRequest,
 	ForgotPasswordRequest,
 	LoginRequest,
@@ -33,6 +36,7 @@ import type {
 	RevokeRequest,
 	TokenRequest,
 	UnlockAccountRequest,
+	UpdateOrgRequest,
 	UpdateProfileRequest,
 	UpdateUserRequest,
 	UpdateWebhookRequest,
@@ -94,6 +98,14 @@ import {
 	oidcJwks,
 	oidcOpenidConfiguration,
 	oidcUserinfo,
+	organizationsAcceptInvitation,
+	organizationsCreate,
+	organizationsCreateInvitation,
+	organizationsDelete,
+	organizationsGet,
+	organizationsList,
+	organizationsListMembers,
+	organizationsUpdate,
 	passkeyDelete,
 	passkeyList,
 	passkeyLoginBegin,
@@ -245,6 +257,20 @@ export function createYAuthClient(options: YAuthClientOptions) {
 			openidConfiguration: () => oidcOpenidConfiguration(),
 			jwks: () => oidcJwks(),
 			userinfo: () => oidcUserinfo(),
+		},
+
+		organizations: {
+			list: () => organizationsList(),
+			create: (body: CreateOrgRequest) => organizationsCreate(body),
+			get: (id: string) => organizationsGet(id),
+			update: (id: string, body: UpdateOrgRequest) =>
+				organizationsUpdate(id, body),
+			delete: (id: string) => organizationsDelete(id),
+			listMembers: (id: string) => organizationsListMembers(id),
+			createInvitation: (id: string, body: CreateInvitationRequest) =>
+				organizationsCreateInvitation(id, body),
+			acceptInvitation: (body: AcceptInvitationRequest) =>
+				organizationsAcceptInvitation(body),
 		},
 	};
 }

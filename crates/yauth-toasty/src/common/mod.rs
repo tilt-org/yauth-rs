@@ -24,6 +24,8 @@ mod mfa_repo;
 mod oauth2_server_repo;
 #[cfg(feature = "oauth")]
 mod oauth_repo;
+#[cfg(feature = "organizations")]
+mod organization_repo;
 #[cfg(feature = "passkey")]
 mod passkey_repo;
 #[cfg(feature = "email-password")]
@@ -52,6 +54,8 @@ pub(crate) use mfa_repo::*;
 pub(crate) use oauth_repo::*;
 #[cfg(feature = "oauth2-server")]
 pub(crate) use oauth2_server_repo::*;
+#[cfg(feature = "organizations")]
+pub(crate) use organization_repo::*;
 #[cfg(feature = "passkey")]
 pub(crate) use passkey_repo::*;
 #[cfg(feature = "email-password")]
@@ -122,5 +126,13 @@ pub(crate) fn build_repositories(db: &Db) -> Repositories {
         webhooks_repo: Arc::new(ToastyWebhookRepo::new(db.clone())),
         #[cfg(feature = "webhooks")]
         webhook_deliveries: Arc::new(ToastyWebhookDeliveryRepo::new(db.clone())),
+
+        // Organizations primitive (issue #87) — concrete Toasty impls.
+        #[cfg(feature = "organizations")]
+        organizations: Arc::new(ToastyOrganizationRepo::new(db.clone())),
+        #[cfg(feature = "organizations")]
+        memberships: Arc::new(ToastyMembershipRepo::new(db.clone())),
+        #[cfg(feature = "organizations")]
+        invitations: Arc::new(ToastyInvitationRepo::new(db.clone())),
     }
 }

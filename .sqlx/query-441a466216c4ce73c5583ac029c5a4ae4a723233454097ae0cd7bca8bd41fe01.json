@@ -1,0 +1,104 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT id, organization_id, email, role, token_hash, invited_by_user_id, expires_at, accepted_at, created_at FROM yauth_invitations WHERE organization_id = ? AND accepted_at IS NULL AND expires_at > ? ORDER BY created_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | NO_DEFAULT_VALUE",
+          "max_size": 144
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "organization_id",
+        "type_info": {
+          "type": "String",
+          "flags": "MULTIPLE_KEY",
+          "max_size": 144
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "role",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "token_hash",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | UNIQUE_KEY | NO_DEFAULT_VALUE",
+          "max_size": 256
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "invited_by_user_id",
+        "type_info": {
+          "type": "String",
+          "flags": "MULTIPLE_KEY",
+          "max_size": 144
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "expires_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 19
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "accepted_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "BINARY",
+          "max_size": 19
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "NOT_NULL | BINARY",
+          "max_size": 19
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "441a466216c4ce73c5583ac029c5a4ae4a723233454097ae0cd7bca8bd41fe01"
+}

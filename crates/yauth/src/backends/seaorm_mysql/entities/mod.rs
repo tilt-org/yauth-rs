@@ -58,3 +58,10 @@ pub mod unlock_tokens;
 pub mod webhook_deliveries;
 #[cfg(feature = "webhooks")]
 pub mod webhooks;
+
+#[cfg(feature = "organizations")]
+pub mod invitations;
+#[cfg(feature = "organizations")]
+pub mod memberships;
+#[cfg(feature = "organizations")]
+pub mod organizations;

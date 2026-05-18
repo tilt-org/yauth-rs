@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.12.3
  */
 import { customFetch } from './mutator';
+export interface AcceptInvitationRequest {
+  token: string;
+}
+
 export interface AccountLockoutMessageResponse {
   message: string;
 }
@@ -209,6 +213,35 @@ export interface CreateApiKeyRequest {
 export interface CreateApiKeyResponse {
   api_key: ApiKeyResponse;
   secret: string;
+}
+
+export interface CreateInvitationRequest {
+  email: string;
+  /** @nullable */
+  role?: string | null;
+}
+
+export interface InvitationResponse {
+  created_at: string;
+  email: string;
+  expires_at: string;
+  id: string;
+  organization_id: string;
+  role: string;
+}
+
+export interface CreateInvitationResponse {
+  invitation: InvitationResponse;
+  /** Plaintext token — returned exactly once at creation. Caller is
+  responsible for delivering it to the invitee (email, etc.). */
+  token: string;
+}
+
+export interface CreateOrgRequest {
+  /** @nullable */
+  display_name?: string | null;
+  name: string;
+  slug: string;
 }
 
 export interface CreateWebhookRequest {
@@ -492,6 +525,17 @@ export interface MagicLinkVerifyRequest {
   token: string;
 }
 
+export interface MembershipResponse {
+  created_at: string;
+  id: string;
+  /** @nullable */
+  joined_at?: string | null;
+  organization_id: string;
+  role: string;
+  status: string;
+  user_id: string;
+}
+
 export interface MessageResponse {
   message: string;
 }
@@ -627,6 +671,18 @@ export interface Oauth2PatchClientRequest {
   banned_reason?: string | null;
   /** @nullable */
   public_key_pem?: string | null;
+}
+
+export interface OrganizationResponse {
+  /** @nullable */
+  avatar_url?: string | null;
+  created_at: string;
+  /** @nullable */
+  display_name?: string | null;
+  id: string;
+  name: string;
+  slug: string;
+  updated_at: string;
 }
 
 /**
@@ -770,6 +826,17 @@ export interface TokenResponse {
 
 export interface UnlockAccountRequest {
   token: string;
+}
+
+export interface UpdateOrgRequest {
+  /** @nullable */
+  avatar_url?: string | null;
+  /** @nullable */
+  display_name?: string | null;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  slug?: string | null;
 }
 
 export interface UpdateProfileRequest {
@@ -1410,6 +1477,28 @@ export const emailPasswordForgotPassword = async (forgotPasswordRequest: ForgotP
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       forgotPasswordRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsAcceptInvitationUrl = () => {
+
+
+
+
+  return `/invitations/accept`
+}
+
+export const organizationsAcceptInvitation = async (acceptInvitationRequest: AcceptInvitationRequest, options?: RequestInit): Promise<MembershipResponse> => {
+
+  return customFetch<MembershipResponse>(getOrganizationsAcceptInvitationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      acceptInvitationRequest,)
   }
 );}
 
@@ -2132,6 +2221,158 @@ export const oauth2ServerConsent = async (oauth2ConsentRequest: Oauth2ConsentReq
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       oauth2ConsentRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsListUrl = () => {
+
+
+
+
+  return `/organizations`
+}
+
+export const organizationsList = async ( options?: RequestInit): Promise<OrganizationResponse[]> => {
+
+  return customFetch<OrganizationResponse[]>(getOrganizationsListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsCreateUrl = () => {
+
+
+
+
+  return `/organizations`
+}
+
+export const organizationsCreate = async (createOrgRequest: CreateOrgRequest, options?: RequestInit): Promise<OrganizationResponse> => {
+
+  return customFetch<OrganizationResponse>(getOrganizationsCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createOrgRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsGetUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}`
+}
+
+export const organizationsGet = async (id: string, options?: RequestInit): Promise<OrganizationResponse> => {
+
+  return customFetch<OrganizationResponse>(getOrganizationsGetUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsDeleteUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}`
+}
+
+export const organizationsDelete = async (id: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOrganizationsDeleteUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsUpdateUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}`
+}
+
+export const organizationsUpdate = async (id: string,
+    updateOrgRequest: UpdateOrgRequest, options?: RequestInit): Promise<OrganizationResponse> => {
+
+  return customFetch<OrganizationResponse>(getOrganizationsUpdateUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateOrgRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsCreateInvitationUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/invitations`
+}
+
+export const organizationsCreateInvitation = async (id: string,
+    createInvitationRequest: CreateInvitationRequest, options?: RequestInit): Promise<CreateInvitationResponse> => {
+
+  return customFetch<CreateInvitationResponse>(getOrganizationsCreateInvitationUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createInvitationRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsListMembersUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/members`
+}
+
+export const organizationsListMembers = async (id: string, options?: RequestInit): Promise<MembershipResponse[]> => {
+
+  return customFetch<MembershipResponse[]>(getOrganizationsListMembersUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

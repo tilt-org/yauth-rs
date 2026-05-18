@@ -16,14 +16,20 @@ mod account_lockout_repo;
 mod api_key_repo;
 #[cfg(feature = "bearer")]
 mod bearer_repo;
+#[cfg(feature = "organizations")]
+mod invitation_repo;
 #[cfg(feature = "magic-link")]
 mod magic_link_repo;
+#[cfg(feature = "organizations")]
+mod membership_repo;
 #[cfg(feature = "mfa")]
 mod mfa_repo;
 #[cfg(feature = "oauth2-server")]
 mod oauth2_server_repo;
 #[cfg(feature = "oauth")]
 mod oauth_repo;
+#[cfg(feature = "organizations")]
+mod organization_repo;
 #[cfg(feature = "passkey")]
 mod passkey_repo;
 #[cfg(feature = "email-password")]
@@ -131,6 +137,20 @@ impl DatabaseBackend for SqlxSqliteBackend {
             webhooks_repo: Arc::new(webhooks_repo::SqlxSqliteWebhookRepo::new(self.pool.clone())),
             #[cfg(feature = "webhooks")]
             webhook_deliveries: Arc::new(webhooks_repo::SqlxSqliteWebhookDeliveryRepo::new(
+                self.pool.clone(),
+            )),
+
+            // Organizations primitive (issue #87).
+            #[cfg(feature = "organizations")]
+            organizations: Arc::new(organization_repo::SqlxSqliteOrganizationRepo::new(
+                self.pool.clone(),
+            )),
+            #[cfg(feature = "organizations")]
+            memberships: Arc::new(membership_repo::SqlxSqliteMembershipRepo::new(
+                self.pool.clone(),
+            )),
+            #[cfg(feature = "organizations")]
+            invitations: Arc::new(invitation_repo::SqlxSqliteInvitationRepo::new(
                 self.pool.clone(),
             )),
         }

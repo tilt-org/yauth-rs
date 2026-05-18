@@ -69,7 +69,25 @@ fn with_response(builder: OperationBuilder, schema_name: &str) -> OperationBuild
     )
 }
 
-/// Adds a 200 response with an array of schema components.
+/// Adds a 200 response whose body is an array of items referencing a schema.
+#[cfg_attr(not(feature = "organizations"), allow(dead_code))]
+fn with_array_response(builder: OperationBuilder, schema_name: &str) -> OperationBuilder {
+    let item_ref = utoipa::openapi::Ref::new(format!("#/components/schemas/{schema_name}"));
+    let array = utoipa::openapi::schema::ArrayBuilder::new()
+        .items(RefOr::Ref(item_ref))
+        .build();
+    let content = ContentBuilder::new()
+        .schema(Some(RefOr::T(array.into())))
+        .build();
+    builder.response(
+        "200",
+        ResponseBuilder::new()
+            .description("Success")
+            .content("application/json", content)
+            .build(),
+    )
+}
+
 /// Adds a 200 response with no body.
 fn with_empty_response(builder: OperationBuilder) -> OperationBuilder {
     builder.response("200", ResponseBuilder::new().description("Success").build())
@@ -268,6 +286,20 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
     {
         use crate::plugins::status::*;
         b = b.schema_from::<StatusResponse>();
+    }
+
+    #[cfg(feature = "organizations")]
+    {
+        use crate::plugins::organizations::*;
+        b = b
+            .schema_from::<CreateOrgRequest>()
+            .schema_from::<UpdateOrgRequest>()
+            .schema_from::<OrganizationResponse>()
+            .schema_from::<MembershipResponse>()
+            .schema_from::<CreateInvitationRequest>()
+            .schema_from::<CreateInvitationResponse>()
+            .schema_from::<InvitationResponse>()
+            .schema_from::<AcceptInvitationRequest>();
     }
 
     b
@@ -1478,6 +1510,126 @@ fn status_paths(builder: PathsBuilder) -> PathsBuilder {
     )
 }
 
+/// Organizations plugin paths.
+#[cfg(feature = "organizations")]
+fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
+    let auth_req = || {
+        utoipa::openapi::security::SecurityRequirement::new::<&str, [&str; 0], &str>(
+            "sessionCookie",
+            [],
+        )
+    };
+
+    builder
+        .path(
+            "/organizations",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    op("organizations_list", "organizations")
+                        .pipe(|b| with_array_response(b, "OrganizationResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .operation(
+                    HttpMethod::Post,
+                    with_body(
+                        with_response(
+                            op("organizations_create", "organizations"),
+                            "OrganizationResponse",
+                        ),
+                        "CreateOrgRequest",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/organizations/{id}",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("organizations_get", "organizations"), "id")
+                        .pipe(|b| with_response(b, "OrganizationResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_body(
+                            with_response(
+                                op("organizations_update", "organizations"),
+                                "OrganizationResponse",
+                            ),
+                            "UpdateOrgRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Delete,
+                    with_path_param(op("organizations_delete", "organizations"), "id")
+                        .pipe(with_empty_response)
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/organizations/{id}/members",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(op("organizations_listMembers", "organizations"), "id")
+                        .pipe(|b| with_array_response(b, "MembershipResponse"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/organizations/{id}/invitations",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_path_param(
+                        with_body(
+                            with_response(
+                                op("organizations_createInvitation", "organizations"),
+                                "CreateInvitationResponse",
+                            ),
+                            "CreateInvitationRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/invitations/accept",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_body(
+                        with_response(
+                            op("organizations_acceptInvitation", "organizations"),
+                            "MembershipResponse",
+                        ),
+                        "AcceptInvitationRequest",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+}
+
 /// Build the complete OpenAPI specification for yauth.
 #[allow(unused_mut)]
 pub fn build_openapi_spec() -> utoipa::openapi::OpenApi {
@@ -1579,6 +1731,11 @@ pub fn build_openapi_spec() -> utoipa::openapi::OpenApi {
     #[cfg(feature = "status")]
     {
         paths = status_paths(paths);
+    }
+
+    #[cfg(feature = "organizations")]
+    {
+        paths = organizations_paths(paths);
     }
 
     OpenApiBuilder::new()

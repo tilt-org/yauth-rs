@@ -53,6 +53,13 @@ mod account_lockout_repo;
 #[cfg(feature = "webhooks")]
 mod webhooks_repo;
 
+#[cfg(feature = "organizations")]
+mod invitation_repo;
+#[cfg(feature = "organizations")]
+mod membership_repo;
+#[cfg(feature = "organizations")]
+mod organization_repo;
+
 use std::sync::Arc;
 
 use crate::repo::{DatabaseBackend, Repositories};
@@ -153,6 +160,20 @@ impl DatabaseBackend for DieselLibsqlBackend {
             webhooks_repo: Arc::new(webhooks_repo::LibsqlWebhookRepo::new(self.pool.clone())),
             #[cfg(feature = "webhooks")]
             webhook_deliveries: Arc::new(webhooks_repo::LibsqlWebhookDeliveryRepo::new(
+                self.pool.clone(),
+            )),
+
+            // Organizations primitive (issue #87).
+            #[cfg(feature = "organizations")]
+            organizations: Arc::new(organization_repo::LibsqlOrganizationRepo::new(
+                self.pool.clone(),
+            )),
+            #[cfg(feature = "organizations")]
+            memberships: Arc::new(membership_repo::LibsqlMembershipRepo::new(
+                self.pool.clone(),
+            )),
+            #[cfg(feature = "organizations")]
+            invitations: Arc::new(invitation_repo::LibsqlInvitationRepo::new(
                 self.pool.clone(),
             )),
         }

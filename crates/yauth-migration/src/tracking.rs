@@ -57,6 +57,12 @@ pub fn schema_hash(schema: &YAuthSchema) -> String {
             hasher.update(b":");
             hasher.update(if col.unique { b"UQ" as &[u8] } else { b"" });
             hasher.update(b":");
+            hasher.update(if col.case_insensitive_unique {
+                b"CIUQ" as &[u8]
+            } else {
+                b""
+            });
+            hasher.update(b":");
             if let Some(ref default) = col.default {
                 hasher.update(b"DEFAULT=");
                 hasher.update(default.as_bytes());

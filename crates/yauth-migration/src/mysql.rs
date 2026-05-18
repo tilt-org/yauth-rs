@@ -62,42 +62,66 @@ fn generate_create_table(table: &TableDef) -> String {
     }
     sql.push_str(&format!("CREATE TABLE IF NOT EXISTS `{}` (\n", table.name));
 
-    // Collect FK constraints to emit after all columns.
-    let mut fk_constraints: Vec<String> = Vec::new();
+    // Build all table body lines first, then join with commas. This keeps
+    // trailing-comma handling sane across the four kinds of lines: columns,
+    // FK constraints, generated shadow columns, and unique keys.
+    let mut lines: Vec<String> = Vec::with_capacity(table.columns.len() + 4);
 
-    let col_count = table.columns.len();
-    for (i, col) in table.columns.iter().enumerate() {
-        sql.push_str("    `");
-        sql.push_str(&col.name);
-        sql.push_str("` ");
-        sql.push_str(&mysql_type(&col.col_type));
+    for col in &table.columns {
+        let mut line = String::new();
+        line.push_str("    `");
+        line.push_str(&col.name);
+        line.push_str("` ");
+        line.push_str(&mysql_type(&col.col_type));
 
         if col.primary_key {
-            sql.push_str(" PRIMARY KEY");
+            line.push_str(" PRIMARY KEY");
             if let Some(ref default) = col.default
                 && let Some(mapped) = mysql_default(default)
             {
-                sql.push_str(" DEFAULT ");
-                sql.push_str(&mapped);
+                line.push_str(" DEFAULT ");
+                line.push_str(&mapped);
             }
         } else {
             if !col.nullable {
-                sql.push_str(" NOT NULL");
+                line.push_str(" NOT NULL");
             }
-            if col.unique {
-                sql.push_str(" UNIQUE");
+            // case_insensitive_unique takes precedence — a generated shadow
+            // column is emitted below with its own unique key.
+            if col.unique && !col.case_insensitive_unique {
+                line.push_str(" UNIQUE");
             }
             if let Some(ref default) = col.default
                 && let Some(mapped) = mysql_default(default)
             {
-                sql.push_str(" DEFAULT ");
-                sql.push_str(&mapped);
+                line.push_str(" DEFAULT ");
+                line.push_str(&mapped);
             }
         }
+        lines.push(line);
+    }
 
-        // Collect FK as a table-level constraint (never inline).
+    // Generated shadow columns + unique keys for case-insensitive uniqueness.
+    // MySQL functional indexes on `LOWER(col)` require 8.0.13+; a STORED
+    // generated column with a unique constraint works on MySQL 5.7+ and
+    // MariaDB 10.2+.
+    for col in table.columns.iter().filter(|c| c.case_insensitive_unique) {
+        lines.push(format!(
+            "    `{col}_lower` {ty} GENERATED ALWAYS AS (LOWER(`{col}`)) STORED",
+            col = col.name,
+            ty = mysql_type(&col.col_type),
+        ));
+        lines.push(format!(
+            "    UNIQUE KEY `{table}_{col}_lower_key` (`{col}_lower`)",
+            table = table.name,
+            col = col.name,
+        ));
+    }
+
+    // FK constraints (collected last so they appear at the end of the body).
+    for col in &table.columns {
         if let Some(ref fk) = col.foreign_key {
-            fk_constraints.push(format!(
+            lines.push(format!(
                 "    FOREIGN KEY (`{}`) REFERENCES `{}`(`{}`) {}",
                 col.name,
                 fk.references_table,
@@ -105,18 +129,12 @@ fn generate_create_table(table: &TableDef) -> String {
                 mysql_on_delete(&fk.on_delete)
             ));
         }
-
-        // Always add comma after columns -- FK constraints or closing paren follow.
-        if i < col_count - 1 || !fk_constraints.is_empty() {
-            sql.push(',');
-        }
-        sql.push('\n');
     }
 
-    // Emit collected FK constraints as table-level constraints.
-    for (i, fk) in fk_constraints.iter().enumerate() {
-        sql.push_str(fk);
-        if i < fk_constraints.len() - 1 {
+    let last = lines.len().saturating_sub(1);
+    for (i, line) in lines.iter().enumerate() {
+        sql.push_str(line);
+        if i < last {
             sql.push(',');
         }
         sql.push('\n');

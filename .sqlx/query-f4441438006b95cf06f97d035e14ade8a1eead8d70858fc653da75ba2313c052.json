@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO yauth_memberships (id, organization_id, user_id, role, status, invited_at, joined_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "f4441438006b95cf06f97d035e14ade8a1eead8d70858fc653da75ba2313c052"
+}

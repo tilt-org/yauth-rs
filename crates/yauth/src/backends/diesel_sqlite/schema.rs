@@ -357,6 +357,54 @@ diesel::table! {
 }
 
 // ──────────────────────────────────────────────
+// organizations feature
+// ──────────────────────────────────────────────
+
+#[cfg(feature = "organizations")]
+diesel::table! {
+    yauth_organizations (id) {
+        id -> Text,
+        name -> Text,
+        slug -> Text,
+        display_name -> Nullable<Text>,
+        avatar_url -> Nullable<Text>,
+        metadata -> Nullable<Text>,
+        created_at -> Text,
+        updated_at -> Text,
+    }
+}
+
+#[cfg(feature = "organizations")]
+diesel::table! {
+    yauth_memberships (id) {
+        id -> Text,
+        organization_id -> Nullable<Text>,
+        user_id -> Nullable<Text>,
+        role -> Text,
+        status -> Text,
+        invited_at -> Nullable<Text>,
+        joined_at -> Nullable<Text>,
+        created_at -> Text,
+        updated_at -> Text,
+    }
+}
+
+#[cfg(feature = "organizations")]
+diesel::table! {
+    yauth_invitations (id) {
+        id -> Text,
+        organization_id -> Nullable<Text>,
+        email -> Text,
+        role -> Text,
+        token_hash -> Text,
+        invited_by_user_id -> Nullable<Text>,
+        expires_at -> Text,
+        accepted_at -> Nullable<Text>,
+        created_at -> Text,
+    }
+}
+
+// ──────────────────────────────────────────────
 // Foreign key joins
 // ──────────────────────────────────────────────
 
@@ -401,5 +449,14 @@ diesel::joinable!(yauth_webhook_deliveries -> yauth_webhooks (webhook_id));
 
 #[cfg(feature = "oidc")]
 diesel::joinable!(yauth_oidc_nonces -> yauth_authorization_codes (authorization_code_id));
+
+#[cfg(feature = "organizations")]
+diesel::joinable!(yauth_memberships -> yauth_organizations (organization_id));
+#[cfg(feature = "organizations")]
+diesel::joinable!(yauth_memberships -> yauth_users (user_id));
+#[cfg(feature = "organizations")]
+diesel::joinable!(yauth_invitations -> yauth_organizations (organization_id));
+#[cfg(feature = "organizations")]
+diesel::joinable!(yauth_invitations -> yauth_users (invited_by_user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(yauth_users, yauth_sessions, yauth_audit_log,);

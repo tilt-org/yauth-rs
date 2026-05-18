@@ -48,6 +48,9 @@ mod account_lockout_repo;
 #[cfg(feature = "webhooks")]
 mod webhooks_repo;
 
+#[cfg(feature = "organizations")]
+mod organization_repo;
+
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -139,6 +142,13 @@ pub(crate) struct Storage {
     pub(crate) webhooks: Arc<RwLock<HashMap<Uuid, domain::Webhook>>>,
     #[cfg(feature = "webhooks")]
     pub(crate) webhook_deliveries: Arc<RwLock<HashMap<Uuid, domain::WebhookDelivery>>>,
+
+    #[cfg(feature = "organizations")]
+    pub(crate) organizations: Arc<RwLock<HashMap<Uuid, domain::Organization>>>,
+    #[cfg(feature = "organizations")]
+    pub(crate) memberships: Arc<RwLock<HashMap<Uuid, domain::Membership>>>,
+    #[cfg(feature = "organizations")]
+    pub(crate) invitations: Arc<RwLock<HashMap<Uuid, domain::Invitation>>>,
 }
 
 impl Storage {
@@ -200,6 +210,13 @@ impl Storage {
             webhooks: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(feature = "webhooks")]
             webhook_deliveries: Arc::new(RwLock::new(HashMap::new())),
+
+            #[cfg(feature = "organizations")]
+            organizations: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "organizations")]
+            memberships: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "organizations")]
+            invitations: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -346,6 +363,21 @@ impl DatabaseBackend for InMemoryBackend {
             #[cfg(feature = "webhooks")]
             webhook_deliveries: Arc::new(webhooks_repo::InMemoryWebhookDeliveryRepo::new(
                 self.storage.webhook_deliveries.clone(),
+            )),
+
+            #[cfg(feature = "organizations")]
+            organizations: Arc::new(organization_repo::InMemoryOrganizationRepo::new(
+                self.storage.organizations.clone(),
+                self.storage.memberships.clone(),
+                self.storage.invitations.clone(),
+            )),
+            #[cfg(feature = "organizations")]
+            memberships: Arc::new(organization_repo::InMemoryMembershipRepo::new(
+                self.storage.memberships.clone(),
+            )),
+            #[cfg(feature = "organizations")]
+            invitations: Arc::new(organization_repo::InMemoryInvitationRepo::new(
+                self.storage.invitations.clone(),
             )),
         }
     }

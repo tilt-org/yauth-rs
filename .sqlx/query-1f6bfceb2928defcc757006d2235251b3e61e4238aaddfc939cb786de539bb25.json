@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE yauth_invitations SET accepted_at = ? WHERE id = ? AND accepted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "1f6bfceb2928defcc757006d2235251b3e61e4238aaddfc939cb786de539bb25"
+}

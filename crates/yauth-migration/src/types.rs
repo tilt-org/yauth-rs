@@ -112,6 +112,11 @@ pub struct ColumnDef {
     pub nullable: bool,
     pub primary_key: bool,
     pub unique: bool,
+    /// Case-insensitive uniqueness — enforced via a functional index on
+    /// `LOWER(col)` (Postgres/SQLite) or a generated lowercase shadow
+    /// column with a unique constraint (MySQL). Mutually exclusive with
+    /// `unique` (the generators ignore plain `unique` if this is set).
+    pub case_insensitive_unique: bool,
     pub default: Option<String>,
     pub foreign_key: Option<ForeignKey>,
 }
@@ -125,6 +130,7 @@ impl ColumnDef {
             nullable: false,
             primary_key: false,
             unique: false,
+            case_insensitive_unique: false,
             default: None,
             foreign_key: None,
         }
@@ -142,6 +148,16 @@ impl ColumnDef {
 
     pub fn unique(mut self) -> Self {
         self.unique = true;
+        self
+    }
+
+    /// Mark this column as case-insensitively unique.
+    ///
+    /// The DDL generator emits a functional unique index on `LOWER(col)`
+    /// (Postgres / SQLite) or a generated stored shadow column with a
+    /// unique key (MySQL). Plain column-level `UNIQUE` is suppressed.
+    pub fn case_insensitive_unique(mut self) -> Self {
+        self.case_insensitive_unique = true;
         self
     }
 

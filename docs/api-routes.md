@@ -165,3 +165,21 @@ machine callers. See [configuration.md](configuration.md#oauth-20-m2m--client_cr
 | GET | `/.well-known/openid-configuration` | No | OIDC discovery document |
 | GET | `/.well-known/jwks.json` | No | JSON Web Key Set |
 | GET/POST | `/userinfo` | Yes | OIDC UserInfo endpoint |
+
+## Organizations
+
+Requires the `organizations` Cargo feature. Multi-tenancy primitive — org
+CRUD, member listing, and invitation create/accept. Roles are free-form
+strings; the only authorization check inside these handlers is "is the
+caller a member of the org?" (admin role required for mutating endpoints).
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/organizations` | Yes | Create org; caller becomes admin |
+| GET | `/organizations` | Yes | List orgs the caller is a member of |
+| GET | `/organizations/{id}` | Yes | Get org (member-gated) |
+| PATCH | `/organizations/{id}` | Yes | Update org (admin-gated) |
+| DELETE | `/organizations/{id}` | Yes | Delete org (admin-gated) |
+| GET | `/organizations/{id}/members` | Yes | List org members (member-gated) |
+| POST | `/organizations/{id}/invitations` | Yes | Create invitation (admin-gated); returns one-shot token |
+| POST | `/invitations/accept` | Yes | Accept an invitation by token |

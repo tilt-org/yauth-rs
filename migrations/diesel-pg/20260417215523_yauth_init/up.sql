@@ -89,6 +89,19 @@ CREATE TABLE IF NOT EXISTS yauth_oidc_nonces (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Organizations / tenants / workspaces. Top-level multi-tenant boundary.
+CREATE TABLE IF NOT EXISTS yauth_organizations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR NOT NULL,
+    slug VARCHAR NOT NULL,
+    display_name VARCHAR,
+    avatar_url VARCHAR,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS yauth_organizations_slug_lower_key ON yauth_organizations (LOWER(slug));
+
 -- Active user sessions. One row per login.
 CREATE TABLE IF NOT EXISTS yauth_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -273,6 +286,32 @@ CREATE TABLE IF NOT EXISTS yauth_webhook_deliveries (
     response_body TEXT,
     success BOOLEAN NOT NULL DEFAULT false,
     attempt INT NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Many-to-many: which users belong to which organizations + role.
+CREATE TABLE IF NOT EXISTS yauth_memberships (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES yauth_organizations(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES yauth_users(id) ON DELETE CASCADE,
+    role VARCHAR NOT NULL DEFAULT 'member',
+    status VARCHAR NOT NULL DEFAULT 'active',
+    invited_at TIMESTAMPTZ,
+    joined_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Pending invitations to join an organization. Single-use, time-limited.
+CREATE TABLE IF NOT EXISTS yauth_invitations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES yauth_organizations(id) ON DELETE CASCADE,
+    email VARCHAR NOT NULL,
+    role VARCHAR NOT NULL DEFAULT 'member',
+    token_hash VARCHAR(64) NOT NULL UNIQUE,
+    invited_by_user_id UUID REFERENCES yauth_users(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    accepted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
