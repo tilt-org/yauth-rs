@@ -218,6 +218,7 @@ pub struct YauthSession {
     pub user_agent: Option<String>,
     pub expires_at: jiff::Timestamp,
     pub created_at: jiff::Timestamp,
+    pub active_org_id: Option<uuid::Uuid>,
 }
 
 /// Toasty model for `yauth_audit_log`.

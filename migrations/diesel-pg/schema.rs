@@ -122,6 +122,7 @@ diesel::table! {
         user_agent -> Nullable<Varchar>,
         expires_at -> Timestamptz,
         created_at -> Timestamptz,
+        active_org_id -> Nullable<Uuid>,
     }
 }
 
