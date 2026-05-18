@@ -30,6 +30,9 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.INFRA_DEPLOY_TOKEN }}
 
+      - name: Install build deps
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
+
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
@@ -89,6 +92,9 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.INFRA_DEPLOY_TOKEN }}
+
+      - name: Install build deps
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
 
       - name: Install Rust
         run: |

@@ -15,6 +15,10 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Local runner: 12 cores, 24 GB RAM. Each rustc+linker peaks ~1.5-2 GiB
+  # RSS; 12 jobs saturates ~18-24 GiB which fits with headroom for OS and
+  # service containers.
+  CARGO_BUILD_JOBS: "12"
 
 jobs:
   lint:
@@ -24,6 +28,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
 
       - name: Install Rust
         run: |
@@ -99,6 +106,9 @@ jobs:
           --health-retries 15
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
 
       - name: Install Rust
         run: |
@@ -208,6 +218,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install build deps
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
+
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component rustfmt --component clippy
@@ -239,6 +252,9 @@ jobs:
     # closed all four categories — any new drift is a real regression.
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
 
       - name: Install Rust
         run: |
