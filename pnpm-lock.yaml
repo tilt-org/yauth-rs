@@ -11,6 +11,9 @@ importers:
       '@faker-js/faker':
         specifier: ^10.4.0
         version: 10.4.0
+      '@vitejs/plugin-vue':
+        specifier: ^5.2.0
+        version: 5.2.4(vite@8.0.10(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(yaml@2.8.4))(vue@3.5.33(typescript@5.9.3))
       msw:
         specifier: ^2.13.2
         version: 2.14.2(@types/node@25.6.0)(typescript@5.9.3)
@@ -3704,6 +3707,11 @@ snapshots:
   '@vitejs/plugin-vue@5.2.4(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.4))(vue@3.5.33(typescript@5.9.3))':
     dependencies:
       vite: 7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.4)
+      vue: 3.5.33(typescript@5.9.3)
+
+  '@vitejs/plugin-vue@5.2.4(vite@8.0.10(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(yaml@2.8.4))(vue@3.5.33(typescript@5.9.3))':
+    dependencies:
+      vite: 8.0.10(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(yaml@2.8.4)
       vue: 3.5.33(typescript@5.9.3)
 
   '@vitest/expect@3.2.4':
