@@ -156,6 +156,10 @@ impl DatabaseBackend for SqlxMysqlBackend {
             organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
                 "sqlx-mysql",
             )),
+            #[cfg(feature = "organizations")]
+            organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
+                "sqlx-mysql",
+            )),
         }
     }
 }

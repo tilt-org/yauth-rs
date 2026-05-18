@@ -166,6 +166,10 @@ impl DatabaseBackend for SqlxPgBackend {
             )),
             #[cfg(feature = "organizations")]
             organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new("sqlx-pg")),
+            #[cfg(feature = "organizations")]
+            organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
+                "sqlx-pg",
+            )),
         }
     }
 }

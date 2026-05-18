@@ -921,6 +921,30 @@ export interface PermissionsResponse {
   role: string;
 }
 
+/**
+ * Wire-format response for the per-org policy.
+
+Mirrors [`OrganizationPolicy`] but flattens the `SessionBinding` /
+`AuthMethod` enums to strings — keeps the OpenAPI schema legible
+for the generated TS client.
+ */
+export interface PolicyResponse {
+  allowed_auth_methods: string[];
+  created_at: string;
+  /** @nullable */
+  idle_timeout_secs?: number | null;
+  ip_allowlist: string[];
+  /** @nullable */
+  max_concurrent_sessions?: number | null;
+  /** @nullable */
+  max_session_duration_secs?: number | null;
+  mfa_grace_period_days: number;
+  mfa_required: boolean;
+  organization_id: string;
+  session_binding: string;
+  updated_at: string;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
 }
@@ -1045,6 +1069,30 @@ export interface UpdateOrgRequest {
   name?: string | null;
   /** @nullable */
   slug?: string | null;
+}
+
+export interface UpdatePolicyRequest {
+  /** @nullable */
+  allowed_auth_methods?: string[] | null;
+  /** @nullable */
+  idle_timeout_secs?: number | null;
+  /** @nullable */
+  ip_allowlist?: string[] | null;
+  /** @nullable */
+  max_concurrent_sessions?: number | null;
+  /**
+     * `None` (omitted) = "leave unchanged"; `Some(None)` = "clear",
+  `Some(Some(n))` = "set". Same convention as the org domain
+  update payload — admins clear an override by sending `null`.
+     * @nullable
+     */
+  max_session_duration_secs?: number | null;
+  /** @nullable */
+  mfa_grace_period_days?: number | null;
+  /** @nullable */
+  mfa_required?: boolean | null;
+  /** @nullable */
+  session_binding?: string | null;
 }
 
 export interface UpdateProfileRequest {
@@ -2775,6 +2823,50 @@ export const organizationsListPermissions = async (id: string, options?: Request
 
 
 
+export const getOrganizationsGetPolicyUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/policy`
+}
+
+export const organizationsGetPolicy = async (id: string, options?: RequestInit): Promise<PolicyResponse> => {
+
+  return customFetch<PolicyResponse>(getOrganizationsGetPolicyUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsUpdatePolicyUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/policy`
+}
+
+export const organizationsUpdatePolicy = async (id: string,
+    updatePolicyRequest: UpdatePolicyRequest, options?: RequestInit): Promise<PolicyResponse> => {
+
+  return customFetch<PolicyResponse>(getOrganizationsUpdatePolicyUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updatePolicyRequest,)
+  }
+);}
+
+
+
 export const getOrganizationsTransferOwnershipUrl = (id: string,) => {
 
 
@@ -3500,6 +3592,10 @@ export const getOrganizationsListMembersResponseMock = (): MembershipResponse[] 
 export const getOrganizationsChangeRoleResponseMock = (overrideResponse: Partial<Extract<MembershipResponse, object>> = {}): MembershipResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid(), ...overrideResponse})
 
 export const getOrganizationsListPermissionsResponseMock = (overrideResponse: Partial<Extract<PermissionsResponse, object>> = {}): PermissionsResponse => ({organization_id: faker.string.uuid(), permissions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), role: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getOrganizationsGetPolicyResponseMock = (overrideResponse: Partial<Extract<PolicyResponse, object>> = {}): PolicyResponse => ({allowed_auth_methods: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', idle_timeout_secs: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), ip_allowlist: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), max_concurrent_sessions: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), max_session_duration_secs: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), mfa_grace_period_days: faker.number.int(), mfa_required: faker.datatype.boolean(), organization_id: faker.string.uuid(), session_binding: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
+export const getOrganizationsUpdatePolicyResponseMock = (overrideResponse: Partial<Extract<PolicyResponse, object>> = {}): PolicyResponse => ({allowed_auth_methods: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', idle_timeout_secs: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), ip_allowlist: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), max_concurrent_sessions: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), max_session_duration_secs: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), mfa_grace_period_days: faker.number.int(), mfa_required: faker.datatype.boolean(), organization_id: faker.string.uuid(), session_binding: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
 export const getPasskeyListResponseMock = (overrideResponse: Partial<Extract<ListPasskeysResponse, object>> = {}): ListPasskeysResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}})})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
@@ -4368,6 +4464,30 @@ export const getOrganizationsListPermissionsMockHandler = (overrideResponse?: Pe
   }, options)
 }
 
+export const getOrganizationsGetPolicyMockHandler = (overrideResponse?: PolicyResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PolicyResponse> | PolicyResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/organizations/:id/policy', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsGetPolicyResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsUpdatePolicyMockHandler = (overrideResponse?: PolicyResponse | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<PolicyResponse> | PolicyResponse), options?: RequestHandlerOptions) => {
+  return http.patch('*/organizations/:id/policy', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsUpdatePolicyResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getOrganizationsTransferOwnershipMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.post('*/organizations/:id/transfer-ownership', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
@@ -4759,6 +4879,8 @@ export const getYauthMock = () => [
   getOrganizationsRemoveMemberMockHandler(),
   getOrganizationsChangeRoleMockHandler(),
   getOrganizationsListPermissionsMockHandler(),
+  getOrganizationsGetPolicyMockHandler(),
+  getOrganizationsUpdatePolicyMockHandler(),
   getOrganizationsTransferOwnershipMockHandler(),
   getPasskeyLoginBeginMockHandler(),
   getPasskeyLoginFinishMockHandler(),

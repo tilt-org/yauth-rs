@@ -231,3 +231,75 @@ and an org viewer at the same time, or vice versa.
 
 See [docs/plans/organizations/README.md](plans/organizations/README.md) for
 the full design + open work.
+
+## Per-org auth policy (#92)
+
+When the `organizations` feature is on, each org gets a 1:1 policy row that
+**tightens** the deployment-wide `YAuthConfig`. Defaults are "no
+restriction" — orgs opt into stricter posture; nothing changes for orgs
+that never set a policy.
+
+### Routes
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/organizations/{id}/policy` | Member-only; returns defaults if no row set |
+| `PATCH` | `/organizations/{id}/policy` | Admin/owner-only; partial update |
+
+### Fields
+
+| Field | Type | Meaning |
+|---|---|---|
+| `max_session_duration_secs` | `Option<i64>` | Clamps session lifetime at create time |
+| `idle_timeout_secs` | `Option<i64>` | 401 + session-purge after this much inactivity |
+| `mfa_required` | `bool` | Force MFA enrollment for all members |
+| `mfa_grace_period_days` | `i32` | Grace before MFA-required gates fire (default 14) |
+| `ip_allowlist` | `Vec<String>` | Allowed client IPs; empty = no restriction |
+| `max_concurrent_sessions` | `Option<i32>` | Per-user session cap; oldest revoked at overflow |
+| `allowed_auth_methods` | `Vec<AuthMethod>` | `password`, `passkey`, `oauth`, `sso_saml`, `sso_oidc`, etc. Empty = all |
+| `session_binding` | `"none" \| "ip" \| "user_agent" \| "both"` | Refuse session if dimension changes |
+
+### Resolution order
+
+The **effective policy** for a request is the merge of the org policy over
+the global `YAuthConfig`:
+
+- **Numeric fields** — the **stricter** value wins. If both global and
+  org set a value, the smaller cap is used. The org can only *tighten*.
+- **Booleans / enums** — the org's **explicit setting** wins. An org
+  with `mfa_required = true` forces MFA even if the global default is
+  off.
+- **Lists** — empty list = inherit global (no restriction). Non-empty
+  list = strict subset (only listed entries permitted).
+
+### Cross-org users
+
+When a user switches active org (`POST /sessions/active-org`), the **next
+request** is re-evaluated against the new org's policy — there is no
+caching. If the new org is stricter on `idle_timeout_secs`, the request
+will 401 sooner; if it's wider, no extension of the existing session is
+granted (the session's stored `expires_at` was already clamped at create
+time).
+
+### Enforcement points
+
+The policy enforcer (`yauth::auth::policy_enforcer`) implements one
+helper per field; they are wired into the auth middleware and the
+plugin login routes:
+
+| Policy | Where it fires | Failure mode |
+|---|---|---|
+| `max_session_duration_secs` | Session create | Clamps `expires_at` |
+| `idle_timeout_secs` | Every authenticated request | 401 + session purge |
+| `mfa_required` | Login + protected routes | Force MFA enrollment screen |
+| `ip_allowlist` | Login + every request | 403 |
+| `max_concurrent_sessions` | Session create | Revoke oldest active session |
+| `allowed_auth_methods` | Login plugin routes | 405 Method Not Allowed |
+| `session_binding` | Token validation | 401 |
+
+### Backend status
+
+The in-memory backend ships a complete implementation. SQL backends are
+stubbed (HTTP 501 `feature not implemented on this backend`); per-backend
+impls land in follow-up issues. Migration files for
+`yauth_organization_policies` are generated and committed.

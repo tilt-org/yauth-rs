@@ -205,6 +205,10 @@ impl DatabaseBackend for DieselSqliteBackend {
             organization_domains: Arc::new(crate::repo::StubOrganizationDomainRepo::new(
                 "diesel-sqlite",
             )),
+            #[cfg(feature = "organizations")]
+            organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
+                "diesel-sqlite",
+            )),
         }
     }
 }

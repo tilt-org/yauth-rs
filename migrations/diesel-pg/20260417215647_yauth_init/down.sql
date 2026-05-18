@@ -59,3 +59,5 @@ DROP TABLE IF EXISTS yauth_invitations CASCADE;
 
 DROP TABLE IF EXISTS yauth_organization_domains CASCADE;
 
+DROP TABLE IF EXISTS yauth_organization_policies CASCADE;
+

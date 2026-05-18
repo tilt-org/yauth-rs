@@ -507,6 +507,38 @@ pub fn organizations_schema() -> Vec<TableDef> {
             .column(ColumnDef::new("require_email_verified", ColumnType::Boolean).default("true"))
             .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
             .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()")),
+        // Per-org auth policy (issue #92).
+        //
+        // One row per organization (1:1). Absence of a row means "inherit
+        // global YAuthConfig" — see `crates/yauth-entity/src/organization_policy.rs`
+        // for resolution rules. `organization_id` is BOTH primary key and
+        // foreign key so the policy disappears when the org is dropped.
+        // List/enum-shaped fields land in a JSON column for dialect parity
+        // and forward-compat (e.g. adding `sso_oidc` to the auth method
+        // catalogue is a no-DDL change).
+        TableDef::new("yauth_organization_policies")
+            .description(
+                "Per-organization auth policy override — session/idle timeouts, \
+                 MFA enforcement, IP allowlist, max concurrent sessions, allowed \
+                 auth methods, and session binding mode.",
+            )
+            .column(
+                ColumnDef::new("organization_id", ColumnType::Uuid)
+                    .primary_key()
+                    .references("yauth_organizations", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("max_session_duration_secs", ColumnType::Int).nullable())
+            .column(ColumnDef::new("idle_timeout_secs", ColumnType::Int).nullable())
+            .column(ColumnDef::new("mfa_required", ColumnType::Boolean).default("false"))
+            .column(ColumnDef::new("mfa_grace_period_days", ColumnType::Int).default("14"))
+            // MySQL forbids defaults on JSON columns; populate `[]` at the
+            // application layer when inserting.
+            .column(ColumnDef::new("ip_allowlist", ColumnType::Json))
+            .column(ColumnDef::new("max_concurrent_sessions", ColumnType::Int).nullable())
+            .column(ColumnDef::new("allowed_auth_methods", ColumnType::Json))
+            .column(ColumnDef::new("session_binding", ColumnType::Varchar).default("'none'"))
+            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
+            .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()")),
     ]
 }
 

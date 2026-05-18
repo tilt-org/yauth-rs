@@ -336,3 +336,18 @@ CREATE TABLE IF NOT EXISTS yauth_organization_domains (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS yauth_organization_domains_domain_lower_key ON yauth_organization_domains (LOWER(domain));
 
+-- Per-organization auth policy override — session/idle timeouts, MFA enforcement, IP allowlist, max concurrent sessions, allowed auth methods, and session binding mode.
+CREATE TABLE IF NOT EXISTS yauth_organization_policies (
+    organization_id TEXT PRIMARY KEY REFERENCES yauth_organizations(id) ON DELETE CASCADE,
+    max_session_duration_secs INTEGER,
+    idle_timeout_secs INTEGER,
+    mfa_required INTEGER NOT NULL DEFAULT false,
+    mfa_grace_period_days INTEGER NOT NULL DEFAULT 14,
+    ip_allowlist TEXT NOT NULL,
+    max_concurrent_sessions INTEGER,
+    allowed_auth_methods TEXT NOT NULL,
+    session_binding TEXT NOT NULL DEFAULT 'none',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+

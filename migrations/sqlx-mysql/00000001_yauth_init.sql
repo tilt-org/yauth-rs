@@ -361,3 +361,19 @@ CREATE TABLE IF NOT EXISTS `yauth_organization_domains` (
     FOREIGN KEY (`organization_id`) REFERENCES `yauth_organizations`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- Per-organization auth policy override — session/idle timeouts, MFA enforcement, IP allowlist, max concurrent sessions, allowed auth methods, and session binding mode.
+CREATE TABLE IF NOT EXISTS `yauth_organization_policies` (
+    `organization_id` CHAR(36) PRIMARY KEY,
+    `max_session_duration_secs` INT,
+    `idle_timeout_secs` INT,
+    `mfa_required` TINYINT(1) NOT NULL DEFAULT false,
+    `mfa_grace_period_days` INT NOT NULL DEFAULT 14,
+    `ip_allowlist` JSON NOT NULL,
+    `max_concurrent_sessions` INT,
+    `allowed_auth_methods` JSON NOT NULL,
+    `session_binding` VARCHAR(255) NOT NULL DEFAULT 'none',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`organization_id`) REFERENCES `yauth_organizations`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+

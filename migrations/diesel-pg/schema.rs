@@ -366,6 +366,22 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    yauth_organization_policies (organization_id) {
+        organization_id -> Uuid,
+        max_session_duration_secs -> Nullable<Int4>,
+        idle_timeout_secs -> Nullable<Int4>,
+        mfa_required -> Bool,
+        mfa_grace_period_days -> Int4,
+        ip_allowlist -> Jsonb,
+        max_concurrent_sessions -> Nullable<Int4>,
+        allowed_auth_methods -> Jsonb,
+        session_binding -> Varchar,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
 diesel::joinable!(yauth_sessions -> yauth_users (user_id));
 diesel::joinable!(yauth_audit_log -> yauth_users (user_id));
 diesel::joinable!(yauth_passwords -> yauth_users (user_id));
@@ -389,3 +405,4 @@ diesel::joinable!(yauth_memberships -> yauth_users (user_id));
 diesel::joinable!(yauth_invitations -> yauth_organizations (organization_id));
 diesel::joinable!(yauth_invitations -> yauth_users (invited_by_user_id));
 diesel::joinable!(yauth_organization_domains -> yauth_organizations (organization_id));
+diesel::joinable!(yauth_organization_policies -> yauth_organizations (organization_id));

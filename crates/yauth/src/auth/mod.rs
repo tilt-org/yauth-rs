@@ -13,6 +13,8 @@ pub mod password;
 pub mod password_policy;
 #[cfg(test)]
 mod pentest;
+#[cfg(feature = "organizations")]
+pub mod policy_enforcer;
 pub mod rate_limit;
 #[cfg(feature = "organizations")]
 pub mod rbac;

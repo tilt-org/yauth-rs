@@ -909,6 +909,30 @@ export interface PermissionsResponse {
   role: string;
 }
 
+/**
+ * Wire-format response for the per-org policy.
+
+Mirrors [`OrganizationPolicy`] but flattens the `SessionBinding` /
+`AuthMethod` enums to strings — keeps the OpenAPI schema legible
+for the generated TS client.
+ */
+export interface PolicyResponse {
+  allowed_auth_methods: string[];
+  created_at: string;
+  /** @nullable */
+  idle_timeout_secs?: number | null;
+  ip_allowlist: string[];
+  /** @nullable */
+  max_concurrent_sessions?: number | null;
+  /** @nullable */
+  max_session_duration_secs?: number | null;
+  mfa_grace_period_days: number;
+  mfa_required: boolean;
+  organization_id: string;
+  session_binding: string;
+  updated_at: string;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
 }
@@ -1033,6 +1057,30 @@ export interface UpdateOrgRequest {
   name?: string | null;
   /** @nullable */
   slug?: string | null;
+}
+
+export interface UpdatePolicyRequest {
+  /** @nullable */
+  allowed_auth_methods?: string[] | null;
+  /** @nullable */
+  idle_timeout_secs?: number | null;
+  /** @nullable */
+  ip_allowlist?: string[] | null;
+  /** @nullable */
+  max_concurrent_sessions?: number | null;
+  /**
+     * `None` (omitted) = "leave unchanged"; `Some(None)` = "clear",
+  `Some(Some(n))` = "set". Same convention as the org domain
+  update payload — admins clear an override by sending `null`.
+     * @nullable
+     */
+  max_session_duration_secs?: number | null;
+  /** @nullable */
+  mfa_grace_period_days?: number | null;
+  /** @nullable */
+  mfa_required?: boolean | null;
+  /** @nullable */
+  session_binding?: string | null;
 }
 
 export interface UpdateProfileRequest {
@@ -2758,6 +2806,50 @@ export const organizationsListPermissions = async (id: string, options?: Request
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getOrganizationsGetPolicyUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/policy`
+}
+
+export const organizationsGetPolicy = async (id: string, options?: RequestInit): Promise<PolicyResponse> => {
+
+  return customFetch<PolicyResponse>(getOrganizationsGetPolicyUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsUpdatePolicyUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/policy`
+}
+
+export const organizationsUpdatePolicy = async (id: string,
+    updatePolicyRequest: UpdatePolicyRequest, options?: RequestInit): Promise<PolicyResponse> => {
+
+  return customFetch<PolicyResponse>(getOrganizationsUpdatePolicyUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updatePolicyRequest,)
   }
 );}
 

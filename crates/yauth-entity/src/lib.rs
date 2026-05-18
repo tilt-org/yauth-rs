@@ -51,3 +51,6 @@ pub use organization::*;
 
 mod organization_domain;
 pub use organization_domain::*;
+
+mod organization_policy;
+pub use organization_policy::*;

@@ -314,7 +314,10 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<UpdateDomainRequest>()
             .schema_from::<DomainResponse>()
             .schema_from::<CreateDomainResponse>()
-            .schema_from::<VerifyDomainResponse>();
+            .schema_from::<VerifyDomainResponse>()
+            // Per-org policy (#92)
+            .schema_from::<UpdatePolicyRequest>()
+            .schema_from::<PolicyResponse>();
         // Org-scoped API keys (#91) — schemas only when the api-key
         // plugin is also active.
         #[cfg(feature = "api-key")]
@@ -1832,6 +1835,39 @@ fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
                         .pipe(|b| with_response(b, "ActiveOrgResponse"))
                         .security(auth_req())
                         .build(),
+                )
+                .build(),
+        )
+        // ── Per-org auth policy (#92) ────────────────────────────────
+        .path(
+            "/organizations/{id}/policy",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Get,
+                    with_path_param(
+                        with_response(
+                            op("organizations_getPolicy", "organizations"),
+                            "PolicyResponse",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .operation(
+                    HttpMethod::Patch,
+                    with_path_param(
+                        with_body(
+                            with_response(
+                                op("organizations_updatePolicy", "organizations"),
+                                "PolicyResponse",
+                            ),
+                            "UpdatePolicyRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
