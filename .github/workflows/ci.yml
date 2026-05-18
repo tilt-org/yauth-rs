@@ -147,7 +147,7 @@ jobs:
           SQLX_OFFLINE: "true"
           DATABASE_URL: postgres://yauth:yauth@127.0.0.1:5433/yauth_test
           MYSQL_DATABASE_URL: mysql://yauth:yauth@127.0.0.1:3307/yauth_test
-        run: cargo test --workspace --features full,all-backends --test diesel_integration --test diesel_mysql_integration --test pentest
+        run: cargo test --workspace --features full,all-backends --test diesel_integration --test diesel_mysql_integration --test pentest --test organizations_idor_pentest
 
       - name: Verify generated artifacts are fresh
         run: |
