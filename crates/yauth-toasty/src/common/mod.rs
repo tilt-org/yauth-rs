@@ -136,5 +136,7 @@ pub(crate) fn build_repositories(db: &Db) -> Repositories {
         invitations: Arc::new(ToastyInvitationRepo::new(db.clone())),
         #[cfg(feature = "organizations")]
         organization_domains: Arc::new(yauth::repo::StubOrganizationDomainRepo::new("toasty")),
+        #[cfg(feature = "organizations")]
+        organization_policies: Arc::new(yauth::repo::StubOrganizationPolicyRepo::new("toasty")),
     }
 }
