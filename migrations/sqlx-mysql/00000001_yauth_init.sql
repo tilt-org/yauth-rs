@@ -298,6 +298,17 @@ CREATE TABLE IF NOT EXISTS `yauth_unlock_tokens` (
     FOREIGN KEY (`user_id`) REFERENCES `yauth_users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- External (IdP) identity linked to a yauth user. Unique on (provider, external_id) — one yauth user per IdP-side identity.
+CREATE TABLE IF NOT EXISTS `yauth_external_identities` (
+    `id` CHAR(36) PRIMARY KEY,
+    `user_id` CHAR(36),
+    `provider` VARCHAR(255) NOT NULL,
+    `external_id` VARCHAR(255) NOT NULL,
+    `linked_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `last_login_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`user_id`) REFERENCES `yauth_users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- Webhook delivery attempts and responses.
 CREATE TABLE IF NOT EXISTS `yauth_webhook_deliveries` (
     `id` CHAR(36) PRIMARY KEY,
@@ -375,5 +386,33 @@ CREATE TABLE IF NOT EXISTS `yauth_organization_policies` (
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (`organization_id`) REFERENCES `yauth_organizations`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Federation connection (OIDC client / SAML SP) attached to one organization. `config` carries protocol-specific JSON and `client_secret` inside is encrypted at rest.
+CREATE TABLE IF NOT EXISTS `yauth_sso_connections` (
+    `id` CHAR(36) PRIMARY KEY,
+    `organization_id` CHAR(36),
+    `kind` VARCHAR(255) NOT NULL DEFAULT 'oidc_client',
+    `name` VARCHAR(255) NOT NULL,
+    `status` VARCHAR(255) NOT NULL DEFAULT 'draft',
+    `config` JSON NOT NULL,
+    `jit_provisioning_enabled` TINYINT(1) NOT NULL DEFAULT true,
+    `default_role_on_jit` VARCHAR(255) NOT NULL DEFAULT 'member',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`organization_id`) REFERENCES `yauth_organizations`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Short-lived state for an OIDC `/sso/login` round-trip. One row created at authorize-request time, consumed (deleted) at callback time. Expires in 10 minutes.
+CREATE TABLE IF NOT EXISTS `yauth_sso_login_states` (
+    `state` VARCHAR(255) PRIMARY KEY,
+    `connection_id` CHAR(36),
+    `issuer` VARCHAR(255) NOT NULL,
+    `nonce` VARCHAR(255) NOT NULL,
+    `pkce_verifier` VARCHAR(255) NOT NULL,
+    `redirect_to` VARCHAR(255),
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `expires_at` DATETIME NOT NULL,
+    FOREIGN KEY (`connection_id`) REFERENCES `yauth_sso_connections`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 

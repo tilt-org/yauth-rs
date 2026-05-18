@@ -308,6 +308,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    yauth_external_identities (id) {
+        id -> Uuid,
+        user_id -> Nullable<Uuid>,
+        provider -> Varchar,
+        external_id -> Varchar,
+        linked_at -> Timestamptz,
+        last_login_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     yauth_webhook_deliveries (id) {
         id -> Uuid,
         webhook_id -> Nullable<Uuid>,
@@ -382,6 +393,34 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    yauth_sso_connections (id) {
+        id -> Uuid,
+        organization_id -> Nullable<Uuid>,
+        kind -> Varchar,
+        name -> Varchar,
+        status -> Varchar,
+        config -> Jsonb,
+        jit_provisioning_enabled -> Bool,
+        default_role_on_jit -> Varchar,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    yauth_sso_login_states (state) {
+        state -> Varchar,
+        connection_id -> Nullable<Uuid>,
+        issuer -> Varchar,
+        nonce -> Varchar,
+        pkce_verifier -> Varchar,
+        redirect_to -> Nullable<Varchar>,
+        created_at -> Timestamptz,
+        expires_at -> Timestamptz,
+    }
+}
+
 diesel::joinable!(yauth_sessions -> yauth_users (user_id));
 diesel::joinable!(yauth_audit_log -> yauth_users (user_id));
 diesel::joinable!(yauth_passwords -> yauth_users (user_id));
@@ -399,6 +438,7 @@ diesel::joinable!(yauth_consents -> yauth_users (user_id));
 diesel::joinable!(yauth_device_codes -> yauth_users (user_id));
 diesel::joinable!(yauth_account_locks -> yauth_users (user_id));
 diesel::joinable!(yauth_unlock_tokens -> yauth_users (user_id));
+diesel::joinable!(yauth_external_identities -> yauth_users (user_id));
 diesel::joinable!(yauth_webhook_deliveries -> yauth_webhooks (webhook_id));
 diesel::joinable!(yauth_memberships -> yauth_organizations (organization_id));
 diesel::joinable!(yauth_memberships -> yauth_users (user_id));
@@ -406,3 +446,5 @@ diesel::joinable!(yauth_invitations -> yauth_organizations (organization_id));
 diesel::joinable!(yauth_invitations -> yauth_users (invited_by_user_id));
 diesel::joinable!(yauth_organization_domains -> yauth_organizations (organization_id));
 diesel::joinable!(yauth_organization_policies -> yauth_organizations (organization_id));
+diesel::joinable!(yauth_sso_connections -> yauth_organizations (organization_id));
+diesel::joinable!(yauth_sso_login_states -> yauth_sso_connections (connection_id));

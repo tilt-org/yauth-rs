@@ -13,8 +13,9 @@
 //! `backends/diesel_pg/{organization,membership,invitation}_repo.rs`.
 
 use super::{
-    InvitationRepository, MembershipRepository, OrganizationDomainRepository,
-    OrganizationPolicyRepository, OrganizationRepository, RepoError, RepoFuture, sealed,
+    ExternalIdentityRepository, InvitationRepository, MembershipRepository,
+    OrganizationDomainRepository, OrganizationPolicyRepository, OrganizationRepository, RepoError,
+    RepoFuture, SsoConnectionRepository, SsoLoginStateRepository, sealed,
 };
 use crate::domain;
 use uuid::Uuid;
@@ -344,6 +345,184 @@ impl OrganizationPolicyRepository for StubOrganizationPolicyRepo {
                 self.backend,
                 "OrganizationPolicyRepository",
                 "delete",
+            ))
+        })
+    }
+}
+
+/// Stub `SsoConnectionRepository` (issue #93).
+pub struct StubSsoConnectionRepo {
+    backend: &'static str,
+}
+
+impl StubSsoConnectionRepo {
+    pub fn new(backend: &'static str) -> Self {
+        Self { backend }
+    }
+}
+
+impl sealed::Sealed for StubSsoConnectionRepo {}
+
+impl SsoConnectionRepository for StubSsoConnectionRepo {
+    fn find_by_id(&self, _id: Uuid) -> RepoFuture<'_, Option<domain::SsoConnection>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "SsoConnectionRepository",
+                "find_by_id",
+            ))
+        })
+    }
+    fn create(&self, _input: domain::NewSsoConnection) -> RepoFuture<'_, domain::SsoConnection> {
+        Box::pin(async move { Err(pending(self.backend, "SsoConnectionRepository", "create")) })
+    }
+    fn update(
+        &self,
+        _id: Uuid,
+        _changes: domain::UpdateSsoConnection,
+    ) -> RepoFuture<'_, domain::SsoConnection> {
+        Box::pin(async move { Err(pending(self.backend, "SsoConnectionRepository", "update")) })
+    }
+    fn delete(&self, _id: Uuid) -> RepoFuture<'_, ()> {
+        Box::pin(async move { Err(pending(self.backend, "SsoConnectionRepository", "delete")) })
+    }
+    fn list_for_org(&self, _organization_id: Uuid) -> RepoFuture<'_, Vec<domain::SsoConnection>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "SsoConnectionRepository",
+                "list_for_org",
+            ))
+        })
+    }
+    fn find_active_oidc_for_org(
+        &self,
+        _organization_id: Uuid,
+    ) -> RepoFuture<'_, Option<domain::SsoConnection>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "SsoConnectionRepository",
+                "find_active_oidc_for_org",
+            ))
+        })
+    }
+}
+
+/// Stub `ExternalIdentityRepository` (issue #93).
+pub struct StubExternalIdentityRepo {
+    backend: &'static str,
+}
+
+impl StubExternalIdentityRepo {
+    pub fn new(backend: &'static str) -> Self {
+        Self { backend }
+    }
+}
+
+impl sealed::Sealed for StubExternalIdentityRepo {}
+
+impl ExternalIdentityRepository for StubExternalIdentityRepo {
+    fn find_by_id(&self, _id: Uuid) -> RepoFuture<'_, Option<domain::ExternalIdentity>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "ExternalIdentityRepository",
+                "find_by_id",
+            ))
+        })
+    }
+    fn find_by_provider_external_id(
+        &self,
+        _provider: &str,
+        _external_id: &str,
+    ) -> RepoFuture<'_, Option<domain::ExternalIdentity>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "ExternalIdentityRepository",
+                "find_by_provider_external_id",
+            ))
+        })
+    }
+    fn create(
+        &self,
+        _input: domain::NewExternalIdentity,
+    ) -> RepoFuture<'_, domain::ExternalIdentity> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "ExternalIdentityRepository",
+                "create",
+            ))
+        })
+    }
+    fn touch_last_login(
+        &self,
+        _id: Uuid,
+        _last_login_at: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, domain::ExternalIdentity> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "ExternalIdentityRepository",
+                "touch_last_login",
+            ))
+        })
+    }
+    fn delete(&self, _id: Uuid) -> RepoFuture<'_, ()> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "ExternalIdentityRepository",
+                "delete",
+            ))
+        })
+    }
+    fn list_for_user(&self, _user_id: Uuid) -> RepoFuture<'_, Vec<domain::ExternalIdentity>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "ExternalIdentityRepository",
+                "list_for_user",
+            ))
+        })
+    }
+}
+
+/// Stub `SsoLoginStateRepository` used by SQL backends until their
+/// concrete implementations land.
+pub struct StubSsoLoginStateRepo {
+    backend: &'static str,
+}
+
+impl StubSsoLoginStateRepo {
+    pub fn new(backend: &'static str) -> Self {
+        Self { backend }
+    }
+}
+
+impl sealed::Sealed for StubSsoLoginStateRepo {}
+
+impl SsoLoginStateRepository for StubSsoLoginStateRepo {
+    fn create(&self, _input: domain::NewSsoLoginState) -> RepoFuture<'_, ()> {
+        Box::pin(async move { Err(pending(self.backend, "SsoLoginStateRepository", "create")) })
+    }
+    fn find_and_delete(&self, _state: &str) -> RepoFuture<'_, Option<domain::SsoLoginState>> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "SsoLoginStateRepository",
+                "find_and_delete",
+            ))
+        })
+    }
+    fn delete_expired(&self) -> RepoFuture<'_, usize> {
+        Box::pin(async move {
+            Err(pending(
+                self.backend,
+                "SsoLoginStateRepository",
+                "delete_expired",
             ))
         })
     }

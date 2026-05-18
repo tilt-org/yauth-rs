@@ -222,6 +222,21 @@ mod organization_policy;
 pub use organization_policy::*;
 
 #[cfg(feature = "organizations")]
+mod sso_connection;
+#[cfg(feature = "organizations")]
+pub use sso_connection::*;
+
+#[cfg(feature = "organizations")]
+mod external_identity;
+#[cfg(feature = "organizations")]
+pub use external_identity::*;
+
+#[cfg(feature = "organizations")]
+mod sso_login_state;
+#[cfg(feature = "organizations")]
+pub use sso_login_state::*;
+
+#[cfg(feature = "organizations")]
 mod organization_stub;
 #[cfg(feature = "organizations")]
 pub use organization_stub::*;
@@ -301,6 +316,12 @@ pub struct Repositories {
     pub organization_domains: Arc<dyn OrganizationDomainRepository>,
     #[cfg(feature = "organizations")]
     pub organization_policies: Arc<dyn OrganizationPolicyRepository>,
+    #[cfg(feature = "organizations")]
+    pub sso_connections: Arc<dyn SsoConnectionRepository>,
+    #[cfg(feature = "organizations")]
+    pub external_identities: Arc<dyn ExternalIdentityRepository>,
+    #[cfg(feature = "organizations")]
+    pub sso_login_states: Arc<dyn SsoLoginStateRepository>,
 }
 
 // ──────────────────────────────────────────────

@@ -539,6 +539,85 @@ pub fn organizations_schema() -> Vec<TableDef> {
             .column(ColumnDef::new("session_binding", ColumnType::Varchar).default("'none'"))
             .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
             .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()")),
+        // SSO connections — federated sign-in from an external IdP (issue #93).
+        //
+        // Each row attaches one OIDC (or, in #94, SAML) connection to one
+        // organization. `kind` is a `VARCHAR` so adding a new federation
+        // protocol is a no-DDL change. `config` is a JSON blob whose schema
+        // is determined by `kind` — see `OidcConnectionConfig` in
+        // `crates/yauth-entity/src/sso_connection.rs`. The embedded
+        // `client_secret` is encrypted at rest at the repository boundary.
+        TableDef::new("yauth_sso_connections")
+            .description(
+                "Federation connection (OIDC client / SAML SP) attached to one \
+                 organization. `config` carries protocol-specific JSON and \
+                 `client_secret` inside is encrypted at rest.",
+            )
+            .column(
+                ColumnDef::new("id", ColumnType::Uuid)
+                    .primary_key()
+                    .default("gen_random_uuid()"),
+            )
+            .column(
+                ColumnDef::new("organization_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_organizations", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("kind", ColumnType::Varchar).default("'oidc_client'"))
+            .column(ColumnDef::new("name", ColumnType::Varchar))
+            .column(ColumnDef::new("status", ColumnType::Varchar).default("'draft'"))
+            .column(ColumnDef::new("config", ColumnType::Json))
+            .column(ColumnDef::new("jit_provisioning_enabled", ColumnType::Boolean).default("true"))
+            .column(ColumnDef::new("default_role_on_jit", ColumnType::Varchar).default("'member'"))
+            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
+            .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()")),
+        // External identity links — IdP `(provider, external_id)` pair
+        // bound to a yauth user (issue #93). The pair is deployment-wide
+        // unique so two yauth accounts can never share one IdP identity.
+        // Cascade-on-user-delete: when the user goes, the link goes;
+        // re-linking is the (new) user's job.
+        TableDef::new("yauth_external_identities")
+            .description(
+                "External (IdP) identity linked to a yauth user. Unique on \
+                 (provider, external_id) — one yauth user per IdP-side identity.",
+            )
+            .column(
+                ColumnDef::new("id", ColumnType::Uuid)
+                    .primary_key()
+                    .default("gen_random_uuid()"),
+            )
+            .column(
+                ColumnDef::new("user_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_users", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("provider", ColumnType::Varchar))
+            .column(ColumnDef::new("external_id", ColumnType::Varchar))
+            .column(ColumnDef::new("linked_at", ColumnType::DateTime).default("now()"))
+            .column(ColumnDef::new("last_login_at", ColumnType::DateTime).default("now()")),
+        // SSO login states (issue #93, Phase B). One row per
+        // `/sso/login` request; consumed at `/sso/callback`. The
+        // `state` column is the primary lookup key — random opaque
+        // token sent on the authorize URL, returned by the IdP.
+        // Rows are reaped on read (consume-once) and on `expires_at`.
+        TableDef::new("yauth_sso_login_states")
+            .description(
+                "Short-lived state for an OIDC `/sso/login` round-trip. \
+                 One row created at authorize-request time, consumed \
+                 (deleted) at callback time. Expires in 10 minutes.",
+            )
+            .column(ColumnDef::new("state", ColumnType::Varchar).primary_key())
+            .column(
+                ColumnDef::new("connection_id", ColumnType::Uuid)
+                    .nullable()
+                    .references("yauth_sso_connections", "id", OnDelete::Cascade),
+            )
+            .column(ColumnDef::new("issuer", ColumnType::Varchar))
+            .column(ColumnDef::new("nonce", ColumnType::Varchar))
+            .column(ColumnDef::new("pkce_verifier", ColumnType::Varchar))
+            .column(ColumnDef::new("redirect_to", ColumnType::Varchar).nullable())
+            .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
+            .column(ColumnDef::new("expires_at", ColumnType::DateTime)),
     ]
 }
 

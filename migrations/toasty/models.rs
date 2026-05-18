@@ -63,6 +63,8 @@ pub struct YauthUser {
     #[has_many]
     pub unlock_tokens: toasty::HasMany<YauthUnlockToken>,
     #[has_many]
+    pub external_identities: toasty::HasMany<YauthExternalIdentity>,
+    #[has_many]
     pub memberships: toasty::HasMany<YauthMembership>,
     #[has_many]
     pub invitations: toasty::HasMany<YauthInvitation>,
@@ -206,6 +208,8 @@ pub struct YauthOrganization {
     pub organization_domains: toasty::HasMany<YauthOrganizationDomain>,
     #[has_one]
     pub organization_policy: toasty::HasOne<YauthOrganizationPolicy>,
+    #[has_many]
+    pub sso_connections: toasty::HasMany<YauthSsoConnection>,
 }
 
 /// Toasty model for `yauth_sessions`.
@@ -501,6 +505,22 @@ pub struct YauthUnlockToken {
     pub created_at: jiff::Timestamp,
 }
 
+/// Toasty model for `yauth_external_identities`.
+#[derive(Debug, toasty::Model)]
+#[table = "external_identities"]
+pub struct YauthExternalIdentity {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+    pub user_id: Option<uuid::Uuid>,
+    #[belongs_to(key = user_id, references = id)]
+    pub yauth_user: toasty::BelongsTo<YauthUser>,
+    pub provider: String,
+    pub external_id: String,
+    pub linked_at: jiff::Timestamp,
+    pub last_login_at: jiff::Timestamp,
+}
+
 /// Toasty model for `yauth_webhook_deliveries`.
 #[derive(Debug, toasty::Model)]
 #[table = "webhook_deliveries"]
@@ -608,4 +628,44 @@ pub struct YauthOrganizationPolicy {
     pub session_binding: String,
     pub created_at: jiff::Timestamp,
     pub updated_at: jiff::Timestamp,
+}
+
+/// Toasty model for `yauth_sso_connections`.
+#[derive(Debug, toasty::Model)]
+#[table = "sso_connections"]
+pub struct YauthSsoConnection {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+    pub organization_id: Option<uuid::Uuid>,
+    #[belongs_to(key = organization_id, references = id)]
+    pub yauth_organization: toasty::BelongsTo<YauthOrganization>,
+    pub kind: String,
+    pub name: String,
+    pub status: String,
+    #[serialize(json)]
+    pub config: serde_json::Value,
+    pub jit_provisioning_enabled: bool,
+    pub default_role_on_jit: String,
+    pub created_at: jiff::Timestamp,
+    pub updated_at: jiff::Timestamp,
+    #[has_many]
+    pub sso_login_states: toasty::HasMany<YauthSsoLoginState>,
+}
+
+/// Toasty model for `yauth_sso_login_states`.
+#[derive(Debug, toasty::Model)]
+#[table = "sso_login_states"]
+pub struct YauthSsoLoginState {
+    #[key]
+    pub state: String,
+    pub connection_id: Option<uuid::Uuid>,
+    #[belongs_to(key = connection_id, references = id)]
+    pub yauth_sso_connection: toasty::BelongsTo<YauthSsoConnection>,
+    pub issuer: String,
+    pub nonce: String,
+    pub pkce_verifier: String,
+    pub redirect_to: Option<String>,
+    pub created_at: jiff::Timestamp,
+    pub expires_at: jiff::Timestamp,
 }

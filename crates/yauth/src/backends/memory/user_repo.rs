@@ -218,6 +218,15 @@ impl UserRepository for InMemoryUserRepo {
                 map.retain(|_, l| l.email.to_lowercase() != *email);
             }
 
+            // Cascade: external identities (issue #93). When a user is
+            // deleted their linked IdP identities go with them — re-linking
+            // is the (new) user's job, never an inherited credential.
+            #[cfg(feature = "organizations")]
+            {
+                let mut map = self.storage.external_identities.write().unwrap();
+                map.retain(|_, x| x.user_id != id);
+            }
+
             Ok(())
         })
     }

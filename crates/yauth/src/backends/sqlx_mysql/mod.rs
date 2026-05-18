@@ -160,6 +160,13 @@ impl DatabaseBackend for SqlxMysqlBackend {
             organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
                 "sqlx-mysql",
             )),
+            // Issue #93 SSO connection + external identity repos land as follow-up; stub for now.
+            #[cfg(feature = "organizations")]
+            sso_connections: Arc::new(crate::repo::StubSsoConnectionRepo::new("sqlx-mysql")),
+            #[cfg(feature = "organizations")]
+            external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new("sqlx-mysql")),
+            #[cfg(feature = "organizations")]
+            sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("sqlx-mysql")),
         }
     }
 }

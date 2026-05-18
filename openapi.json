@@ -2355,6 +2355,217 @@
         ]
       }
     },
+    "/organizations/{id}/sso/connections": {
+      "get": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_listSsoConnections",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SsoConnectionResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_createSsoConnection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSsoConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SsoConnectionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/organizations/{id}/sso/connections/{cid}": {
+      "delete": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_deleteSsoConnection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_updateSsoConnection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSsoConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SsoConnectionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/organizations/{id}/sso/connections/{cid}/test": {
+      "post": {
+        "tags": [
+          "organizations"
+        ],
+        "operationId": "organizations_testSsoConnection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SsoConnectionTestResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/organizations/{id}/transfer-ownership": {
       "post": {
         "tags": [
@@ -3675,6 +3886,84 @@
           }
         }
       },
+      "ClaimMappingsInput": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_to_role": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "groups": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ClaimMappingsResponse": {
+        "type": "object",
+        "required": [
+          "email",
+          "external_id",
+          "group_to_role"
+        ],
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "group_to_role": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "groups": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "ClientRegistrationRequest": {
         "type": "object",
         "description": "RFC 7591 §2 Dynamic Client Registration request body. Matches yauth-go's\n`dcrRegisterRequest` exactly so the TS client serves both backends.\n\n`private_key_jwt` clients can register a `public_key_pem` value via this\nendpoint, but the field is intentionally **not** part of the typed schema\n— yauth-go does not accept it, and we'd rather keep the spec converged\nthan add a Rust-only extension. Instead, the handler reads the raw JSON\nbody and pulls `public_key_pem` out alongside the typed parse.",
@@ -4014,6 +4303,46 @@
           },
           "slug": {
             "type": "string"
+          }
+        }
+      },
+      "CreateSsoConnectionRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "default_role_on_jit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "jit_provisioning_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "description": "Protocol kind — only `\"oidc_client\"` accepted in #93. SAML\n(`\"saml_sp\"`) lands in #94."
+          },
+          "name": {
+            "type": "string",
+            "description": "Operator-friendly name (`\"Acme Okta\"`)."
+          },
+          "oidc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OidcConfigInput",
+                "description": "Protocol config. For `oidc_client` see [`OidcConfigInput`]."
+              }
+            ]
           }
         }
       },
@@ -4971,6 +5300,76 @@
           }
         }
       },
+      "OidcConfigInput": {
+        "type": "object",
+        "required": [
+          "discovery_url",
+          "client_id",
+          "client_secret"
+        ],
+        "properties": {
+          "claim_mappings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ClaimMappingsInput"
+              }
+            ]
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string",
+            "description": "Plaintext IdP client secret. yauth encrypts it at rest via the\nconfigured `SecretCipher`. The plaintext NEVER leaves this\nrequest boundary — list/get responses surface only the masked\nform."
+          },
+          "discovery_url": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "OidcConfigResponse": {
+        "type": "object",
+        "required": [
+          "discovery_url",
+          "client_id",
+          "client_secret",
+          "scopes",
+          "claim_mappings"
+        ],
+        "properties": {
+          "claim_mappings": {
+            "$ref": "#/components/schemas/ClaimMappingsResponse"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string",
+            "description": "**Masked** — always `\"********\"`. The real client secret is\nnever returned over the wire after the original PUT/POST."
+          },
+          "discovery_url": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "OrgApiKeyResponse": {
         "type": "object",
         "required": [
@@ -5524,6 +5923,81 @@
           }
         }
       },
+      "SsoConnectionResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "kind",
+          "name",
+          "status",
+          "jit_provisioning_enabled",
+          "default_role_on_jit",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "default_role_on_jit": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jit_provisioning_enabled": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "oidc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OidcConfigResponse",
+                "description": "Present when `kind == \"oidc_client\"`. Always carries the\nmasked secret form — see [`OidcConfigResponse`]."
+              }
+            ]
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SsoConnectionTestResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "Human-readable detail of what was checked / what failed."
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the round-trip succeeded. Currently the test is a\nstructural check (config decodes, discovery URL well-formed).\nLive discovery + JWKS validation lands in Phase B."
+          }
+        }
+      },
       "StatusResponse": {
         "type": "object",
         "description": "Response for `GET /status`. Mirrors yauth-go's `StatusResponse`.",
@@ -5734,6 +6208,46 @@
         "type": "object",
         "properties": {
           "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateSsoConnectionRequest": {
+        "type": "object",
+        "properties": {
+          "default_role_on_jit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "jit_provisioning_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "oidc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OidcConfigInput",
+                "description": "Replaces the full OIDC config blob. PATCH-merging into a JSON\nblob that holds an encrypted secret is gnarly; admins re-send\nthe whole document instead."
+              }
+            ]
+          },
+          "status": {
             "type": [
               "string",
               "null"

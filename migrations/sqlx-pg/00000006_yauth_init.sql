@@ -280,6 +280,16 @@ CREATE TABLE IF NOT EXISTS yauth_unlock_tokens (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- External (IdP) identity linked to a yauth user. Unique on (provider, external_id) — one yauth user per IdP-side identity.
+CREATE TABLE IF NOT EXISTS yauth_external_identities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES yauth_users(id) ON DELETE CASCADE,
+    provider VARCHAR NOT NULL,
+    external_id VARCHAR NOT NULL,
+    linked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Webhook delivery attempts and responses.
 CREATE TABLE IF NOT EXISTS yauth_webhook_deliveries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -349,5 +359,31 @@ CREATE TABLE IF NOT EXISTS yauth_organization_policies (
     session_binding VARCHAR NOT NULL DEFAULT 'none',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Federation connection (OIDC client / SAML SP) attached to one organization. `config` carries protocol-specific JSON and `client_secret` inside is encrypted at rest.
+CREATE TABLE IF NOT EXISTS yauth_sso_connections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES yauth_organizations(id) ON DELETE CASCADE,
+    kind VARCHAR NOT NULL DEFAULT 'oidc_client',
+    name VARCHAR NOT NULL,
+    status VARCHAR NOT NULL DEFAULT 'draft',
+    config JSONB NOT NULL,
+    jit_provisioning_enabled BOOLEAN NOT NULL DEFAULT true,
+    default_role_on_jit VARCHAR NOT NULL DEFAULT 'member',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Short-lived state for an OIDC `/sso/login` round-trip. One row created at authorize-request time, consumed (deleted) at callback time. Expires in 10 minutes.
+CREATE TABLE IF NOT EXISTS yauth_sso_login_states (
+    state VARCHAR PRIMARY KEY,
+    connection_id UUID REFERENCES yauth_sso_connections(id) ON DELETE CASCADE,
+    issuer VARCHAR NOT NULL,
+    nonce VARCHAR NOT NULL,
+    pkce_verifier VARCHAR NOT NULL,
+    redirect_to VARCHAR,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL
 );
 

@@ -280,6 +280,16 @@ CREATE TABLE IF NOT EXISTS yauth_unlock_tokens (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- External (IdP) identity linked to a yauth user. Unique on (provider, external_id) — one yauth user per IdP-side identity.
+CREATE TABLE IF NOT EXISTS yauth_external_identities (
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES yauth_users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    linked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Webhook delivery attempts and responses.
 CREATE TABLE IF NOT EXISTS yauth_webhook_deliveries (
     id TEXT PRIMARY KEY,
@@ -349,5 +359,31 @@ CREATE TABLE IF NOT EXISTS yauth_organization_policies (
     session_binding TEXT NOT NULL DEFAULT 'none',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Federation connection (OIDC client / SAML SP) attached to one organization. `config` carries protocol-specific JSON and `client_secret` inside is encrypted at rest.
+CREATE TABLE IF NOT EXISTS yauth_sso_connections (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT REFERENCES yauth_organizations(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'oidc_client',
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    config TEXT NOT NULL,
+    jit_provisioning_enabled INTEGER NOT NULL DEFAULT true,
+    default_role_on_jit TEXT NOT NULL DEFAULT 'member',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Short-lived state for an OIDC `/sso/login` round-trip. One row created at authorize-request time, consumed (deleted) at callback time. Expires in 10 minutes.
+CREATE TABLE IF NOT EXISTS yauth_sso_login_states (
+    state TEXT PRIMARY KEY,
+    connection_id TEXT REFERENCES yauth_sso_connections(id) ON DELETE CASCADE,
+    issuer TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    pkce_verifier TEXT NOT NULL,
+    redirect_to TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TEXT NOT NULL
 );
 

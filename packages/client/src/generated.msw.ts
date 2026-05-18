@@ -218,6 +218,36 @@ export interface ChangeRoleRequest {
 }
 
 /**
+ * @nullable
+ */
+export type ClaimMappingsInputGroupToRole = {[key: string]: string} | null;
+
+export interface ClaimMappingsInput {
+  /** @nullable */
+  display_name?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  external_id?: string | null;
+  /** @nullable */
+  group_to_role?: ClaimMappingsInputGroupToRole;
+  /** @nullable */
+  groups?: string | null;
+}
+
+export type ClaimMappingsResponseGroupToRole = {[key: string]: string};
+
+export interface ClaimMappingsResponse {
+  /** @nullable */
+  display_name?: string | null;
+  email: string;
+  external_id: string;
+  group_to_role: ClaimMappingsResponseGroupToRole;
+  /** @nullable */
+  groups?: string | null;
+}
+
+/**
  * RFC 7591 §2 Dynamic Client Registration request body. Matches yauth-go's
 `dcrRegisterRequest` exactly so the TS client serves both backends.
 
@@ -414,6 +444,32 @@ export interface CreateOrgRequest {
   display_name?: string | null;
   name: string;
   slug: string;
+}
+
+export interface OidcConfigInput {
+  claim_mappings?: null | ClaimMappingsInput;
+  client_id: string;
+  /** Plaintext IdP client secret. yauth encrypts it at rest via the
+  configured `SecretCipher`. The plaintext NEVER leaves this
+  request boundary — list/get responses surface only the masked
+  form. */
+  client_secret: string;
+  discovery_url: string;
+  /** @nullable */
+  scopes?: string[] | null;
+}
+
+export interface CreateSsoConnectionRequest {
+  /** @nullable */
+  default_role_on_jit?: string | null;
+  /** @nullable */
+  jit_provisioning_enabled?: boolean | null;
+  /** Protocol kind — only `"oidc_client"` accepted in #93. SAML
+  (`"saml_sp"`) lands in #94. */
+  kind: string;
+  /** Operator-friendly name (`"Acme Okta"`). */
+  name: string;
+  oidc?: null | OidcConfigInput;
 }
 
 export interface CreateWebhookRequest {
@@ -845,6 +901,16 @@ export interface Oauth2PatchClientRequest {
   public_key_pem?: string | null;
 }
 
+export interface OidcConfigResponse {
+  claim_mappings: ClaimMappingsResponse;
+  client_id: string;
+  /** **Masked** — always `"********"`. The real client secret is
+  never returned over the wire after the original PUT/POST. */
+  client_secret: string;
+  discovery_url: string;
+  scopes: string[];
+}
+
 export interface OrgApiKeyUsageResponse {
   created_at: string;
   /** @nullable */
@@ -1016,6 +1082,28 @@ export interface SetupTotpResponse {
   secret: string;
 }
 
+export interface SsoConnectionResponse {
+  created_at: string;
+  default_role_on_jit: string;
+  id: string;
+  jit_provisioning_enabled: boolean;
+  kind: string;
+  name: string;
+  oidc?: null | OidcConfigResponse;
+  organization_id: string;
+  status: string;
+  updated_at: string;
+}
+
+export interface SsoConnectionTestResponse {
+  /** Human-readable detail of what was checked / what failed. */
+  detail: string;
+  /** Whether the round-trip succeeded. Currently the test is a
+  structural check (config decodes, discovery URL well-formed).
+  Live discovery + JWKS validation lands in Phase B. */
+  ok: boolean;
+}
+
 /**
  * Response for `GET /status`. Mirrors yauth-go's `StatusResponse`.
  */
@@ -1098,6 +1186,18 @@ export interface UpdatePolicyRequest {
 export interface UpdateProfileRequest {
   /** @nullable */
   display_name?: string | null;
+}
+
+export interface UpdateSsoConnectionRequest {
+  /** @nullable */
+  default_role_on_jit?: string | null;
+  /** @nullable */
+  jit_provisioning_enabled?: boolean | null;
+  /** @nullable */
+  name?: string | null;
+  oidc?: null | OidcConfigInput;
+  /** @nullable */
+  status?: string | null;
 }
 
 export interface UpdateUserRequest {
@@ -2867,6 +2967,121 @@ export const organizationsUpdatePolicy = async (id: string,
 
 
 
+export const getOrganizationsListSsoConnectionsUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/sso/connections`
+}
+
+export const organizationsListSsoConnections = async (id: string, options?: RequestInit): Promise<SsoConnectionResponse[]> => {
+
+  return customFetch<SsoConnectionResponse[]>(getOrganizationsListSsoConnectionsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsCreateSsoConnectionUrl = (id: string,) => {
+
+
+
+
+  return `/organizations/${id}/sso/connections`
+}
+
+export const organizationsCreateSsoConnection = async (id: string,
+    createSsoConnectionRequest: CreateSsoConnectionRequest, options?: RequestInit): Promise<SsoConnectionResponse> => {
+
+  return customFetch<SsoConnectionResponse>(getOrganizationsCreateSsoConnectionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createSsoConnectionRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsDeleteSsoConnectionUrl = (id: string,
+    cid: string,) => {
+
+
+
+
+  return `/organizations/${id}/sso/connections/${cid}`
+}
+
+export const organizationsDeleteSsoConnection = async (id: string,
+    cid: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getOrganizationsDeleteSsoConnectionUrl(id,cid),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getOrganizationsUpdateSsoConnectionUrl = (id: string,
+    cid: string,) => {
+
+
+
+
+  return `/organizations/${id}/sso/connections/${cid}`
+}
+
+export const organizationsUpdateSsoConnection = async (id: string,
+    cid: string,
+    updateSsoConnectionRequest: UpdateSsoConnectionRequest, options?: RequestInit): Promise<SsoConnectionResponse> => {
+
+  return customFetch<SsoConnectionResponse>(getOrganizationsUpdateSsoConnectionUrl(id,cid),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateSsoConnectionRequest,)
+  }
+);}
+
+
+
+export const getOrganizationsTestSsoConnectionUrl = (id: string,
+    cid: string,) => {
+
+
+
+
+  return `/organizations/${id}/sso/connections/${cid}/test`
+}
+
+export const organizationsTestSsoConnection = async (id: string,
+    cid: string, options?: RequestInit): Promise<SsoConnectionTestResponse> => {
+
+  return customFetch<SsoConnectionTestResponse>(getOrganizationsTestSsoConnectionUrl(id,cid),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
 export const getOrganizationsTransferOwnershipUrl = (id: string,) => {
 
 
@@ -3596,6 +3811,26 @@ export const getOrganizationsListPermissionsResponseMock = (overrideResponse: Pa
 export const getOrganizationsGetPolicyResponseMock = (overrideResponse: Partial<Extract<PolicyResponse, object>> = {}): PolicyResponse => ({allowed_auth_methods: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', idle_timeout_secs: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), ip_allowlist: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), max_concurrent_sessions: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), max_session_duration_secs: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), mfa_grace_period_days: faker.number.int(), mfa_required: faker.datatype.boolean(), organization_id: faker.string.uuid(), session_binding: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
 export const getOrganizationsUpdatePolicyResponseMock = (overrideResponse: Partial<Extract<PolicyResponse, object>> = {}): PolicyResponse => ({allowed_auth_methods: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', idle_timeout_secs: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), ip_allowlist: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), max_concurrent_sessions: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), max_session_duration_secs: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(), null]), undefined]), mfa_grace_period_days: faker.number.int(), mfa_required: faker.datatype.boolean(), organization_id: faker.string.uuid(), session_binding: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
+export const getOrganizationsListSsoConnectionsResponseOidcConfigResponseMock = (overrideResponse: Partial<OidcConfigResponse> = {}): OidcConfigResponse => ({...{claim_mappings: {display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), external_id: faker.string.alpha({length: {min: 10, max: 20}}), group_to_role: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, groups: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, client_id: faker.string.alpha({length: {min: 10, max: 20}}), client_secret: faker.string.alpha({length: {min: 10, max: 20}}), discovery_url: faker.string.alpha({length: {min: 10, max: 20}}), scopes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))}, ...overrideResponse});
+
+export const getOrganizationsListSsoConnectionsResponseMock = (): SsoConnectionResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_jit: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), jit_provisioning_enabled: faker.datatype.boolean(), kind: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), oidc: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsListSsoConnectionsResponseOidcConfigResponseMock()},]), undefined]), organization_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+
+export const getOrganizationsCreateSsoConnectionResponseOidcConfigResponseMock = (overrideResponse: Partial<OidcConfigResponse> = {}): OidcConfigResponse => ({...{claim_mappings: {display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), external_id: faker.string.alpha({length: {min: 10, max: 20}}), group_to_role: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, groups: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, client_id: faker.string.alpha({length: {min: 10, max: 20}}), client_secret: faker.string.alpha({length: {min: 10, max: 20}}), discovery_url: faker.string.alpha({length: {min: 10, max: 20}}), scopes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))}, ...overrideResponse});
+
+export const getOrganizationsCreateSsoConnectionResponseMock = (overrideResponse: Partial<Extract<SsoConnectionResponse, object>> = {}): SsoConnectionResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_jit: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), jit_provisioning_enabled: faker.datatype.boolean(), kind: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), oidc: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsCreateSsoConnectionResponseOidcConfigResponseMock()},]), undefined]), organization_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
+export const getOrganizationsUpdateSsoConnectionResponseOidcConfigResponseMock = (overrideResponse: Partial<OidcConfigResponse> = {}): OidcConfigResponse => ({...{claim_mappings: {display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), external_id: faker.string.alpha({length: {min: 10, max: 20}}), group_to_role: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }, groups: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, client_id: faker.string.alpha({length: {min: 10, max: 20}}), client_secret: faker.string.alpha({length: {min: 10, max: 20}}), discovery_url: faker.string.alpha({length: {min: 10, max: 20}}), scopes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))}, ...overrideResponse});
+
+export const getOrganizationsUpdateSsoConnectionResponseMock = (overrideResponse: Partial<Extract<SsoConnectionResponse, object>> = {}): SsoConnectionResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_jit: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), jit_provisioning_enabled: faker.datatype.boolean(), kind: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), oidc: faker.helpers.arrayElement([faker.helpers.arrayElement([null,{...getOrganizationsUpdateSsoConnectionResponseOidcConfigResponseMock()},]), undefined]), organization_id: faker.string.uuid(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+
+export const getOrganizationsTestSsoConnectionResponseMock = (overrideResponse: Partial<Extract<SsoConnectionTestResponse, object>> = {}): SsoConnectionTestResponse => ({detail: faker.string.alpha({length: {min: 10, max: 20}}), ok: faker.datatype.boolean(), ...overrideResponse})
 
 export const getPasskeyListResponseMock = (overrideResponse: Partial<Extract<ListPasskeysResponse, object>> = {}): ListPasskeysResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}})})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
@@ -4488,6 +4723,64 @@ export const getOrganizationsUpdatePolicyMockHandler = (overrideResponse?: Polic
   }, options)
 }
 
+export const getOrganizationsListSsoConnectionsMockHandler = (overrideResponse?: SsoConnectionResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<SsoConnectionResponse[]> | SsoConnectionResponse[]), options?: RequestHandlerOptions) => {
+  return http.get('*/organizations/:id/sso/connections', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsListSsoConnectionsResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsCreateSsoConnectionMockHandler = (overrideResponse?: SsoConnectionResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SsoConnectionResponse> | SsoConnectionResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/organizations/:id/sso/connections', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsCreateSsoConnectionResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsDeleteSsoConnectionMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.delete('*/organizations/:id/sso/connections/:cid', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsUpdateSsoConnectionMockHandler = (overrideResponse?: SsoConnectionResponse | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<SsoConnectionResponse> | SsoConnectionResponse), options?: RequestHandlerOptions) => {
+  return http.patch('*/organizations/:id/sso/connections/:cid', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsUpdateSsoConnectionResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getOrganizationsTestSsoConnectionMockHandler = (overrideResponse?: SsoConnectionTestResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SsoConnectionTestResponse> | SsoConnectionTestResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/organizations/:id/sso/connections/:cid/test', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getOrganizationsTestSsoConnectionResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getOrganizationsTransferOwnershipMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.post('*/organizations/:id/transfer-ownership', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
@@ -4881,6 +5174,11 @@ export const getYauthMock = () => [
   getOrganizationsListPermissionsMockHandler(),
   getOrganizationsGetPolicyMockHandler(),
   getOrganizationsUpdatePolicyMockHandler(),
+  getOrganizationsListSsoConnectionsMockHandler(),
+  getOrganizationsCreateSsoConnectionMockHandler(),
+  getOrganizationsDeleteSsoConnectionMockHandler(),
+  getOrganizationsUpdateSsoConnectionMockHandler(),
+  getOrganizationsTestSsoConnectionMockHandler(),
   getOrganizationsTransferOwnershipMockHandler(),
   getPasskeyLoginBeginMockHandler(),
   getPasskeyLoginFinishMockHandler(),

@@ -170,6 +170,13 @@ impl DatabaseBackend for SqlxPgBackend {
             organization_policies: Arc::new(crate::repo::StubOrganizationPolicyRepo::new(
                 "sqlx-pg",
             )),
+            // Issue #93 SSO connection + external identity repos land as follow-up; stub for now.
+            #[cfg(feature = "organizations")]
+            sso_connections: Arc::new(crate::repo::StubSsoConnectionRepo::new("sqlx-pg")),
+            #[cfg(feature = "organizations")]
+            external_identities: Arc::new(crate::repo::StubExternalIdentityRepo::new("sqlx-pg")),
+            #[cfg(feature = "organizations")]
+            sso_login_states: Arc::new(crate::repo::StubSsoLoginStateRepo::new("sqlx-pg")),
         }
     }
 }

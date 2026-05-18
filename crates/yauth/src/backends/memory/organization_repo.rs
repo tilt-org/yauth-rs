@@ -8,8 +8,9 @@ use uuid::Uuid;
 
 use crate::domain;
 use crate::repo::{
-    InvitationRepository, MembershipRepository, OrganizationDomainRepository,
-    OrganizationPolicyRepository, OrganizationRepository, RepoError, RepoFuture, sealed,
+    ExternalIdentityRepository, InvitationRepository, MembershipRepository,
+    OrganizationDomainRepository, OrganizationPolicyRepository, OrganizationRepository, RepoError,
+    RepoFuture, SsoConnectionRepository, SsoLoginStateRepository, sealed,
 };
 
 // ──────────────────────────────────────────────
@@ -22,6 +23,7 @@ pub(crate) struct InMemoryOrganizationRepo {
     pub(crate) invitations: Arc<RwLock<HashMap<Uuid, domain::Invitation>>>,
     pub(crate) organization_domains: Arc<RwLock<HashMap<Uuid, domain::OrganizationDomain>>>,
     pub(crate) organization_policies: Arc<RwLock<HashMap<Uuid, domain::OrganizationPolicy>>>,
+    pub(crate) sso_connections: Arc<RwLock<HashMap<Uuid, domain::SsoConnection>>>,
 }
 
 impl InMemoryOrganizationRepo {
@@ -31,6 +33,7 @@ impl InMemoryOrganizationRepo {
         invitations: Arc<RwLock<HashMap<Uuid, domain::Invitation>>>,
         organization_domains: Arc<RwLock<HashMap<Uuid, domain::OrganizationDomain>>>,
         organization_policies: Arc<RwLock<HashMap<Uuid, domain::OrganizationPolicy>>>,
+        sso_connections: Arc<RwLock<HashMap<Uuid, domain::SsoConnection>>>,
     ) -> Self {
         Self {
             orgs,
@@ -38,6 +41,7 @@ impl InMemoryOrganizationRepo {
             invitations,
             organization_domains,
             organization_policies,
+            sso_connections,
         }
     }
 }
@@ -146,6 +150,11 @@ impl OrganizationRepository for InMemoryOrganizationRepo {
             // Issue #92: policy is 1:1 keyed by org id — cascade.
             let mut policies = self.organization_policies.write().unwrap();
             policies.remove(&id);
+            // Issue #93: SSO connections cascade with their owning org.
+            // External identities are NOT cascaded — they belong to the
+            // user, not the org. Re-org changes don't break linked accounts.
+            let mut conns = self.sso_connections.write().unwrap();
+            conns.retain(|_, c| c.organization_id != id);
             Ok(())
         })
     }
@@ -705,6 +714,303 @@ impl OrganizationPolicyRepository for InMemoryOrganizationPolicyRepo {
             let mut map = self.policies.write().unwrap();
             map.remove(&organization_id);
             Ok(())
+        })
+    }
+}
+
+// ──────────────────────────────────────────────
+// SsoConnection (issue #93)
+// ──────────────────────────────────────────────
+
+pub(crate) struct InMemorySsoConnectionRepo {
+    pub(crate) connections: Arc<RwLock<HashMap<Uuid, domain::SsoConnection>>>,
+}
+
+impl InMemorySsoConnectionRepo {
+    pub(crate) fn new(connections: Arc<RwLock<HashMap<Uuid, domain::SsoConnection>>>) -> Self {
+        Self { connections }
+    }
+}
+
+impl sealed::Sealed for InMemorySsoConnectionRepo {}
+
+impl SsoConnectionRepository for InMemorySsoConnectionRepo {
+    fn find_by_id(&self, id: Uuid) -> RepoFuture<'_, Option<domain::SsoConnection>> {
+        Box::pin(async move {
+            let map = self.connections.read().unwrap();
+            Ok(map.get(&id).cloned())
+        })
+    }
+
+    fn create(&self, input: domain::NewSsoConnection) -> RepoFuture<'_, domain::SsoConnection> {
+        Box::pin(async move {
+            let mut map = self.connections.write().unwrap();
+            if map.contains_key(&input.id) {
+                return Err(RepoError::Conflict(format!(
+                    "sso connection {} already exists",
+                    input.id
+                )));
+            }
+            let row = domain::SsoConnection {
+                id: input.id,
+                organization_id: input.organization_id,
+                kind: input.kind,
+                name: input.name,
+                status: input.status,
+                config: input.config,
+                jit_provisioning_enabled: input.jit_provisioning_enabled,
+                default_role_on_jit: input.default_role_on_jit,
+                created_at: input.created_at,
+                updated_at: input.updated_at,
+            };
+            map.insert(row.id, row.clone());
+            Ok(row)
+        })
+    }
+
+    fn update(
+        &self,
+        id: Uuid,
+        changes: domain::UpdateSsoConnection,
+    ) -> RepoFuture<'_, domain::SsoConnection> {
+        Box::pin(async move {
+            let mut map = self.connections.write().unwrap();
+            let row = map.get_mut(&id).ok_or(RepoError::NotFound)?;
+            if let Some(v) = changes.name {
+                row.name = v;
+            }
+            if let Some(v) = changes.status {
+                row.status = v;
+            }
+            if let Some(v) = changes.config {
+                row.config = v;
+            }
+            if let Some(v) = changes.jit_provisioning_enabled {
+                row.jit_provisioning_enabled = v;
+            }
+            if let Some(v) = changes.default_role_on_jit {
+                row.default_role_on_jit = v;
+            }
+            if let Some(v) = changes.updated_at {
+                row.updated_at = v;
+            }
+            Ok(row.clone())
+        })
+    }
+
+    fn delete(&self, id: Uuid) -> RepoFuture<'_, ()> {
+        Box::pin(async move {
+            let mut map = self.connections.write().unwrap();
+            map.remove(&id);
+            Ok(())
+        })
+    }
+
+    fn list_for_org(&self, organization_id: Uuid) -> RepoFuture<'_, Vec<domain::SsoConnection>> {
+        Box::pin(async move {
+            let map = self.connections.read().unwrap();
+            let mut v: Vec<_> = map
+                .values()
+                .filter(|c| c.organization_id == organization_id)
+                .cloned()
+                .collect();
+            v.sort_by_key(|c| c.created_at);
+            Ok(v)
+        })
+    }
+
+    fn find_active_oidc_for_org(
+        &self,
+        organization_id: Uuid,
+    ) -> RepoFuture<'_, Option<domain::SsoConnection>> {
+        Box::pin(async move {
+            let map = self.connections.read().unwrap();
+            // First active OIDC connection wins. Determinism: order by
+            // created_at ASC so a freshly added connection doesn't steal
+            // requests from an older still-active one.
+            let mut v: Vec<_> = map
+                .values()
+                .filter(|c| {
+                    c.organization_id == organization_id
+                        && c.kind == domain::ConnectionKind::OidcClient
+                        && c.status == domain::ConnectionStatus::Active
+                })
+                .cloned()
+                .collect();
+            v.sort_by_key(|c| c.created_at);
+            Ok(v.into_iter().next())
+        })
+    }
+}
+
+// ──────────────────────────────────────────────
+// ExternalIdentity (issue #93)
+// ──────────────────────────────────────────────
+
+pub(crate) struct InMemoryExternalIdentityRepo {
+    pub(crate) identities: Arc<RwLock<HashMap<Uuid, domain::ExternalIdentity>>>,
+}
+
+impl InMemoryExternalIdentityRepo {
+    pub(crate) fn new(identities: Arc<RwLock<HashMap<Uuid, domain::ExternalIdentity>>>) -> Self {
+        Self { identities }
+    }
+}
+
+impl sealed::Sealed for InMemoryExternalIdentityRepo {}
+
+impl ExternalIdentityRepository for InMemoryExternalIdentityRepo {
+    fn find_by_id(&self, id: Uuid) -> RepoFuture<'_, Option<domain::ExternalIdentity>> {
+        Box::pin(async move {
+            let map = self.identities.read().unwrap();
+            Ok(map.get(&id).cloned())
+        })
+    }
+
+    fn find_by_provider_external_id(
+        &self,
+        provider: &str,
+        external_id: &str,
+    ) -> RepoFuture<'_, Option<domain::ExternalIdentity>> {
+        let p = provider.to_string();
+        let eid = external_id.to_string();
+        Box::pin(async move {
+            let map = self.identities.read().unwrap();
+            Ok(map
+                .values()
+                .find(|x| x.provider == p && x.external_id == eid)
+                .cloned())
+        })
+    }
+
+    fn create(
+        &self,
+        input: domain::NewExternalIdentity,
+    ) -> RepoFuture<'_, domain::ExternalIdentity> {
+        Box::pin(async move {
+            let mut map = self.identities.write().unwrap();
+            // Deployment-wide uniqueness on (provider, external_id).
+            if map
+                .values()
+                .any(|x| x.provider == input.provider && x.external_id == input.external_id)
+            {
+                return Err(RepoError::Conflict(format!(
+                    "external identity ({}, {}) already linked",
+                    input.provider, input.external_id
+                )));
+            }
+            let row = domain::ExternalIdentity {
+                id: input.id,
+                user_id: input.user_id,
+                provider: input.provider,
+                external_id: input.external_id,
+                linked_at: input.linked_at,
+                last_login_at: input.last_login_at,
+            };
+            map.insert(row.id, row.clone());
+            Ok(row)
+        })
+    }
+
+    fn touch_last_login(
+        &self,
+        id: Uuid,
+        last_login_at: NaiveDateTime,
+    ) -> RepoFuture<'_, domain::ExternalIdentity> {
+        Box::pin(async move {
+            let mut map = self.identities.write().unwrap();
+            let row = map.get_mut(&id).ok_or(RepoError::NotFound)?;
+            row.last_login_at = last_login_at;
+            Ok(row.clone())
+        })
+    }
+
+    fn delete(&self, id: Uuid) -> RepoFuture<'_, ()> {
+        Box::pin(async move {
+            let mut map = self.identities.write().unwrap();
+            map.remove(&id);
+            Ok(())
+        })
+    }
+
+    fn list_for_user(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::ExternalIdentity>> {
+        Box::pin(async move {
+            let map = self.identities.read().unwrap();
+            let mut v: Vec<_> = map
+                .values()
+                .filter(|x| x.user_id == user_id)
+                .cloned()
+                .collect();
+            v.sort_by_key(|x| x.linked_at);
+            Ok(v)
+        })
+    }
+}
+
+// ──────────────────────────────────────────────
+// SsoLoginState (issue #93, Phase B)
+// ──────────────────────────────────────────────
+
+pub(crate) struct InMemorySsoLoginStateRepo {
+    pub(crate) states: Arc<RwLock<HashMap<String, domain::SsoLoginState>>>,
+}
+
+impl InMemorySsoLoginStateRepo {
+    pub(crate) fn new(states: Arc<RwLock<HashMap<String, domain::SsoLoginState>>>) -> Self {
+        Self { states }
+    }
+}
+
+impl sealed::Sealed for InMemorySsoLoginStateRepo {}
+
+impl SsoLoginStateRepository for InMemorySsoLoginStateRepo {
+    fn create(&self, input: domain::NewSsoLoginState) -> RepoFuture<'_, ()> {
+        Box::pin(async move {
+            let mut map = self.states.write().unwrap();
+            if map.contains_key(&input.state) {
+                return Err(RepoError::Conflict(format!(
+                    "sso login state already exists for token={}",
+                    input.state
+                )));
+            }
+            let row = domain::SsoLoginState {
+                state: input.state.clone(),
+                connection_id: input.connection_id,
+                issuer: input.issuer,
+                nonce: input.nonce,
+                pkce_verifier: input.pkce_verifier,
+                redirect_to: input.redirect_to,
+                created_at: input.created_at,
+                expires_at: input.expires_at,
+            };
+            map.insert(input.state, row);
+            Ok(())
+        })
+    }
+
+    fn find_and_delete(&self, state: &str) -> RepoFuture<'_, Option<domain::SsoLoginState>> {
+        let key = state.to_string();
+        Box::pin(async move {
+            let mut map = self.states.write().unwrap();
+            let row = map.remove(&key);
+            // Expiry-on-read: if the row exists but is past `expires_at`,
+            // treat it as already gone. The remove() above ensures the
+            // stale row can't be replayed.
+            let now = chrono::Utc::now().naive_utc();
+            match row {
+                Some(r) if r.expires_at > now => Ok(Some(r)),
+                _ => Ok(None),
+            }
+        })
+    }
+
+    fn delete_expired(&self) -> RepoFuture<'_, usize> {
+        Box::pin(async move {
+            let mut map = self.states.write().unwrap();
+            let now = chrono::Utc::now().naive_utc();
+            let before = map.len();
+            map.retain(|_, r| r.expires_at > now);
+            Ok(before - map.len())
         })
     }
 }

@@ -138,5 +138,11 @@ pub(crate) fn build_repositories(db: &Db) -> Repositories {
         organization_domains: Arc::new(yauth::repo::StubOrganizationDomainRepo::new("toasty")),
         #[cfg(feature = "organizations")]
         organization_policies: Arc::new(yauth::repo::StubOrganizationPolicyRepo::new("toasty")),
+        #[cfg(feature = "organizations")]
+        sso_connections: Arc::new(yauth::repo::StubSsoConnectionRepo::new("toasty")),
+        #[cfg(feature = "organizations")]
+        external_identities: Arc::new(yauth::repo::StubExternalIdentityRepo::new("toasty")),
+        #[cfg(feature = "organizations")]
+        sso_login_states: Arc::new(yauth::repo::StubSsoLoginStateRepo::new("toasty")),
     }
 }
