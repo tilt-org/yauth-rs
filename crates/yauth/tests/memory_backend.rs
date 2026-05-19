@@ -196,7 +196,7 @@ async fn register_login_session_logout_flow() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn duplicate_registration_returns_409() {
+async fn duplicate_registration_returns_enumeration_safe_200() {
     let app = build_test_app().await;
 
     // Register first user
@@ -232,8 +232,8 @@ async fn duplicate_registration_returns_409() {
     .await;
     assert_eq!(
         status,
-        StatusCode::CONFLICT,
-        "Duplicate registration should return 409 Conflict"
+        StatusCode::OK,
+        "Duplicate registration must return 200 (enumeration-safe), not 409"
     );
 }
 
@@ -274,7 +274,7 @@ async fn case_insensitive_email_duplicate() {
     .await;
     assert_eq!(
         status,
-        StatusCode::CONFLICT,
-        "Case-insensitive duplicate should return 409 Conflict"
+        StatusCode::OK,
+        "Case-insensitive duplicate must return 200 (enumeration-safe), not 409"
     );
 }

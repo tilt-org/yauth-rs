@@ -217,7 +217,7 @@ async fn mysql_register_login_session_logout_flow() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn mysql_duplicate_registration_returns_409() {
+async fn mysql_duplicate_registration_returns_enumeration_safe_200() {
     let app = build_test_app().await;
     let email = unique_email("mysql_dupe");
 
@@ -240,7 +240,7 @@ async fn mysql_duplicate_registration_returns_409() {
         body
     );
 
-    // Attempt duplicate registration with same email
+    // Duplicate registration must return 200 (enumeration-safe — no 409 that leaks email existence)
     let (status, _, _) = request(
         &app,
         "POST",
@@ -254,8 +254,8 @@ async fn mysql_duplicate_registration_returns_409() {
     .await;
     assert_eq!(
         status,
-        StatusCode::CONFLICT,
-        "Duplicate registration should return 409 Conflict"
+        StatusCode::OK,
+        "Duplicate registration must return 200 (enumeration-safe), not 409"
     );
 }
 
@@ -297,8 +297,8 @@ async fn mysql_case_insensitive_email_duplicate() {
     .await;
     assert_eq!(
         status,
-        StatusCode::CONFLICT,
-        "Case-insensitive duplicate should return 409 Conflict"
+        StatusCode::OK,
+        "Case-insensitive duplicate must return 200 (enumeration-safe), not 409"
     );
 }
 

@@ -122,10 +122,22 @@ pub struct ChangePasswordRequest {
 // Register
 // ---------------------------------------------------------------------------
 
+// Generic reply returned when the email already exists. Indistinguishable
+// from the "check your inbox" flow so callers cannot enumerate accounts.
+fn enumeration_safe_register_ok() -> Response {
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "If the email is available, an account has been created. Check your inbox."
+        })),
+    )
+        .into_response()
+}
+
 async fn register(
     State(state): State<YAuthState>,
     Json(input): Json<RegisterRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     if !state.config.allow_signups {
         crate::otel::add_event("register_disabled", vec![]);
         return Err(api_err(
@@ -204,7 +216,10 @@ async fn register(
                 #[cfg(not(feature = "telemetry"))]
                 vec![],
             );
-            return Err(api_err(StatusCode::CONFLICT, "Registration failed"));
+            // Return a generic 200 — identical shape to "check your inbox" —
+            // so callers cannot distinguish registered vs unregistered emails
+            // (OWASP A07: identification and authentication failures).
+            return Ok(enumeration_safe_register_ok());
         }
     }
 
@@ -245,10 +260,10 @@ async fn register(
     match state.repos.users.create(new_user).await {
         Ok(_) => {}
         Err(crate::repo::RepoError::Conflict(_)) => {
-            return Err(api_err(
-                StatusCode::CONFLICT,
-                "An account with this email already exists",
-            ));
+            // Race: another request created the user between our check above
+            // and this insert. Return the same generic 200 to stay
+            // enumeration-safe.
+            return Ok(enumeration_safe_register_ok());
         }
         Err(e) => {
             crate::otel::record_error("user_create_failed", &e);
@@ -357,7 +372,8 @@ async fn register(
             },
             message: Some(message.to_string()),
         }),
-    ))
+    )
+        .into_response())
 }
 
 // ---------------------------------------------------------------------------
