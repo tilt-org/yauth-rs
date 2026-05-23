@@ -643,3 +643,106 @@ async fn refresh_token_re_runs_selection_rules() {
     let claims = decode_claims(refreshed);
     assert_eq!(claims["org"].as_str(), Some(org.as_str()));
 }
+
+// ──────────────────────────────────────────────
+// issue #118: optional org field on POST /token
+// ──────────────────────────────────────────────
+
+/// (a) Supplying a valid `org` mints a JWT scoped to that org — even when
+/// the user is a member of multiple orgs and it is not the auto-selected one.
+#[tokio::test]
+async fn token_with_valid_org_returns_scoped_jwt() {
+    let app = build_app().await;
+    let cookie = app
+        .register_and_login("multi-org@example.com", "password-12345")
+        .await;
+    let first = app.create_org(&cookie, "first-org-118").await;
+    let second = app.create_org(&cookie, "second-org-118").await;
+
+    // Auto-select (no org supplied) picks `first` (oldest membership).
+    let auto_token = token_for(&app, "multi-org@example.com", "password-12345").await;
+    let auto_claims = decode_claims(&auto_token);
+    assert_eq!(auto_claims["org"].as_str(), Some(first.as_str()));
+
+    // Explicitly request `second` — JWT must carry that org.
+    let (status, body) = app
+        .post_unauth(
+            "/token",
+            serde_json::json!({
+                "email": "multi-org@example.com",
+                "password": "password-12345",
+                "org": second
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "scoped token: {body:?}");
+    let scoped_token = body["access_token"].as_str().unwrap().to_string();
+    let claims = decode_claims(&scoped_token);
+    assert_eq!(
+        claims["org"].as_str(),
+        Some(second.as_str()),
+        "JWT must be scoped to the requested org: {claims:?}"
+    );
+    assert_eq!(claims["org_role"].as_str(), Some("owner"));
+    let orgs = claims["orgs"].as_array().expect("orgs claim present");
+    assert_eq!(orgs.len(), 2, "all orgs still surfaced: {claims:?}");
+}
+
+/// (b) Requesting an org the user is not a member of returns 403.
+#[tokio::test]
+async fn token_with_non_member_org_is_403() {
+    let app = build_app().await;
+    let alice_cookie = app
+        .register_and_login("alice-118@example.com", "password-12345")
+        .await;
+    let bob_cookie = app
+        .register_and_login("bob-118@example.com", "password-12345")
+        .await;
+    let _ = alice_cookie;
+    let bob_org = app.create_org(&bob_cookie, "bobs-org-118").await;
+
+    // Alice tries to mint a token scoped to Bob's org.
+    let (status, body) = app
+        .post_unauth(
+            "/token",
+            serde_json::json!({
+                "email": "alice-118@example.com",
+                "password": "password-12345",
+                "org": bob_org
+            }),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "non-member org must be 403: {body:?}"
+    );
+}
+
+/// (c) Omitting `org` preserves the existing auto-selection behaviour.
+#[tokio::test]
+async fn token_without_org_auto_selects_as_before() {
+    let app = build_app().await;
+    let cookie = app
+        .register_and_login("no-org-field@example.com", "password-12345")
+        .await;
+    let org = app.create_org(&cookie, "auto-org-118").await;
+
+    let (status, body) = app
+        .post_unauth(
+            "/token",
+            serde_json::json!({
+                "email": "no-org-field@example.com",
+                "password": "password-12345"
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "auto-select: {body:?}");
+    let token = body["access_token"].as_str().unwrap();
+    let claims = decode_claims(token);
+    assert_eq!(
+        claims["org"].as_str(),
+        Some(org.as_str()),
+        "auto-selected org must match the single membership: {claims:?}"
+    );
+}
