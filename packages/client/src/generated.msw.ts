@@ -1285,6 +1285,14 @@ export interface StatusResponse {
 
 export interface TokenRequest {
   email: string;
+  /**
+     * Optional organization ID to mint a JWT scoped to a specific org
+  (issue #118). When supplied the caller must be an active member of
+  that org; otherwise 403 is returned. When omitted the existing
+  auto-selection behaviour is preserved.
+     * @nullable
+     */
+  org?: string | null;
   password: string;
   /**
      * Optional space-separated OAuth2 scopes (e.g. "read:runs write:runs").

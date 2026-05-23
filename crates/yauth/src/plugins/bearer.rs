@@ -111,6 +111,12 @@ pub struct TokenRequest {
     /// Optional space-separated OAuth2 scopes (e.g. "read:runs write:runs").
     #[serde(default)]
     pub scope: Option<String>,
+    /// Optional organization ID to mint a JWT scoped to a specific org
+    /// (issue #118). When supplied the caller must be an active member of
+    /// that org; otherwise 403 is returned. When omitted the existing
+    /// auto-selection behaviour is preserved.
+    #[serde(default)]
+    pub org: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -376,9 +382,54 @@ async fn create_token(
 
             let config = &state.bearer_config;
             let scope_str = input.scope.as_deref();
+
+            // Issue #118: when the caller requests a specific org, verify
+            // active membership and build the JWT user explicitly. When
+            // `org` is omitted the existing auto-selection path is
+            // preserved verbatim.
+            #[cfg(feature = "organizations")]
+            let jwt_user = if let Some(org_id) = input.org {
+                use yauth_entity::MembershipStatus;
+                let memberships =
+                    state
+                        .repos
+                        .memberships
+                        .list_by_user(u.id)
+                        .await
+                        .map_err(|e| {
+                            crate::otel::record_error("db_error", &e);
+                            api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+                        })?;
+                let active: Vec<_> = memberships
+                    .into_iter()
+                    .filter(|m| m.status == MembershipStatus::Active)
+                    .collect();
+                let chosen = active
+                    .iter()
+                    .find(|m| m.organization_id == org_id)
+                    .ok_or_else(|| {
+                        api_err(StatusCode::FORBIDDEN, "Not a member of this organization")
+                    })?;
+                let all_orgs: Vec<Uuid> = active.iter().map(|m| m.organization_id).collect();
+                JwtUser {
+                    id: u.id,
+                    email: u.email.clone(),
+                    role: u.role.clone(),
+                    active_org_id: Some(org_id),
+                    org_role: Some(chosen.role.clone()),
+                    all_orgs,
+                }
+            } else {
+                JwtUser::new(u.id, u.email.clone(), u.role.clone())
+                    .with_active_org_for(&state)
+                    .await
+            };
+
+            #[cfg(not(feature = "organizations"))]
             let jwt_user = JwtUser::new(u.id, u.email.clone(), u.role.clone())
                 .with_active_org_for(&state)
                 .await;
+
             let (access_token, _jti) = create_jwt(&jwt_user, &state, scope_str)?;
 
             let family_id = Uuid::now_v7();
