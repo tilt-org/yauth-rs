@@ -6687,6 +6687,14 @@
           "email": {
             "type": "string"
           },
+          "org": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Optional organization ID to mint a JWT scoped to a specific org\n(issue #118). When supplied the caller must be an active member of\nthat org; otherwise 403 is returned. When omitted the existing\nauto-selection behaviour is preserved."
+          },
           "password": {
             "type": "string"
           },
