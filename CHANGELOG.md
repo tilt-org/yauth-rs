@@ -1,3 +1,13 @@
+## 0.12.5 (2026-05-24)
+
+### Features
+
+- accept optional org field on POST /token to mint org-scoped JWT (#118) (#119)
+
+### Fixes
+
+- register enumeration — return 200 for duplicate email (#117)
+
 ## 0.12.4 (2026-05-18)
 
 ### Features

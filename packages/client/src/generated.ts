@@ -3,7 +3,7 @@
  * Do not edit manually.
  * yauth
  * Modular, plugin-based authentication API for Axum applications.
- * OpenAPI spec version: 0.12.4
+ * OpenAPI spec version: 0.12.5
  */
 import { customFetch } from './mutator';
 export interface AcceptInvitationRequest {
