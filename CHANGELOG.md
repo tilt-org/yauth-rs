@@ -1,3 +1,19 @@
+## 0.13.0 (2026-05-31)
+
+### Breaking Changes
+
+- dynamic client registration is now off by default
+(allow_dynamic_registration defaults false) and creates public clients only
+(dcr_allow_confidential_clients defaults false). Enabling DCR is an explicit
+opt-in; confidential/M2M clients are provisioned via the admin endpoint or by
+setting dcr_allow_confidential_clients=true. This makes DCR secure by default
+and closes the anonymous-confidential-client -> no-user client_credentials
+escalation.
+
+### Features
+
+- add mcpauth module, fix consent UI, harden OAuth DCR (#122)
+
 ## 0.12.5 (2026-05-24)
 
 ### Features
