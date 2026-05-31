@@ -72,7 +72,11 @@ async fn build_app(alg: SigningAlgorithm, pem: Option<&str>) -> Router {
         signing_key_pem: pem.map(String::from),
         kid: None,
     })
-    .with_oauth2_server(yauth::config::OAuth2ServerConfig::default())
+    .with_oauth2_server(yauth::config::OAuth2ServerConfig {
+        allow_dynamic_registration: true,
+        dcr_allow_confidential_clients: true,
+        ..Default::default()
+    })
     .build()
     .await
     .expect("build YAuth");

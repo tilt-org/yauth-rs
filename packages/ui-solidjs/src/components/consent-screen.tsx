@@ -1,23 +1,41 @@
 import { type Component, createSignal, For } from "solid-js";
 import { Show } from "solid-js/web";
+import { isSafeRedirect } from "../safe-redirect";
 
 export interface ConsentScreenProps {
+	/** Human-readable client name; falls back to clientId. */
 	clientName?: string;
-	clientId: string;
+	clientId?: string;
+	/** Scope identifiers the client requested (from the consent payload). */
 	scopes?: string[];
-	redirectUri: string;
-	responseType: string;
-	codeChallenge: string;
-	codeChallengeMethod: string;
-	state?: string;
-	/** Called when user submits their consent decision */
-	onSubmit?: (approved: boolean) => void;
-	/** Called on error */
-	onError?: (error: Error) => void;
-	/** Auth API base URL (e.g. "/api/auth") */
+	/**
+	 * Per-scope human-readable descriptions, keyed by scope name. Mirror your
+	 * server's `mcpauth.Config.Scopes` catalog here so the consent screen shows
+	 * plain language instead of raw scope strings. Scopes without an entry fall
+	 * back to showing the raw identifier.
+	 */
+	scopeDescriptions?: Record<string, string>;
+	/** Signed request id from the GET /oauth/authorize consent payload. */
+	requestId: string;
+	/** Signed CSRF token from the GET /oauth/authorize consent payload. */
+	csrfToken: string;
+	/** Auth API base URL (default "/api/auth"). */
 	authBaseUrl?: string;
+	/** Called after a decision is submitted and no redirect was returned. */
+	onResult?: (approved: boolean) => void;
+	/** Called on error. */
+	onError?: (error: Error) => void;
 }
 
+/**
+ * ConsentScreen renders the second half of the yauth oauth2-server
+ * authorization-code flow. The first half — GET {authBaseUrl}/oauth/authorize
+ * with the session cookie — returns a consent payload ({ request_id,
+ * csrf_token, scopes, client }); pass those in as props (OAuthConsentPage does
+ * this for you). On a decision it POSTs {authBaseUrl}/oauth2/consent with
+ * { request_id, csrf_token, approved } and follows the returned redirect_url
+ * back to the OAuth client.
+ */
 export const ConsentScreen: Component<ConsentScreenProps> = (props) => {
 	const [loading, setLoading] = createSignal(false);
 	const [error, setError] = createSignal<string | null>(null);
@@ -25,55 +43,46 @@ export const ConsentScreen: Component<ConsentScreenProps> = (props) => {
 	const handleDecision = async (approved: boolean) => {
 		setError(null);
 		setLoading(true);
-
 		try {
 			const baseUrl = props.authBaseUrl ?? "/api/auth";
-			const response = await fetch(`${baseUrl}/authorize`, {
+			const response = await fetch(`${baseUrl}/oauth2/consent`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				credentials: "include",
 				body: JSON.stringify({
-					client_id: props.clientId,
-					redirect_uri: props.redirectUri,
-					response_type: props.responseType,
-					code_challenge: props.codeChallenge,
-					code_challenge_method: props.codeChallengeMethod,
-					scope: props.scopes?.join(" "),
-					state: props.state,
+					request_id: props.requestId,
+					csrf_token: props.csrfToken,
 					approved,
 				}),
 			});
 
-			if (response.redirected) {
-				window.location.href = response.url;
-				return;
-			}
-
+			const body = await response.json().catch(() => null);
 			if (!response.ok) {
-				const body = await response.json().catch(() => null);
 				throw new Error(
 					body?.error_description ?? body?.error ?? "Authorization failed",
 				);
 			}
-
-			// If the response contains a redirect URL in the Location header
-			const location = response.headers.get("Location");
-			if (location) {
-				window.location.href = location;
+			// The server mints the code and returns the redirect URL (both on
+			// approval and on denial, which carries error=access_denied).
+			if (body?.redirect_url) {
+				if (!isSafeRedirect(body.redirect_url)) {
+					throw new Error("Blocked unsafe redirect target");
+				}
+				window.location.href = body.redirect_url;
 				return;
 			}
-
-			props.onSubmit?.(approved);
+			props.onResult?.(approved);
 		} catch (err) {
-			const error = err instanceof Error ? err : new Error(String(err));
-			setError(error.message);
-			props.onError?.(error);
+			const e = err instanceof Error ? err : new Error(String(err));
+			setError(e.message);
+			props.onError?.(e);
 		} finally {
 			setLoading(false);
 		}
 	};
 
-	const displayName = () => props.clientName ?? props.clientId;
+	const displayName = () =>
+		props.clientName ?? props.clientId ?? "An application";
 
 	return (
 		<div class="mx-auto max-w-md space-y-6 p-6">
@@ -100,9 +109,9 @@ export const ConsentScreen: Component<ConsentScreenProps> = (props) => {
 					<ul class="space-y-2">
 						<For each={props.scopes}>
 							{(scope) => (
-								<li class="flex items-center gap-2 text-sm">
+								<li class="flex items-start gap-2 text-sm">
 									<svg
-										class="h-4 w-4 text-primary"
+										class="mt-0.5 h-4 w-4 shrink-0 text-primary"
 										fill="none"
 										stroke="currentColor"
 										viewBox="0 0 24 24"
@@ -116,7 +125,14 @@ export const ConsentScreen: Component<ConsentScreenProps> = (props) => {
 											d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
 										/>
 									</svg>
-									<span>{scope}</span>
+									<span>
+										{props.scopeDescriptions?.[scope] ?? scope}
+										<Show when={props.scopeDescriptions?.[scope]}>
+											<code class="ml-1 text-xs text-muted-foreground">
+												{scope}
+											</code>
+										</Show>
+									</span>
 								</li>
 							)}
 						</For>

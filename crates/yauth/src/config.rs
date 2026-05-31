@@ -435,8 +435,24 @@ pub struct OAuth2ServerConfig {
     #[serde(default)]
     pub scopes_supported: Vec<String>,
     /// Whether to allow dynamic client registration (POST /register).
+    ///
+    /// Defaults to `false` (secure by default): enabling `oauth2-server` does
+    /// not expose an anonymous client-registration endpoint. Set this to `true`
+    /// to opt in — required for MCP clients, which self-register (RFC 7591).
+    /// Open registration is unauthenticated, so bound it: redirect_uri scheme
+    /// validation (built in) + PKCE (enforced) + rate-limit `/oauth/register`.
     #[serde(default)]
     pub allow_dynamic_registration: bool,
+    /// Whether dynamic registration may create **confidential** clients
+    /// (those with a secret / `private_key_jwt`). Defaults to `false`:
+    /// self-registered clients are public (PKCE, `token_endpoint_auth_method:
+    /// none`) only. This blocks the escalation where an anonymous registrant
+    /// obtains a confidential client and uses `client_credentials` to mint a
+    /// no-user token. Provision confidential/M2M clients via the authenticated
+    /// admin endpoint instead. Set `true` only if you trust the DCR path
+    /// (e.g. gated registration).
+    #[serde(default)]
+    pub dcr_allow_confidential_clients: bool,
     /// Device code TTL (default: 600 seconds / 10 minutes per RFC 8628).
     #[serde(default = "default_device_code_ttl", with = "duration_secs")]
     pub device_code_ttl: Duration,
@@ -469,7 +485,10 @@ impl Default for OAuth2ServerConfig {
             issuer: "http://localhost:3000".into(),
             authorization_code_ttl: Duration::from_secs(60),
             scopes_supported: vec![],
-            allow_dynamic_registration: true,
+            // Secure by default: DCR is an explicit opt-in (see field docs).
+            allow_dynamic_registration: false,
+            // Secure by default: self-registered clients are public-only.
+            dcr_allow_confidential_clients: false,
             device_code_ttl: Duration::from_secs(600),
             device_poll_interval: 5,
             device_verification_uri: None,

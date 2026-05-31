@@ -82,6 +82,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .with_oauth2_server(OAuth2ServerConfig {
         issuer: "http://localhost:3000".into(),
+        allow_dynamic_registration: true, // opt in (off by default)
+        dcr_allow_confidential_clients: true, // opt in to confidential DCR
         ..Default::default()
     })
     .with_admin()

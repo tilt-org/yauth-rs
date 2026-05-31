@@ -76,6 +76,8 @@ async fn build_app() -> Router {
     })
     .with_oauth2_server(yauth::config::OAuth2ServerConfig {
         issuer: ISSUER.into(),
+        allow_dynamic_registration: true,
+        dcr_allow_confidential_clients: true,
         ..Default::default()
     })
     .build()

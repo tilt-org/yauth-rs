@@ -2,6 +2,7 @@ export { default as AuditDestinationCreate } from "./components/AuditDestination
 export { default as AuditDestinationList } from "./components/AuditDestinationList.vue";
 export { default as ChangePasswordForm } from "./components/ChangePasswordForm.vue";
 export { default as ConsentScreen } from "./components/ConsentScreen.vue";
+export { default as OAuthConsentPage } from "./components/OAuthConsentPage.vue";
 export { default as DomainClaim } from "./components/DomainClaim.vue";
 export { default as DomainList } from "./components/DomainList.vue";
 export { default as DomainVerifyStep } from "./components/DomainVerifyStep.vue";

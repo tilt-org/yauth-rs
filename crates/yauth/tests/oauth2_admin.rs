@@ -79,6 +79,8 @@ async fn build_app(allow_machine_callers: bool) -> TestApp {
     })
     .with_oauth2_server(yauth::config::OAuth2ServerConfig {
         issuer: ISSUER.into(),
+        allow_dynamic_registration: true,
+        dcr_allow_confidential_clients: true,
         ..Default::default()
     })
     .with_admin()

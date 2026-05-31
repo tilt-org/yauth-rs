@@ -1,70 +1,75 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { isSafeRedirect } from "../safe-redirect";
 
 const props = defineProps<{
+	/** Human-readable client name; falls back to clientId. */
 	clientName?: string;
-	clientId: string;
+	clientId?: string;
+	/** Scope identifiers the client requested (from the consent payload). */
 	scopes?: string[];
-	redirectUri: string;
-	responseType: string;
-	codeChallenge: string;
-	codeChallengeMethod: string;
-	state?: string;
-	onSubmit?: (approved: boolean) => void;
-	onError?: (error: Error) => void;
+	/**
+	 * Per-scope human-readable descriptions, keyed by scope name. Mirror your
+	 * server's `mcpauth.Config.Scopes` catalog here so the consent screen shows
+	 * plain language instead of raw scope strings.
+	 */
+	scopeDescriptions?: Record<string, string>;
+	/** Signed request id from the GET /oauth/authorize consent payload. */
+	requestId: string;
+	/** Signed CSRF token from the GET /oauth/authorize consent payload. */
+	csrfToken: string;
+	/** Auth API base URL (default "/api/auth"). */
 	authBaseUrl?: string;
+}>();
+
+const emit = defineEmits<{
+	result: [approved: boolean];
+	error: [error: Error];
 }>();
 
 const loading = ref(false);
 const error = ref<string | null>(null);
 
-const displayName = computed(() => props.clientName ?? props.clientId);
+const displayName = computed(
+	() => props.clientName ?? props.clientId ?? "An application",
+);
 
 const handleDecision = async (approved: boolean) => {
 	error.value = null;
 	loading.value = true;
-
 	try {
 		const baseUrl = props.authBaseUrl ?? "/api/auth";
-		const response = await fetch(`${baseUrl}/authorize`, {
+		const response = await fetch(`${baseUrl}/oauth2/consent`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			credentials: "include",
 			body: JSON.stringify({
-				client_id: props.clientId,
-				redirect_uri: props.redirectUri,
-				response_type: props.responseType,
-				code_challenge: props.codeChallenge,
-				code_challenge_method: props.codeChallengeMethod,
-				scope: props.scopes?.join(" "),
-				state: props.state,
+				request_id: props.requestId,
+				csrf_token: props.csrfToken,
 				approved,
 			}),
 		});
 
-		if (response.redirected) {
-			window.location.href = response.url;
-			return;
-		}
-
+		const body = await response.json().catch(() => null);
 		if (!response.ok) {
-			const body = await response.json().catch(() => null);
 			throw new Error(
 				body?.error_description ?? body?.error ?? "Authorization failed",
 			);
 		}
-
-		const location = response.headers.get("Location");
-		if (location) {
-			window.location.href = location;
+		// The server mints the code and returns the redirect URL (both on
+		// approval and on denial, which carries error=access_denied).
+		if (body?.redirect_url) {
+			if (!isSafeRedirect(body.redirect_url)) {
+				throw new Error("Blocked unsafe redirect target");
+			}
+			window.location.href = body.redirect_url;
 			return;
 		}
-
-		props.onSubmit?.(approved);
+		emit("result", approved);
 	} catch (err) {
 		const e = err instanceof Error ? err : new Error(String(err));
 		error.value = e.message;
-		props.onError?.(e);
+		emit("error", e);
 	} finally {
 		loading.value = false;
 	}
@@ -101,10 +106,10 @@ const handleDecision = async (approved: boolean) => {
 				<li
 					v-for="scope in scopes"
 					:key="scope"
-					class="flex items-center gap-2 text-sm"
+					class="flex items-start gap-2 text-sm"
 				>
 					<svg
-						class="h-4 w-4 text-primary"
+						class="mt-0.5 h-4 w-4 shrink-0 text-primary"
 						fill="none"
 						stroke="currentColor"
 						viewBox="0 0 24 24"
@@ -118,7 +123,15 @@ const handleDecision = async (approved: boolean) => {
 							d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
 						/>
 					</svg>
-					<span>{{ scope }}</span>
+					<span>
+						{{ scopeDescriptions?.[scope] ?? scope }}
+						<code
+							v-if="scopeDescriptions?.[scope]"
+							class="ml-1 text-xs text-muted-foreground"
+						>
+							{{ scope }}
+						</code>
+					</span>
 				</li>
 			</ul>
 		</div>

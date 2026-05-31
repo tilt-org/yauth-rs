@@ -11,6 +11,11 @@ pub mod state;
 pub(crate) mod otel;
 
 pub mod plugins;
+
+/// Root-level OAuth discovery helper for MCP servers (RFC 9728 + RFC 8414).
+#[cfg(feature = "oauth2-server")]
+pub mod mcpauth;
+
 #[cfg(feature = "openapi")]
 pub mod routes_meta;
 

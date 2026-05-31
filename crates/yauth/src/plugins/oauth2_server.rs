@@ -100,7 +100,7 @@ impl YAuthPlugin for OAuth2ServerPlugin {
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize)]
-struct AuthorizationServerMetadata {
+pub(crate) struct AuthorizationServerMetadata {
     issuer: String,
     authorization_endpoint: String,
     token_endpoint: String,
@@ -124,6 +124,14 @@ struct AuthorizationServerMetadata {
 }
 
 async fn as_metadata(State(state): State<YAuthState>) -> Json<AuthorizationServerMetadata> {
+    Json(build_as_metadata(&state))
+}
+
+/// Builds the RFC 8414 authorization-server metadata document from state.
+/// Exposed within the crate so `mcpauth` can serve a root-level alias with a
+/// patched `authorization_endpoint` (pointing at the consent UI) without
+/// duplicating this construction.
+pub(crate) fn build_as_metadata(state: &YAuthState) -> AuthorizationServerMetadata {
     let config = &state.oauth2_server_config;
     let issuer = &config.issuer;
 
@@ -157,7 +165,7 @@ async fn as_metadata(State(state): State<YAuthState>) -> Json<AuthorizationServe
         };
     }
 
-    Json(AuthorizationServerMetadata {
+    AuthorizationServerMetadata {
         issuer: issuer.clone(),
         authorization_endpoint: format!("{}/oauth/authorize", issuer),
         token_endpoint: format!("{}/oauth/token", issuer),
@@ -178,7 +186,7 @@ async fn as_metadata(State(state): State<YAuthState>) -> Json<AuthorizationServe
         token_endpoint_auth_signing_alg_values_supported,
         id_token_signing_alg_values_supported,
         code_challenge_methods_supported: vec!["S256".into()],
-    })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1352,6 +1360,7 @@ pub struct ClientRegistrationResponse {
 
 async fn dynamic_client_registration(
     State(state): State<YAuthState>,
+    headers: axum::http::HeaderMap,
     Json(raw): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Parse the typed (Go-aligned) shape first; extract any Rust-only
@@ -1379,6 +1388,28 @@ async fn dynamic_client_registration(
         ));
     }
 
+    // Open registration is unauthenticated; rate-limit per client IP so it
+    // can't be used to flood the client store (RFC 7591 §5). Fail-open if the
+    // rate-limit backend errors.
+    let client_ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("unknown");
+    if !state
+        .repos
+        .rate_limits
+        .check_rate_limit(&format!("oauth2_register:{client_ip}"), 20, 60)
+        .await
+        .map(|r| r.allowed)
+        .unwrap_or(true)
+    {
+        crate::otel::add_event("oauth2_register_rate_limited", vec![]);
+        return Err(api_err(StatusCode::TOO_MANY_REQUESTS, "Too many requests"));
+    }
+
     if input.redirect_uris.is_empty() {
         return Err(api_err(
             StatusCode::BAD_REQUEST,
@@ -1387,11 +1418,14 @@ async fn dynamic_client_registration(
     }
 
     for uri in &input.redirect_uris {
-        if url::Url::parse(uri).is_err() {
-            return Err(api_err(
+        let parsed = url::Url::parse(uri).map_err(|_| {
+            api_err(
                 StatusCode::BAD_REQUEST,
-                &format!("Invalid redirect_uri: {}", uri),
-            ));
+                &format!("Invalid redirect_uri: {uri}"),
+            )
+        })?;
+        if let Some(reason) = redirect_uri_scheme_reason(&parsed) {
+            return Err(api_err(StatusCode::BAD_REQUEST, reason));
         }
     }
 
@@ -1408,6 +1442,16 @@ async fn dynamic_client_registration(
         .token_endpoint_auth_method
         .as_deref()
         .unwrap_or("none");
+
+    // Public-only by default: a self-registered confidential client could use
+    // client_credentials to mint a no-user token. Confidential/M2M clients must
+    // be provisioned via the admin endpoint unless explicitly allowed.
+    if !config.dcr_allow_confidential_clients && auth_method != "none" {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "dynamic registration is restricted to public clients; token_endpoint_auth_method must be \"none\"",
+        ));
+    }
 
     let client_id = Uuid::now_v7().to_string();
 
@@ -2850,6 +2894,29 @@ async fn lookup_client(
             api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?
         .ok_or_else(|| api_err(StatusCode::BAD_REQUEST, "Unknown client_id"))
+}
+
+/// Validates a redirect_uri's scheme per OAuth 2.1 BCP §9. Returns `None` when
+/// acceptable, or a rejection reason. A consent UI follows the redirect via the
+/// equivalent of `window.location = redirect_uri`, so dangerous pseudo-schemes
+/// (`javascript:`, `data:`, …) are an open-redirect → XSS sink and are refused;
+/// plaintext http is permitted only for loopback hosts (https and custom
+/// native-app schemes are allowed).
+fn redirect_uri_scheme_reason(uri: &url::Url) -> Option<&'static str> {
+    match uri.scheme().to_ascii_lowercase().as_str() {
+        "javascript" | "data" | "vbscript" | "file" | "blob" | "about" => {
+            Some("redirect_uri scheme is not allowed")
+        }
+        "http" => {
+            let loopback = matches!(uri.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
+            if loopback {
+                None
+            } else {
+                Some("plaintext http redirect_uris are only allowed for loopback hosts; use https")
+            }
+        }
+        _ => None,
+    }
 }
 
 fn resolve_redirect_uri(

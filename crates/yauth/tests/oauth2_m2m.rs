@@ -107,7 +107,11 @@ impl TestApp {
             #[cfg(feature = "asymmetric-jwt")]
             kid: None,
         })
-        .with_oauth2_server(yauth::config::OAuth2ServerConfig::default());
+        .with_oauth2_server(yauth::config::OAuth2ServerConfig {
+            allow_dynamic_registration: true,
+            dcr_allow_confidential_clients: true,
+            ..Default::default()
+        });
 
         let auth = builder.build().await.expect("build YAuth");
         let auth_state = auth.state().clone();
@@ -294,7 +298,11 @@ async fn revoke_jti_via_state_rejects_token() {
         #[cfg(feature = "asymmetric-jwt")]
         kid: None,
     })
-    .with_oauth2_server(yauth::config::OAuth2ServerConfig::default());
+    .with_oauth2_server(yauth::config::OAuth2ServerConfig {
+        allow_dynamic_registration: true,
+        dcr_allow_confidential_clients: true,
+        ..Default::default()
+    });
 
     let auth = builder.build().await.expect("build YAuth");
     let state = auth.state().clone();
