@@ -251,6 +251,18 @@ async fn verify_magic_link(
                 );
                 return Err(api_err(StatusCode::FORBIDDEN, "Account suspended"));
             }
+            // Suspended (offboarded) or staged (scheduled start) users cannot
+            // complete a magic-link login.
+            if !u.can_authenticate(chrono::Utc::now().naive_utc()) {
+                crate::otel::add_event(
+                    "magic_link_verify_inactive_user",
+                    #[cfg(feature = "telemetry")]
+                    vec![opentelemetry::KeyValue::new("user.email", email.to_string())],
+                    #[cfg(not(feature = "telemetry"))]
+                    vec![],
+                );
+                return Err(api_err(StatusCode::FORBIDDEN, "Account is not active"));
+            }
             (u, false)
         }
         None => {

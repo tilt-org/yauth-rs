@@ -2207,9 +2207,15 @@ async fn introspect_endpoint(
                         &validation,
                     ) {
                         let claims = &token_data.claims;
+                        let sub = claims.get("sub").and_then(|v| v.as_str()).map(String::from);
+                        // Lifecycle-aware introspection: a banned/suspended/staged
+                        // subject makes the token inactive (fail-open on lookup error).
+                        if !user_active_for_introspect(&state, sub.as_deref()).await {
+                            return Json(IntrospectResponse::inactive()).into_response();
+                        }
                         return Json(IntrospectResponse {
                             active: true,
-                            sub: claims.get("sub").and_then(|v| v.as_str()).map(String::from),
+                            sub,
                             client_id: claims.get("aud").and_then(|v| v.as_str()).map(String::from),
                             scope: claims
                                 .get("scope")
@@ -2238,6 +2244,11 @@ async fn introspect_endpoint(
                     && !stored.revoked
                     && stored.expires_at > Utc::now().naive_utc()
                 {
+                    // Lifecycle-aware introspection (fail-open on lookup error).
+                    if !user_active_for_introspect(&state, Some(&stored.user_id.to_string())).await
+                    {
+                        return Json(IntrospectResponse::inactive()).into_response();
+                    }
                     return Json(IntrospectResponse {
                         active: true,
                         sub: Some(stored.user_id.to_string()),
@@ -2255,6 +2266,28 @@ async fn introspect_endpoint(
     }
 
     Json(IntrospectResponse::inactive()).into_response()
+}
+
+/// Reports whether an introspected token's subject may still be considered
+/// active (lifecycle-aware introspection, RFC 7662). A banned, globally
+/// suspended, or staged user makes the token inactive — making per-request
+/// introspection an instant-termination path for resource servers.
+///
+/// Tokens whose subject is not a user (e.g. `client_credentials`, where `sub`
+/// is a client id that does not parse as a user UUID) are not gated. Lookup
+/// errors and `NotFound` **fail open** (return `true`) so a transient DB blip
+/// does not break introspection. Mirrors yauth-go's `userActiveForIntrospect`.
+async fn user_active_for_introspect(state: &YAuthState, sub: Option<&str>) -> bool {
+    let Some(sub) = sub else { return true };
+    let Ok(user_id) = sub.parse::<Uuid>() else {
+        // Non-user subject (e.g. machine/client_credentials) — not gated.
+        return true;
+    };
+    match state.repos.users.find_by_id(user_id).await {
+        Ok(Some(user)) => user.can_authenticate(Utc::now().naive_utc()),
+        // NotFound or DB error: fail open.
+        _ => true,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2976,7 +3009,10 @@ async fn authenticate_user(
             crate::auth::session::validate_session(state, token, None, None).await
         {
             if let Ok(Some(user)) = state.repos.users.find_by_id(session_user.user_id).await {
-                if !user.banned {
+                // Gate the full lifecycle verdict so suspended/staged users
+                // cannot drive the /authorize flow (mirrors yauth-go's session
+                // middleware, which gates every RequireAuth route incl. authorize).
+                if user.can_authenticate(chrono::Utc::now().naive_utc()) {
                     return Ok(AuthUser {
                         id: user.id,
                         email: user.email,

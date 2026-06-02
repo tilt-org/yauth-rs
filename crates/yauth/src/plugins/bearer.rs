@@ -766,8 +766,13 @@ pub async fn validate_jwt(token: &str, state: &YAuthState) -> Result<AuthUser, S
         .map_err(|e| format!("DB error during JWT validation: {}", e))?
         .ok_or_else(|| "User not found".to_string())?;
 
-    if user.banned {
-        return Err("Account suspended".to_string());
+    // Per-request access-token gate (mirrors yauth-go bearer resolver): a
+    // banned, globally suspended, or staged user cannot authenticate — even
+    // with an otherwise-valid, unexpired access token. Access tokens are not
+    // revoked by the lifecycle kill switch (only refresh tokens are), so this
+    // re-check on every request is the instant-termination path for bearer auth.
+    if !user.can_authenticate(chrono::Utc::now().naive_utc()) {
+        return Err("Account is not active".to_string());
     }
 
     // Issue #89: lift the active-org claims off the JWT into AuthUser. We

@@ -342,9 +342,16 @@ pub async fn validate_api_key(
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or_else(|| "User not found".to_string())?;
 
-    if user.banned {
+    // The API-key resolver is the SOLE lifecycle gate for api-key requests:
+    // the auth middleware short-circuits its session/cookie gate once an
+    // AuthUser extension is set, and the lifecycle kill switch does not revoke
+    // API keys. Banned-only here would let an offboarded user's key keep
+    // authenticating indefinitely, so we gate the full lifecycle verdict
+    // (banned / globally suspended / staged). This intentionally diverges from
+    // yauth-go v0.14.0, whose api-key resolver is banned-only.
+    if !user.can_authenticate(chrono::Utc::now().naive_utc()) {
         crate::otel::add_event(
-            "api_key_banned_user",
+            "api_key_inactive_user",
             #[cfg(feature = "telemetry")]
             vec![
                 opentelemetry::KeyValue::new("user.id", user.id.to_string()),
@@ -353,7 +360,7 @@ pub async fn validate_api_key(
             #[cfg(not(feature = "telemetry"))]
             vec![],
         );
-        return Err("Account suspended".to_string());
+        return Err("Account is not active".to_string());
     }
 
     // Wire API key scopes into AuthUser

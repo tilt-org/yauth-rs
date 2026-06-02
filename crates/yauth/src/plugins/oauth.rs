@@ -638,6 +638,22 @@ async fn handle_callback(
             return Err(api_err(StatusCode::FORBIDDEN, "Account suspended"));
         }
 
+        // Suspended (offboarded) or staged (scheduled start) users cannot
+        // complete a social login.
+        if !user.can_authenticate(chrono::Utc::now().naive_utc()) {
+            crate::otel::add_event(
+                "oauth_login_inactive_user",
+                #[cfg(feature = "telemetry")]
+                vec![
+                    opentelemetry::KeyValue::new("oauth.provider", provider.to_string()),
+                    opentelemetry::KeyValue::new("user.id", user.id.to_string()),
+                ],
+                #[cfg(not(feature = "telemetry"))]
+                vec![],
+            );
+            return Err(api_err(StatusCode::FORBIDDEN, "Account is not active"));
+        }
+
         crate::otel::add_event(
             "oauth_login_succeeded",
             #[cfg(feature = "telemetry")]
