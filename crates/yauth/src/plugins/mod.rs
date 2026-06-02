@@ -30,6 +30,9 @@ pub mod oauth2_server;
 #[cfg(feature = "oauth2-server")]
 pub mod end_session;
 
+#[cfg(all(feature = "oauth2-server", feature = "oidc"))]
+pub mod backchannel_logout_emitter;
+
 #[cfg(feature = "account-lockout")]
 pub mod account_lockout;
 

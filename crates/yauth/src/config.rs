@@ -466,6 +466,12 @@ pub struct OAuth2ServerConfig {
     /// with all query params forwarded. When None, returns JSON (API-only mode).
     #[serde(default)]
     pub consent_ui_url: Option<String>,
+    /// Per-delivery timeout for an OIDC Back-Channel Logout `logout_token` POST
+    /// (default: 5 seconds). Bounds the outbound request so a slow/unreachable
+    /// RP never blocks the offboarding that triggered the fan-out, and is part
+    /// of the SSRF defense (paired with redirect-disabled delivery).
+    #[serde(default = "default_backchannel_logout_timeout", with = "duration_secs")]
+    pub backchannel_logout_timeout: Duration,
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -476,6 +482,11 @@ fn default_device_code_ttl() -> Duration {
 #[cfg(feature = "oauth2-server")]
 fn default_device_poll_interval() -> u32 {
     5
+}
+
+#[cfg(feature = "oauth2-server")]
+fn default_backchannel_logout_timeout() -> Duration {
+    Duration::from_secs(5)
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -493,6 +504,7 @@ impl Default for OAuth2ServerConfig {
             device_poll_interval: 5,
             device_verification_uri: None,
             consent_ui_url: None,
+            backchannel_logout_timeout: Duration::from_secs(5),
         }
     }
 }

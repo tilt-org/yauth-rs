@@ -531,6 +531,9 @@ async fn ban_user(
         .unwrap_or(0);
     revoke_all_user_refresh_tokens(&state, id).await;
 
+    // Offboarding event → OIDC Back-Channel Logout fan-out to the user's RPs.
+    let _ = state.emit_event(&crate::plugin::AuthEvent::UserBanned { user_id: id });
+
     crate::otel::add_event(
         "admin_user_banned",
         #[cfg(feature = "telemetry")]
@@ -685,6 +688,9 @@ async fn suspend_user(
         .await
         .unwrap_or(0);
     revoke_all_user_refresh_tokens(&state, id).await;
+
+    // Offboarding event → OIDC Back-Channel Logout fan-out to the user's RPs.
+    let _ = state.emit_event(&crate::plugin::AuthEvent::UserSuspended { user_id: id });
 
     crate::otel::add_event(
         "admin_user_suspended",

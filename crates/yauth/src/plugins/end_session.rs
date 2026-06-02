@@ -100,10 +100,7 @@ async fn handle_end_session(
             StatusCode::OK,
             [
                 (header::SET_COOKIE, clear_cookie),
-                (
-                    header::CONTENT_TYPE,
-                    "text/html; charset=utf-8".to_string(),
-                ),
+                (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
                 (header::CACHE_CONTROL, "no-store".to_string()),
             ],
             LOGGED_OUT_HTML,
@@ -126,7 +123,12 @@ async fn handle_end_session(
 
     // Look up the client and exact-match the redirect URI against its
     // registered post_logout_redirect_uris.
-    let client = match state.repos.oauth2_clients.find_by_client_id(&client_id).await {
+    let client = match state
+        .repos
+        .oauth2_clients
+        .find_by_client_id(&client_id)
+        .await
+    {
         Ok(Some(c)) => c,
         Ok(None) => {
             return with_clear_cookie(
@@ -138,7 +140,11 @@ async fn handle_end_session(
             crate::otel::record_error("end_session_client_lookup_failed", &e);
             return with_clear_cookie(
                 clear_cookie,
-                oauth2_error(StatusCode::INTERNAL_SERVER_ERROR, "server_error", "lookup client"),
+                oauth2_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "server_error",
+                    "lookup client",
+                ),
             );
         }
     };
@@ -172,10 +178,7 @@ async fn handle_end_session(
 
     (
         StatusCode::FOUND,
-        [
-            (header::SET_COOKIE, clear_cookie),
-            (header::LOCATION, dest),
-        ],
+        [(header::SET_COOKIE, clear_cookie), (header::LOCATION, dest)],
     )
         .into_response()
 }
@@ -262,8 +265,9 @@ fn verify_id_token_hint(
     validation.required_spec_claims = std::collections::HashSet::new();
     validation.validate_aud = false;
 
-    let data = decode::<serde_json::Map<String, serde_json::Value>>(raw, &decoding_key, &validation)
-        .map_err(|e| format!("id_token_hint verification failed: {e}"))?;
+    let data =
+        decode::<serde_json::Map<String, serde_json::Value>>(raw, &decoding_key, &validation)
+            .map_err(|e| format!("id_token_hint verification failed: {e}"))?;
     Ok(data.claims)
 }
 

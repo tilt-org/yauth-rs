@@ -2253,7 +2253,11 @@ async fn introspect_endpoint(
                     && stored.expires_at > Utc::now().naive_utc()
                 {
                     // Lifecycle-aware introspection (fail-open on lookup error).
-                    if !user_active_for_introspect(&state.repos.users, Some(&stored.user_id.to_string())).await
+                    if !user_active_for_introspect(
+                        &state.repos.users,
+                        Some(&stored.user_id.to_string()),
+                    )
+                    .await
                     {
                         return Json(IntrospectResponse::inactive()).into_response();
                     }

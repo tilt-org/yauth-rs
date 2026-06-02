@@ -234,6 +234,8 @@ pub(super) async fn apply_scim_active_lifecycle(
         // Always (re-)assert the kill switch on active:false so a repeated
         // de-provision flushes any sessions/tokens minted in between.
         scim_kill_switch(state, user.id).await;
+        // Offboarding event → OIDC Back-Channel Logout fan-out to the user's RPs.
+        let _ = state.emit_event(&crate::plugin::AuthEvent::UserSuspended { user_id: user.id });
         return Ok(());
     }
 

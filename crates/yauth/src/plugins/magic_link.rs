@@ -257,7 +257,10 @@ async fn verify_magic_link(
                 crate::otel::add_event(
                     "magic_link_verify_inactive_user",
                     #[cfg(feature = "telemetry")]
-                    vec![opentelemetry::KeyValue::new("user.email", email.to_string())],
+                    vec![opentelemetry::KeyValue::new(
+                        "user.email",
+                        email.to_string(),
+                    )],
                     #[cfg(not(feature = "telemetry"))]
                     vec![],
                 );
