@@ -43,9 +43,9 @@ All responses carry `Content-Type: application/scim+json` (RFC 7644 §3.8). All 
 |------------------------|----------------------------------------------------------------------------|
 | `User`                 | `User` + `Membership` in this org                                          |
 | `User.externalId`      | `ExternalIdentity` keyed by `(provider="scim:<org_id>", external_id=<...>)`|
-| `User.active: false`   | `Membership.status = suspended` (NOT a user delete)                        |
+| `User.active: false`   | **Global suspend** — sets the user's `suspended_at` (reason `"SCIM deprovisioned"`) and trips the kill switch (terminate all sessions + revoke all refresh tokens) for an instant lockout *everywhere*. The org membership is also flipped to `suspended`. NOT a user delete. `active: true` reverses it, but only for SCIM-originated suspensions (so a manual admin offboard is never silently undone by a routine sync). |
 | `User.groups[]`        | Via `SsoConnection.attribute_mappings.group_to_role` (most-privileged wins). If no connection, accept the literal built-in role name. |
-| `DELETE /Users/{id}`   | Remove **membership only**; the user row persists                          |
+| `DELETE /Users/{id}`   | Remove the org membership **and trip the kill switch** (terminate sessions + revoke refresh tokens). The user row persists for audit; `suspended_at` is **not** set, so a later re-`POST` provisions a clean, usable account. |
 | `Group`                | A built-in role (owner / admin / billing_admin / member / viewer) — virtual; not a first-class entity |
 | `Group.id`             | `role:<rolename>` (e.g. `role:admin`)                                      |
 

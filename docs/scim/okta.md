@@ -55,8 +55,8 @@ If your Okta tenant uses an SSO connection on the yauth side (issue #93), the co
 Assign individual users or groups to the app under **Assignments**. Okta will push them via SCIM:
 
 - New user → `POST /Users` (yauth provisions a `User` + `Membership` row).
-- Deactivated in Okta → `PUT /Users/{id}` with `"active": false` → yauth flips the membership to `suspended`. The user row stays for audit retention.
-- Removed from app → `DELETE /Users/{id}` → yauth deletes the membership only.
+- Deactivated in Okta → `PUT /Users/{id}` with `"active": false` → yauth **globally suspends** the account (sets `suspended_at`, reason `"SCIM deprovisioned"`) and trips the kill switch — every session is terminated and every refresh token revoked, for an instant lockout everywhere. Re-activating in Okta (`"active": true`) reverses it, but only because the suspension was SCIM-originated; a manual admin offboard is never silently undone. The user row stays for audit retention.
+- Removed from app → `DELETE /Users/{id}` → yauth removes the membership and trips the kill switch (sessions + refresh tokens), but does not set `suspended_at`, so a later re-add provisions cleanly.
 
 ## Step 5 — Push Groups (optional)
 
