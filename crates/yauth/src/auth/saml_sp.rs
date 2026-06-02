@@ -1468,4 +1468,112 @@ mod tests {
         let id = find_id_for_local_name_excluding(xml, "Assertion", "EncryptedAssertion").unwrap();
         assert_eq!(id, "real");
     }
+
+    // ── redirect-binding signature verification ──────────────────────
+
+    use base64::engine::general_purpose::STANDARD as TEST_B64;
+    use rsa::RsaPrivateKey;
+    use rsa::pkcs8::EncodePublicKey;
+    use rsa::signature::{RandomizedSigner, SignatureEncoding};
+
+    fn rsa_key() -> RsaPrivateKey {
+        let mut rng = rand::thread_rng();
+        RsaPrivateKey::new(&mut rng, 2048).expect("rsa key gen")
+    }
+
+    fn spki_pem(key: &RsaPrivateKey) -> String {
+        RsaPublicKey::from(key)
+            .to_public_key_pem(rsa::pkcs8::LineEnding::LF)
+            .expect("spki pem")
+    }
+
+    fn octet_string(sig_alg: &str) -> String {
+        // A representative SAMLRequest value in its already-percent-
+        // encoded shape (content is opaque to the signature), plus the
+        // percent-encoded SigAlg URI — exactly the bytes the redirect
+        // binding signs.
+        let mut alg = String::new();
+        for b in sig_alg.bytes() {
+            match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    alg.push(b as char)
+                }
+                _ => alg.push_str(&format!("%{b:02X}")),
+            }
+        }
+        format!("SAMLRequest=Zm9vYmFy%2Fw%3D%3D&SigAlg={alg}")
+    }
+
+    #[test]
+    fn redirect_sha256_signature_verifies_and_tamper_is_rejected() {
+        use rsa::pkcs1v15::SigningKey;
+        let key = rsa_key();
+        let pem = spki_pem(&key);
+        let raw = octet_string(SIG_ALG_RSA_SHA256);
+        let mut rng = rand::thread_rng();
+        let sk = SigningKey::<RsaSha256>::new(key);
+        let sig = sk.sign_with_rng(&mut rng, raw.as_bytes());
+        let sig_b64 = TEST_B64.encode(sig.to_bytes());
+
+        verify_redirect_binding_signature(&raw, SIG_ALG_RSA_SHA256, &sig_b64, &pem)
+            .expect("valid sha256 redirect signature must verify");
+
+        // Flip one byte of the signed octet string → must reject.
+        let mut tampered = raw.clone().into_bytes();
+        tampered[0] ^= 0x01;
+        let tampered = String::from_utf8(tampered).unwrap();
+        assert_eq!(
+            verify_redirect_binding_signature(&tampered, SIG_ALG_RSA_SHA256, &sig_b64, &pem),
+            Err(SamlError::BadLogoutRequestSignature)
+        );
+    }
+
+    #[test]
+    fn redirect_sha1_legacy_signature_verifies_and_tamper_is_rejected() {
+        use rsa::pkcs1v15::SigningKey;
+        let key = rsa_key();
+        let pem = spki_pem(&key);
+        let raw = octet_string(SIG_ALG_RSA_SHA1);
+        let mut rng = rand::thread_rng();
+        // Sign with SHA-1 at the matching digest version — this is the
+        // legacy path the renamed `sha1_digest010` dep exists for.
+        let sk = SigningKey::<sha1_digest010::Sha1>::new(key);
+        let sig = sk.sign_with_rng(&mut rng, raw.as_bytes());
+        let sig_b64 = TEST_B64.encode(sig.to_bytes());
+
+        verify_redirect_binding_signature(&raw, SIG_ALG_RSA_SHA1, &sig_b64, &pem)
+            .expect("valid sha1 redirect signature must verify");
+
+        let mut tampered = raw.clone().into_bytes();
+        tampered[0] ^= 0x01;
+        let tampered = String::from_utf8(tampered).unwrap();
+        assert_eq!(
+            verify_redirect_binding_signature(&tampered, SIG_ALG_RSA_SHA1, &sig_b64, &pem),
+            Err(SamlError::BadLogoutRequestSignature)
+        );
+    }
+
+    #[test]
+    fn redirect_unsupported_sig_alg_is_rejected() {
+        use rsa::pkcs1v15::SigningKey;
+        let key = rsa_key();
+        let pem = spki_pem(&key);
+        let raw = octet_string("http://example.com/madeup");
+        let mut rng = rand::thread_rng();
+        let sk = SigningKey::<RsaSha256>::new(key);
+        let sig = sk.sign_with_rng(&mut rng, raw.as_bytes());
+        let sig_b64 = TEST_B64.encode(sig.to_bytes());
+
+        let err = verify_redirect_binding_signature(
+            &raw,
+            "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
+            &sig_b64,
+            &pem,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, SamlError::UnsupportedSignatureAlgorithm(_)),
+            "{err:?}"
+        );
+    }
 }
