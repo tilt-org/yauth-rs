@@ -25,6 +25,18 @@ use crate::state::YAuthState;
 /// Maximum request body size for OAuth endpoints (16 KB).
 const MAX_OAUTH_BODY: usize = 16 * 1024;
 
+/// Effective access-token lifetime for tokens minted at the OAuth2 token
+/// endpoint: `oauth2_server.access_ttl` when set, otherwise the
+/// `bearer.access_token_ttl` fallback. Used for both the advertised
+/// `expires_in` and the JWT `exp`, so they never disagree.
+fn effective_access_ttl(state: &YAuthState) -> std::time::Duration {
+    state
+        .oauth2_server_config
+        .access_ttl
+        .map(|d| d.0)
+        .unwrap_or(state.bearer_config.access_token_ttl)
+}
+
 /// Parse a request body as JSON or form-urlencoded based on Content-Type.
 /// Returns `Err(message)` on unsupported content type or parse failure.
 fn parse_json_or_form<T: serde::de::DeserializeOwned>(
@@ -1037,16 +1049,20 @@ async fn handle_authorization_code_grant(
                 .with_active_org_for(state)
                 .await;
 
-        let (access_token, _jti) =
-            crate::plugins::bearer::create_jwt(&jwt_user, state, scope_str.as_deref()).map_err(
-                |_| {
-                    oauth2_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "server_error",
-                        "Failed to create token",
-                    )
-                },
-            )?;
+        let access_ttl = effective_access_ttl(state);
+        let (access_token, _jti) = crate::plugins::bearer::create_jwt_with_ttl(
+            &jwt_user,
+            state,
+            scope_str.as_deref(),
+            access_ttl,
+        )
+        .map_err(|_| {
+            oauth2_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "server_error",
+                "Failed to create token",
+            )
+        })?;
 
         let family_id = Uuid::now_v7();
         let refresh_token = create_refresh_token_for_oauth2(
@@ -1064,7 +1080,7 @@ async fn handle_authorization_code_grant(
             )
         })?;
 
-        let expires_in = bearer_config.access_token_ttl.as_secs();
+        let expires_in = access_ttl.as_secs();
 
         crate::otel::add_event(
             "oauth2_token_issued_auth_code",
@@ -1252,6 +1268,7 @@ async fn handle_oauth2_refresh_token(
         }
 
         let bearer_config = &state.bearer_config;
+        let access_ttl = effective_access_ttl(state);
 
         let (access_token, _jti) = {
             let jwt_user = crate::plugins::bearer::JwtUser::new(
@@ -1261,13 +1278,14 @@ async fn handle_oauth2_refresh_token(
             )
             .with_active_org_for(state)
             .await;
-            crate::plugins::bearer::create_jwt(&jwt_user, state, None).map_err(|_| {
-                oauth2_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "server_error",
-                    "Failed to create token",
-                )
-            })?
+            crate::plugins::bearer::create_jwt_with_ttl(&jwt_user, state, None, access_ttl)
+                .map_err(|_| {
+                    oauth2_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "server_error",
+                        "Failed to create token",
+                    )
+                })?
         };
 
         let new_refresh = create_refresh_token_for_oauth2(
@@ -1285,7 +1303,7 @@ async fn handle_oauth2_refresh_token(
             )
         })?;
 
-        let expires_in = bearer_config.access_token_ttl.as_secs();
+        let expires_in = access_ttl.as_secs();
 
         return Ok(Json(OAuth2TokenResponse {
             access_token,
@@ -2087,16 +2105,20 @@ async fn handle_device_code_grant(
                 .with_active_org_for(state)
                 .await;
 
-        let (access_token, _jti) =
-            crate::plugins::bearer::create_jwt(&jwt_user, state, scope_str.as_deref()).map_err(
-                |_| {
-                    oauth2_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "server_error",
-                        "Failed to create token",
-                    )
-                },
-            )?;
+        let access_ttl = effective_access_ttl(state);
+        let (access_token, _jti) = crate::plugins::bearer::create_jwt_with_ttl(
+            &jwt_user,
+            state,
+            scope_str.as_deref(),
+            access_ttl,
+        )
+        .map_err(|_| {
+            oauth2_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "server_error",
+                "Failed to create token",
+            )
+        })?;
 
         let family_id = Uuid::now_v7();
         let refresh_token = create_refresh_token_for_oauth2(
@@ -2114,7 +2136,7 @@ async fn handle_device_code_grant(
             )
         })?;
 
-        let expires_in = bearer_config.access_token_ttl.as_secs();
+        let expires_in = access_ttl.as_secs();
 
         crate::otel::add_event(
             "oauth2_token_issued_device_code",
@@ -2525,8 +2547,9 @@ async fn handle_client_credentials_grant(
     #[cfg(feature = "bearer")]
     {
         let bearer_config = &state.bearer_config;
+        let access_ttl = effective_access_ttl(state);
         let now = Utc::now();
-        let exp = (now + bearer_config.access_token_ttl).timestamp() as usize;
+        let exp = (now + access_ttl).timestamp() as usize;
         let iat = now.timestamp() as usize;
         let jti = Uuid::now_v7().to_string();
 
@@ -2564,7 +2587,7 @@ async fn handle_client_credentials_grant(
             )
         })?;
 
-        let expires_in = bearer_config.access_token_ttl.as_secs();
+        let expires_in = access_ttl.as_secs();
 
         crate::otel::add_event(
             "oauth2_token_issued_client_credentials",
