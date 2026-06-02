@@ -60,6 +60,9 @@ fn new_user(email_prefix: &str) -> NewUser {
         banned: false,
         banned_reason: None,
         banned_until: None,
+        suspended_at: None,
+        suspended_reason: None,
+        activates_at: None,
         created_at: n,
         updated_at: n,
     }

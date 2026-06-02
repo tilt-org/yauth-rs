@@ -792,6 +792,9 @@ async fn pentest_pre_existing_email_blocks_jit() {
             banned: false,
             banned_reason: None,
             banned_until: None,
+            suspended_at: None,
+            suspended_reason: None,
+            activates_at: None,
             created_at: now,
             updated_at: now,
         })

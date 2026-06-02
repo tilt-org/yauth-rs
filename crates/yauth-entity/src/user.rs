@@ -105,3 +105,70 @@ pub struct NewSession {
     #[serde(default)]
     pub active_org_id: Option<Uuid>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+
+    fn base_user() -> User {
+        let now = Utc::now().naive_utc();
+        User {
+            id: Uuid::now_v7(),
+            email: "u@example.com".into(),
+            display_name: None,
+            email_verified: true,
+            role: "user".into(),
+            banned: false,
+            banned_reason: None,
+            banned_until: None,
+            suspended_at: None,
+            suspended_reason: None,
+            activates_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn clean_user_can_authenticate() {
+        let now = Utc::now().naive_utc();
+        let u = base_user();
+        assert!(u.can_authenticate(now));
+        assert!(!u.staged(now));
+    }
+
+    #[test]
+    fn banned_cannot_authenticate() {
+        let now = Utc::now().naive_utc();
+        let mut u = base_user();
+        u.banned = true;
+        assert!(!u.can_authenticate(now));
+    }
+
+    #[test]
+    fn suspended_cannot_authenticate() {
+        let now = Utc::now().naive_utc();
+        let mut u = base_user();
+        u.suspended_at = Some(now - Duration::hours(1));
+        assert!(!u.can_authenticate(now));
+    }
+
+    #[test]
+    fn staged_future_start_cannot_authenticate() {
+        let now = Utc::now().naive_utc();
+        let mut u = base_user();
+        u.activates_at = Some(now + Duration::hours(1));
+        assert!(u.staged(now));
+        assert!(!u.can_authenticate(now));
+    }
+
+    #[test]
+    fn past_activation_can_authenticate() {
+        let now = Utc::now().naive_utc();
+        let mut u = base_user();
+        u.activates_at = Some(now - Duration::hours(1));
+        assert!(!u.staged(now));
+        assert!(u.can_authenticate(now));
+    }
+}
