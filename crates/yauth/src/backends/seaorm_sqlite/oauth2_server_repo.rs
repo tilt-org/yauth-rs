@@ -58,6 +58,9 @@ impl Oauth2ClientRepository for SeaOrmOauth2ClientRepo {
                 jwks_uri: Set(input.jwks_uri),
                 banned_at: Set(None),
                 banned_reason: Set(None),
+                post_logout_redirect_uris: Set(None),
+                backchannel_logout_uri: Set(None),
+                backchannel_logout_session_required: Set(false),
             };
             model.insert(&self.db).await.map_err(sea_err)?;
             Ok(())

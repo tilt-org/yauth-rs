@@ -673,6 +673,9 @@ pub(crate) struct MysqlOauth2Client {
     pub jwks_uri: Option<String>,
     pub banned_at: Option<NaiveDateTime>,
     pub banned_reason: Option<String>,
+    pub post_logout_redirect_uris: Option<String>,
+    pub backchannel_logout_uri: Option<String>,
+    pub backchannel_logout_session_required: bool,
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -693,6 +696,9 @@ impl MysqlOauth2Client {
             jwks_uri: self.jwks_uri,
             banned_at: self.banned_at,
             banned_reason: self.banned_reason,
+            post_logout_redirect_uris: self.post_logout_redirect_uris.map(|s| str_to_json(&s)),
+            backchannel_logout_uri: self.backchannel_logout_uri,
+            backchannel_logout_session_required: self.backchannel_logout_session_required,
         }
     }
 }

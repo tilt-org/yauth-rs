@@ -260,7 +260,21 @@ pub fn oauth2_server_schema() -> Vec<TableDef> {
             .column(ColumnDef::new("public_key_pem", ColumnType::Text).nullable())
             .column(ColumnDef::new("jwks_uri", ColumnType::Varchar).nullable())
             .column(ColumnDef::new("banned_at", ColumnType::DateTime).nullable())
-            .column(ColumnDef::new("banned_reason", ColumnType::Varchar).nullable()),
+            .column(ColumnDef::new("banned_reason", ColumnType::Varchar).nullable())
+            // OIDC logout (RP-Initiated Logout 1.0 + Back-Channel Logout 1.0).
+            //   post_logout_redirect_uris: JSON array of URIs the client may be
+            //     redirected to after end_session (exact-match validated to
+            //     prevent open redirect). Mirrors `scopes`: nullable JSON,
+            //     decoded to an empty list when absent.
+            //   backchannel_logout_uri: the client's Back-Channel Logout
+            //     endpoint; when set, the OP POSTs a signed logout_token there.
+            //   backchannel_logout_session_required: client wants a `sid` claim.
+            .column(ColumnDef::new("post_logout_redirect_uris", ColumnType::Json).nullable())
+            .column(ColumnDef::new("backchannel_logout_uri", ColumnType::Text).nullable())
+            .column(
+                ColumnDef::new("backchannel_logout_session_required", ColumnType::Boolean)
+                    .default("false"),
+            ),
         TableDef::new("yauth_authorization_codes")
             .description("OAuth2 authorization codes. Single-use, time-limited.")
             .column(

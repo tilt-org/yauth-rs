@@ -26,6 +26,9 @@ struct Oauth2ClientRow {
     jwks_uri: Option<String>,
     banned_at: Option<String>,
     banned_reason: Option<String>,
+    post_logout_redirect_uris: Option<String>,
+    backchannel_logout_uri: Option<String>,
+    backchannel_logout_session_required: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -86,7 +89,7 @@ impl Oauth2ClientRepository for SqlxSqliteOauth2ClientRepo {
         Box::pin(async move {
             let row = sqlx::query_as!(
                 Oauth2ClientRow,
-                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason \
+                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required \
                  FROM yauth_oauth2_clients WHERE client_id = ? /* sqlite */",
                 client_id
             )
@@ -108,6 +111,9 @@ impl Oauth2ClientRepository for SqlxSqliteOauth2ClientRepo {
                 jwks_uri: r.jwks_uri,
                 banned_at: opt_str_to_dt(r.banned_at),
                 banned_reason: r.banned_reason,
+                post_logout_redirect_uris: opt_str_to_json(r.post_logout_redirect_uris),
+                backchannel_logout_uri: r.backchannel_logout_uri,
+                backchannel_logout_session_required: r.backchannel_logout_session_required != 0,
             }))
         })
     }
@@ -189,7 +195,7 @@ impl Oauth2ClientRepository for SqlxSqliteOauth2ClientRepo {
         Box::pin(async move {
             let rows = sqlx::query_as!(
                 Oauth2ClientRow,
-                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason \
+                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required \
                  FROM yauth_oauth2_clients WHERE banned_at IS NOT NULL ORDER BY banned_at DESC /* sqlite */"
             )
             .fetch_all(&self.pool)
@@ -212,6 +218,9 @@ impl Oauth2ClientRepository for SqlxSqliteOauth2ClientRepo {
                     jwks_uri: r.jwks_uri,
                     banned_at: opt_str_to_dt(r.banned_at),
                     banned_reason: r.banned_reason,
+                    post_logout_redirect_uris: opt_str_to_json(r.post_logout_redirect_uris),
+                    backchannel_logout_uri: r.backchannel_logout_uri,
+                    backchannel_logout_session_required: r.backchannel_logout_session_required != 0,
                 })
                 .collect())
         })

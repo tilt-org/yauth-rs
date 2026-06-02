@@ -60,6 +60,9 @@ impl Oauth2ClientRepository for ToastyOauth2ClientRepo {
                 jwks_uri: input.jwks_uri,
                 banned_at: None::<jiff::Timestamp>,
                 banned_reason: None::<String>,
+                post_logout_redirect_uris: None::<serde_json::Value>,
+                backchannel_logout_uri: None::<String>,
+                backchannel_logout_session_required: false,
             })
             .exec(&mut db)
             .await
@@ -420,6 +423,9 @@ fn oauth2_client_to_domain(m: YauthOauth2Client) -> domain::Oauth2Client {
         jwks_uri: m.jwks_uri,
         banned_at: opt_jiff_to_chrono(m.banned_at),
         banned_reason: m.banned_reason,
+        post_logout_redirect_uris: m.post_logout_redirect_uris,
+        backchannel_logout_uri: m.backchannel_logout_uri,
+        backchannel_logout_session_required: m.backchannel_logout_session_required,
     }
 }
 

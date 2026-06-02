@@ -52,6 +52,9 @@ impl Oauth2ClientRepository for InMemoryOauth2ClientRepo {
                 jwks_uri: input.jwks_uri,
                 banned_at: None,
                 banned_reason: None,
+                post_logout_redirect_uris: None,
+                backchannel_logout_uri: None,
+                backchannel_logout_session_required: false,
             };
             let mut map = self.clients.write().unwrap();
             map.insert(client.id, client);

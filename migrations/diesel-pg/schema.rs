@@ -79,6 +79,9 @@ diesel::table! {
         jwks_uri -> Nullable<Varchar>,
         banned_at -> Nullable<Timestamptz>,
         banned_reason -> Nullable<Varchar>,
+        post_logout_redirect_uris -> Nullable<Jsonb>,
+        backchannel_logout_uri -> Nullable<Text>,
+        backchannel_logout_session_required -> Bool,
     }
 }
 

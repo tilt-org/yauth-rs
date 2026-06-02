@@ -29,6 +29,19 @@ pub struct Oauth2Client {
     pub banned_at: Option<NaiveDateTime>,
     #[serde(default)]
     pub banned_reason: Option<String>,
+    /// OIDC RP-Initiated Logout 1.0: JSON array of URIs this client may be
+    /// redirected to after `end_session`. Validated by exact match to prevent
+    /// open redirect; `None`/absent decodes to an empty list (no URI allowed).
+    #[serde(default)]
+    pub post_logout_redirect_uris: Option<serde_json::Value>,
+    /// OIDC Back-Channel Logout 1.0: the client's back-channel logout endpoint.
+    /// When set, the OP POSTs a signed `logout_token` here on offboarding.
+    #[serde(default)]
+    pub backchannel_logout_uri: Option<String>,
+    /// OIDC BCL §2.4: whether the client requires a `sid` claim in the
+    /// logout_token. yauth sends sub-only tokens, so this is informational.
+    #[serde(default)]
+    pub backchannel_logout_session_required: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
