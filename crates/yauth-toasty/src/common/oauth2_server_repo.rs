@@ -143,6 +143,35 @@ impl Oauth2ClientRepository for ToastyOauth2ClientRepo {
             Ok(banned)
         })
     }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut db = self.db.clone();
+            match YauthOauth2Client::filter_by_client_id(&client_id)
+                .get(&mut db)
+                .await
+            {
+                Ok(mut row) => {
+                    row.update()
+                        .post_logout_redirect_uris(post_logout_redirect_uris)
+                        .backchannel_logout_uri(backchannel_logout_uri)
+                        .backchannel_logout_session_required(backchannel_logout_session_required)
+                        .exec(&mut db)
+                        .await
+                        .map_err(toasty_err)?;
+                    Ok(true)
+                }
+                Err(_) => Ok(false),
+            }
+        })
+    }
 }
 
 // -- AuthorizationCodeRepository --
@@ -284,6 +313,17 @@ impl ConsentRepository for ToastyConsentRepo {
                     .map_err(toasty_err)?;
             }
             Ok(())
+        })
+    }
+
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let mut db = self.db.clone();
+            let rows: Vec<YauthConsent> = YauthConsent::filter_by_user_id(user_id)
+                .exec(&mut db)
+                .await
+                .map_err(toasty_err)?;
+            Ok(rows.into_iter().map(consent_to_domain).collect())
         })
     }
 }

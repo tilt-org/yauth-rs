@@ -115,6 +115,26 @@ impl Oauth2ClientRepository for InMemoryOauth2ClientRepo {
             Ok(out)
         })
     }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut map = self.clients.write().unwrap();
+            let Some(client) = map.values_mut().find(|c| c.client_id == client_id) else {
+                return Ok(false);
+            };
+            client.post_logout_redirect_uris = post_logout_redirect_uris;
+            client.backchannel_logout_uri = backchannel_logout_uri;
+            client.backchannel_logout_session_required = backchannel_logout_session_required;
+            Ok(true)
+        })
+    }
 }
 
 // ──────────────────────────────────────────────
@@ -237,6 +257,17 @@ impl ConsentRepository for InMemoryConsentRepo {
                 consent.scopes = scopes;
             }
             Ok(())
+        })
+    }
+
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let map = self.consents.read().unwrap();
+            Ok(map
+                .values()
+                .filter(|c| c.user_id == user_id)
+                .cloned()
+                .collect())
         })
     }
 }

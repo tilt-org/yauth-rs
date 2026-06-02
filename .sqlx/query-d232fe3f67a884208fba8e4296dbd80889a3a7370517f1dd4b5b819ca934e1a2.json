@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE yauth_oauth2_clients SET post_logout_redirect_uris = ?, backchannel_logout_uri = ?, backchannel_logout_session_required = ? WHERE client_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "d232fe3f67a884208fba8e4296dbd80889a3a7370517f1dd4b5b819ca934e1a2"
+}

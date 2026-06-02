@@ -221,6 +221,29 @@ impl Oauth2ClientRepository for SqlxPgOauth2ClientRepo {
                 .collect())
         })
     }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let result = sqlx::query!(
+                "UPDATE yauth_oauth2_clients SET post_logout_redirect_uris = $2, backchannel_logout_uri = $3, backchannel_logout_session_required = $4 WHERE client_id = $1",
+                client_id,
+                post_logout_redirect_uris as Option<serde_json::Value>,
+                backchannel_logout_uri as Option<String>,
+                backchannel_logout_session_required,
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(result.rows_affected() > 0)
+        })
+    }
 }
 
 // ── AuthorizationCode ──
@@ -379,6 +402,30 @@ impl ConsentRepository for SqlxPgConsentRepo {
             .await
             .map_err(sqlx_err)?;
             Ok(())
+        })
+    }
+
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let rows = sqlx::query_as!(
+                ConsentRow,
+                r#"SELECT id, user_id as "user_id!", client_id, scopes, created_at
+                   FROM yauth_consents WHERE user_id = $1"#,
+                user_id,
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(rows
+                .into_iter()
+                .map(|r| domain::Consent {
+                    id: r.id,
+                    user_id: r.user_id,
+                    client_id: r.client_id,
+                    scopes: r.scopes,
+                    created_at: r.created_at.naive_utc(),
+                })
+                .collect())
         })
     }
 }

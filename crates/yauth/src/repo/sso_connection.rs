@@ -39,6 +39,12 @@ pub trait SsoConnectionRepository: sealed::Sealed + Send + Sync {
     /// List all connections for an org, ordered by `created_at` ASC.
     fn list_for_org(&self, organization_id: Uuid) -> RepoFuture<'_, Vec<domain::SsoConnection>>;
 
+    /// List **every** SSO connection across all orgs. Used by the OIDC
+    /// Back-Channel Logout RP endpoint, which receives an unsolicited,
+    /// org-less logout_token and must match it to a connection by
+    /// (issuer, audience).
+    fn list_all(&self) -> RepoFuture<'_, Vec<domain::SsoConnection>>;
+
     /// Find the **first active** OIDC connection for an org, used by
     /// the HRD path (`/sso/login?org=...`). Returns `None` if the org
     /// has no active OIDC connection.

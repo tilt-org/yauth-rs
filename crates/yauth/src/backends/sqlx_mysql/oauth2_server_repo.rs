@@ -222,6 +222,29 @@ impl Oauth2ClientRepository for SqlxMysqlOauth2ClientRepo {
                 .collect())
         })
     }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let result = sqlx::query!(
+                "UPDATE yauth_oauth2_clients SET post_logout_redirect_uris = ?, backchannel_logout_uri = ?, backchannel_logout_session_required = ? WHERE client_id = ?",
+                post_logout_redirect_uris,
+                backchannel_logout_uri,
+                backchannel_logout_session_required,
+                client_id,
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(result.rows_affected() > 0)
+        })
+    }
 }
 
 // ── AuthorizationCode ──
@@ -387,6 +410,31 @@ impl ConsentRepository for SqlxMysqlConsentRepo {
             .await
             .map_err(sqlx_err)?;
             Ok(())
+        })
+    }
+
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let user_id_str = user_id.to_string();
+            let rows = sqlx::query_as!(
+                ConsentRow,
+                "SELECT id, user_id, client_id, scopes, created_at \
+                 FROM yauth_consents WHERE user_id = ?",
+                user_id_str,
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(rows
+                .into_iter()
+                .map(|r| domain::Consent {
+                    id: str_to_uuid(&r.id),
+                    user_id: str_to_uuid(&r.user_id.unwrap_or_default()),
+                    client_id: r.client_id,
+                    scopes: r.scopes,
+                    created_at: r.created_at,
+                })
+                .collect())
         })
     }
 }

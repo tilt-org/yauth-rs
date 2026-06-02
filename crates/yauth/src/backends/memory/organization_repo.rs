@@ -819,6 +819,15 @@ impl SsoConnectionRepository for InMemorySsoConnectionRepo {
         })
     }
 
+    fn list_all(&self) -> RepoFuture<'_, Vec<domain::SsoConnection>> {
+        Box::pin(async move {
+            let map = self.connections.read().unwrap();
+            let mut v: Vec<_> = map.values().cloned().collect();
+            v.sort_by_key(|c| c.created_at);
+            Ok(v)
+        })
+    }
+
     fn find_active_oidc_for_org(
         &self,
         organization_id: Uuid,

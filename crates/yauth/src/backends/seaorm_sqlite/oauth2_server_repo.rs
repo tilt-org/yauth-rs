@@ -123,6 +123,39 @@ impl Oauth2ClientRepository for SeaOrmOauth2ClientRepo {
             Ok(rows.into_iter().map(|m| m.into_domain()).collect())
         })
     }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let result = oauth2_clients::Entity::update_many()
+                .col_expr(
+                    oauth2_clients::Column::PostLogoutRedirectUris,
+                    Expr::value(
+                        post_logout_redirect_uris
+                            .map(|v| serde_json::to_string(&v).unwrap_or_default()),
+                    ),
+                )
+                .col_expr(
+                    oauth2_clients::Column::BackchannelLogoutUri,
+                    Expr::value(backchannel_logout_uri),
+                )
+                .col_expr(
+                    oauth2_clients::Column::BackchannelLogoutSessionRequired,
+                    Expr::value(backchannel_logout_session_required),
+                )
+                .filter(oauth2_clients::Column::ClientId.eq(&client_id))
+                .exec(&self.db)
+                .await
+                .map_err(sea_err)?;
+            Ok(result.rows_affected > 0)
+        })
+    }
 }
 
 // -- AuthorizationCodeRepository --
@@ -254,6 +287,17 @@ impl ConsentRepository for SeaOrmConsentRepo {
                 .await
                 .map_err(sea_err)?;
             Ok(())
+        })
+    }
+
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let rows = consents::Entity::find()
+                .filter(consents::Column::UserId.eq(user_id.to_string()))
+                .all(&self.db)
+                .await
+                .map_err(sea_err)?;
+            Ok(rows.into_iter().map(|m| m.into_domain()).collect())
         })
     }
 }

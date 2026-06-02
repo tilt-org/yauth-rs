@@ -258,6 +258,33 @@ impl Oauth2ClientRepository for SqliteOauth2ClientRepo {
             Ok(rows.into_iter().map(|r| r.into_domain()).collect())
         })
     }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            let updated = diesel::update(
+                yauth_oauth2_clients::table.filter(yauth_oauth2_clients::client_id.eq(&client_id)),
+            )
+            .set((
+                yauth_oauth2_clients::post_logout_redirect_uris
+                    .eq(opt_json_to_str(post_logout_redirect_uris)),
+                yauth_oauth2_clients::backchannel_logout_uri.eq(backchannel_logout_uri),
+                yauth_oauth2_clients::backchannel_logout_session_required
+                    .eq(backchannel_logout_session_required),
+            ))
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            Ok(updated > 0)
+        })
+    }
 }
 
 pub(crate) struct SqliteAuthorizationCodeRepo {
@@ -388,6 +415,19 @@ impl ConsentRepository for SqliteConsentRepo {
                 .await
                 .map_err(diesel_err)?;
             Ok(())
+        })
+    }
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            let u = uuid_to_str(user_id);
+            let rows = yauth_consents::table
+                .filter(yauth_consents::user_id.eq(&u))
+                .select(SqliteConsent::as_select())
+                .load(&mut *c)
+                .await
+                .map_err(diesel_err)?;
+            Ok(rows.into_iter().map(|r| r.into_domain()).collect())
         })
     }
 }
