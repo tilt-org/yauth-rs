@@ -2210,7 +2210,7 @@ async fn introspect_endpoint(
                         let sub = claims.get("sub").and_then(|v| v.as_str()).map(String::from);
                         // Lifecycle-aware introspection: a banned/suspended/staged
                         // subject makes the token inactive (fail-open on lookup error).
-                        if !user_active_for_introspect(&state, sub.as_deref()).await {
+                        if !user_active_for_introspect(&state.repos.users, sub.as_deref()).await {
                             return Json(IntrospectResponse::inactive()).into_response();
                         }
                         return Json(IntrospectResponse {
@@ -2245,7 +2245,7 @@ async fn introspect_endpoint(
                     && stored.expires_at > Utc::now().naive_utc()
                 {
                     // Lifecycle-aware introspection (fail-open on lookup error).
-                    if !user_active_for_introspect(&state, Some(&stored.user_id.to_string())).await
+                    if !user_active_for_introspect(&state.repos.users, Some(&stored.user_id.to_string())).await
                     {
                         return Json(IntrospectResponse::inactive()).into_response();
                     }
@@ -2277,13 +2277,16 @@ async fn introspect_endpoint(
 /// is a client id that does not parse as a user UUID) are not gated. Lookup
 /// errors and `NotFound` **fail open** (return `true`) so a transient DB blip
 /// does not break introspection. Mirrors yauth-go's `userActiveForIntrospect`.
-async fn user_active_for_introspect(state: &YAuthState, sub: Option<&str>) -> bool {
+async fn user_active_for_introspect(
+    users: &std::sync::Arc<dyn crate::repo::UserRepository>,
+    sub: Option<&str>,
+) -> bool {
     let Some(sub) = sub else { return true };
     let Ok(user_id) = sub.parse::<Uuid>() else {
         // Non-user subject (e.g. machine/client_credentials) — not gated.
         return true;
     };
-    match state.repos.users.find_by_id(user_id).await {
+    match users.find_by_id(user_id).await {
         Ok(Some(user)) => user.can_authenticate(Utc::now().naive_utc()),
         // NotFound or DB error: fail open.
         _ => true,
@@ -3258,6 +3261,67 @@ mod tests {
 
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json, serde_json::json!({"active": false}));
+    }
+
+    // Lifecycle-aware introspection (RFC 7662). Exercises both branches of the
+    // subject gate, including the security-critical FAIL-OPEN path.
+    #[cfg(feature = "memory-backend")]
+    #[tokio::test]
+    async fn introspect_user_active_gate() {
+        use crate::backends::memory::InMemoryBackend;
+        use crate::repo::DatabaseBackend;
+
+        let repos = InMemoryBackend::new().repositories();
+        let users = &repos.users;
+        let now = chrono::Utc::now().naive_utc();
+
+        let new_user = |suspended: bool, activates: Option<chrono::NaiveDateTime>| {
+            let id = Uuid::now_v7();
+            (
+                id,
+                crate::domain::NewUser {
+                    id,
+                    email: format!("{id}@example.com"),
+                    display_name: None,
+                    email_verified: true,
+                    role: "user".into(),
+                    banned: false,
+                    banned_reason: None,
+                    banned_until: None,
+                    suspended_at: suspended.then_some(now),
+                    suspended_reason: None,
+                    activates_at: activates,
+                    created_at: now,
+                    updated_at: now,
+                },
+            )
+        };
+
+        // Clean user → active (true).
+        let (clean_id, clean) = new_user(false, None);
+        users.create(clean).await.unwrap();
+        assert!(user_active_for_introspect(users, Some(&clean_id.to_string())).await);
+
+        // Suspended user → inactive (false).
+        let (susp_id, susp) = new_user(true, None);
+        users.create(susp).await.unwrap();
+        assert!(!user_active_for_introspect(users, Some(&susp_id.to_string())).await);
+
+        // Staged user (future start) → inactive (false).
+        let (staged_id, staged) = new_user(false, Some(now + chrono::Duration::hours(1)));
+        users.create(staged).await.unwrap();
+        assert!(!user_active_for_introspect(users, Some(&staged_id.to_string())).await);
+
+        // FAIL OPEN: an unknown user id (NotFound) must NOT make the token
+        // inactive — a missing subject is not a lifecycle signal.
+        assert!(user_active_for_introspect(users, Some(&Uuid::now_v7().to_string())).await);
+
+        // Non-user subject (e.g. a client_credentials client_id that is not a
+        // UUID) is not gated → active.
+        assert!(user_active_for_introspect(users, Some("some-client-id")).await);
+
+        // Absent subject → not gated.
+        assert!(user_active_for_introspect(users, None).await);
     }
 
     #[test]
