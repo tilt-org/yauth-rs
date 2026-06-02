@@ -1,12 +1,16 @@
 export class YAuthError extends Error {
 	status: number;
 	body?: unknown;
+	/** Machine-readable error code when the server provides one (e.g. yauth-go's
+	 * nested `{ error: { code, message } }` shape). */
+	code?: string;
 
-	constructor(message: string, status: number, body?: unknown) {
+	constructor(message: string, status: number, body?: unknown, code?: string) {
 		super(message);
 		this.name = "YAuthError";
 		this.status = status;
 		this.body = body;
+		this.code = code;
 	}
 }
 
@@ -54,16 +58,24 @@ export const customFetch = async <T>(
 
 	if (!response.ok) {
 		const text = await response.text();
-		let message: string;
+		let message: string = text;
 		let errorBody: unknown;
+		let code: string | undefined;
 		try {
 			const json = JSON.parse(text);
-			message = json.error ?? json.message ?? text;
 			errorBody = json;
+			// yauth-go returns `{ error: { code, message } }`; the Rust server
+			// returns a flat `{ error: "..." }`. Unwrap the nested object so the
+			// real message surfaces instead of "[object Object]" (yauth #125).
+			const nested =
+				json.error && typeof json.error === "object" ? json.error : undefined;
+			const flatErr = typeof json.error === "string" ? json.error : undefined;
+			message = nested?.message ?? json.message ?? json.detail ?? flatErr ?? text;
+			code = nested?.code ?? json.code;
 		} catch {
 			message = text;
 		}
-		const error = new YAuthError(message, response.status, errorBody);
+		const error = new YAuthError(message, response.status, errorBody, code);
 		if (onError) onError(error);
 		throw error;
 	}
