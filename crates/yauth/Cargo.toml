@@ -47,7 +47,7 @@ oidc = ["bearer", "oauth2-server"]
 # `jsonwebtoken` for id_token validation against the IdP's JWKS and
 # `chacha20poly1305` for client_secret encrypt-at-rest. Bringing them
 # into the same gate keeps the dep tree simple.
-organizations = ["dep:hickory-resolver", "dep:base64", "dep:serde_urlencoded", "dep:jsonwebtoken", "dep:chacha20poly1305", "dep:quick-xml", "dep:x509-parser", "dep:flate2", "dep:rsa"]
+organizations = ["dep:hickory-resolver", "dep:base64", "dep:serde_urlencoded", "dep:jsonwebtoken", "dep:chacha20poly1305", "dep:quick-xml", "dep:x509-parser", "dep:flate2", "dep:rsa", "dep:sha1_digest010"]
 # SCIM 2.0 provisioning endpoints (issue #95). Requires `organizations`
 # (for the per-org URL space + group→role mapping reuse) and `api-key`
 # (for the org-scoped bearer auth IdPs send). Off by default — pure
@@ -131,6 +131,11 @@ serde_urlencoded = { version = "0.7", optional = true }
 # Feature-gated: asymmetric JWT signing (RS256/ES256) + JWKS publication.
 # Pinned to 0.9 / 0.13 stable — RC releases would block downstream crates.io users.
 rsa = { version = "0.9", features = ["sha2"], optional = true }
+# SHA-1 at digest 0.10 (matching rsa 0.9's `VerifyingKey<D>`), for the
+# legacy RSA-SHA1 SAML redirect-binding signature path. Renamed so it
+# does not clash with the workspace `sha1` 0.11 (digest 0.11, used by
+# HIBP). Only pulled in under the `organizations` feature.
+sha1_digest010 = { package = "sha1", version = "0.10", features = ["oid"], optional = true }
 p256 = { version = "0.13", features = ["pem"], optional = true }
 
 # Feature-gated: Webhooks

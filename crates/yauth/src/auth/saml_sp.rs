@@ -176,6 +176,8 @@ pub enum SamlError {
     UnsupportedSignatureAlgorithm(String),
     #[error("digest mismatch — signature does not cover this element")]
     DigestMismatch,
+    #[error("LogoutRequest redirect-binding signature missing or invalid")]
+    BadLogoutRequestSignature,
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -1248,14 +1250,138 @@ fn deflate_raw(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
     e.finish()
 }
 
-#[cfg(test)]
-pub fn inflate_raw_for_test(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+/// Raw-DEFLATE inflate (HTTP-Redirect binding inbound). Used by the
+/// SLO receiver to inflate an inbound `SAMLRequest`, and by tests.
+pub(crate) fn inflate_raw(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
     use flate2::read::DeflateDecoder;
     use std::io::Read;
-    let mut d = DeflateDecoder::new(data);
+    let d = DeflateDecoder::new(data);
     let mut out = Vec::new();
-    d.read_to_end(&mut out)?;
+    // Bound the inflated size (1 MiB) like yauth-go's io.LimitReader.
+    d.take(1 << 20).read_to_end(&mut out)?;
     Ok(out)
+}
+
+#[cfg(test)]
+pub fn inflate_raw_for_test(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+    inflate_raw(data)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// SAML SLO — HTTP-Redirect binding signature verification + parsing
+// ──────────────────────────────────────────────────────────────────────
+
+/// Split a raw query/body string into `key → raw(still-encoded)value`
+/// WITHOUT percent-decoding, so the redirect-binding signed octet
+/// string can be reconstructed byte-exactly (SAML Bindings §3.4.4.1).
+/// Mirrors yauth-go's `parseRawQuery`.
+pub(crate) fn parse_raw_query(raw_source: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for pair in raw_source.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        match pair.find('=') {
+            Some(eq) => {
+                out.insert(pair[..eq].to_string(), pair[eq + 1..].to_string());
+            }
+            None => {
+                out.insert(pair.to_string(), String::new());
+            }
+        }
+    }
+    out
+}
+
+/// The minimal subset of a SAML 2.0 `<LogoutRequest>` we read for the
+/// IdP-initiated SLO flow: the request ID (replay defence), the IdP
+/// Issuer (connection match), and the NameID (local-user mapping).
+#[derive(Debug, Clone)]
+pub struct LogoutRequestFields {
+    pub id: String,
+    pub issuer: String,
+    pub name_id: String,
+}
+
+/// Parse the inflated `<LogoutRequest>` XML. Reuses the same narrow,
+/// comment-stripping XML surface the assertion path uses, and applies
+/// the same NameID comment-injection defence.
+pub(crate) fn parse_logout_request(xml: &str) -> Result<LogoutRequestFields, SamlError> {
+    let no_comments = strip_xml_comments(xml);
+    let id = find_id_for_local_name(&no_comments, "LogoutRequest").unwrap_or_default();
+    let issuer = element_text(&no_comments, "Issuer")
+        .map(|s| s.trim().to_string())
+        .ok_or(SamlError::MissingField("LogoutRequest Issuer"))?;
+    let name_id = element_text(&no_comments, "NameID")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or(SamlError::MissingField("LogoutRequest NameID"))?;
+    if !nameid_is_safe(&name_id) {
+        return Err(SamlError::BadNameIdChar);
+    }
+    Ok(LogoutRequestFields {
+        id,
+        issuer,
+        name_id,
+    })
+}
+
+/// SigAlg URI for RSA-SHA256 (the modern default).
+pub const SIG_ALG_RSA_SHA256: &str = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
+/// SigAlg URI for RSA-SHA1 (legacy IdPs; SHA-1 still accepted here for
+/// the redirect-binding signature, matching yauth-go).
+pub const SIG_ALG_RSA_SHA1: &str = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
+
+/// Verify a SAML HTTP-Redirect binding signature (SAML Bindings
+/// §3.4.4.1) against the connection's IdP cert PEM.
+///
+/// The signed octet string is the raw, **still-percent-encoded** query
+/// parameters in the canonical order `SAMLRequest [, RelayState], SigAlg`.
+/// Getting the encoding wrong is a signature bypass, so we reconstruct
+/// from the raw source exactly like yauth-go's `verifyRedirectSignature`.
+/// RSA-SHA256 and RSA-SHA1 are accepted; anything else is rejected.
+pub fn verify_redirect_binding_signature(
+    raw_source: &str,
+    sig_alg: &str,
+    signature_b64: &str,
+    idp_x509_cert_pem: &str,
+) -> Result<(), SamlError> {
+    use base64::engine::general_purpose::STANDARD as B64;
+    use rsa::pkcs1v15::{Signature, VerifyingKey};
+    use rsa::signature::Verifier;
+
+    let key = load_idp_rsa_key(idp_x509_cert_pem)?;
+    let sig_bytes = B64
+        .decode(signature_b64.trim())
+        .map_err(|_| SamlError::BadLogoutRequestSignature)?;
+    let signature = Signature::try_from(sig_bytes.as_slice())
+        .map_err(|_| SamlError::BadLogoutRequestSignature)?;
+
+    // Reconstruct the signed octet string from the RAW (still-encoded)
+    // values in canonical order.
+    let raw = parse_raw_query(raw_source);
+    let mut signed = String::new();
+    signed.push_str("SAMLRequest=");
+    signed.push_str(raw.get("SAMLRequest").map(String::as_str).unwrap_or(""));
+    if let Some(rs) = raw.get("RelayState").filter(|s| !s.is_empty()) {
+        signed.push_str("&RelayState=");
+        signed.push_str(rs);
+    }
+    signed.push_str("&SigAlg=");
+    signed.push_str(raw.get("SigAlg").map(String::as_str).unwrap_or(""));
+    let signed_bytes = signed.as_bytes();
+
+    // `VerifyingKey::verify` hashes the message internally, so pass the
+    // raw octet bytes (do NOT pre-hash).
+    match sig_alg {
+        SIG_ALG_RSA_SHA256 => VerifyingKey::<RsaSha256>::new(key)
+            .verify(signed_bytes, &signature)
+            .map_err(|_| SamlError::BadLogoutRequestSignature),
+        SIG_ALG_RSA_SHA1 => VerifyingKey::<sha1_digest010::Sha1>::new(key)
+            .verify(signed_bytes, &signature)
+            .map_err(|_| SamlError::BadLogoutRequestSignature),
+        other => Err(SamlError::UnsupportedSignatureAlgorithm(other.to_string())),
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────
