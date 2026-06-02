@@ -506,6 +506,51 @@
         ]
       }
     },
+    "/admin/users/{id}/schedule-start": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_scheduleStart",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserInfo"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/admin/users/{id}/sessions": {
       "delete": {
         "tags": [
@@ -529,6 +574,51 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeleteUserSessionsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/admin/users/{id}/suspend": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_suspendUser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserInfo"
                 }
               }
             }
@@ -599,6 +689,41 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AccountLockoutMessageResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/admin/users/{id}/unsuspend": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_unsuspendUser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserInfo"
                 }
               }
             }
@@ -3855,10 +3980,18 @@
           "email_verified",
           "role",
           "banned",
+          "suspended",
           "created_at",
           "updated_at"
         ],
         "properties": {
+          "activates_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Scheduled start; while in the future the user is \"staged\" and cannot\nauthenticate yet."
+          },
           "banned": {
             "type": "boolean"
           },
@@ -3894,6 +4027,22 @@
           },
           "role": {
             "type": "string"
+          },
+          "suspended": {
+            "type": "boolean",
+            "description": "Whether the account is globally suspended (offboarded). Distinct from\n`banned` (security incidents)."
+          },
+          "suspended_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "suspended_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "updated_at": {
             "type": "string"
@@ -6514,6 +6663,19 @@
           }
         }
       },
+      "ScheduleStartRequest": {
+        "type": "object",
+        "description": "Request body for `POST /admin/users/{id}/schedule-start` (staged onboarding).",
+        "properties": {
+          "activates_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Scheduled start (RFC 3339). Null/absent clears it (active now)."
+          }
+        }
+      },
       "SessionResponse": {
         "type": "object",
         "description": "Envelope returned by `GET /session` — wraps the authenticated user and\nsurfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`\nshape so a single TypeScript client serves both backends.",
@@ -6674,6 +6836,19 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "SuspendRequest": {
+        "type": "object",
+        "description": "Request body for `POST /admin/users/{id}/suspend` (global offboarding).",
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Operator-facing context for the suspension."
           }
         }
       },

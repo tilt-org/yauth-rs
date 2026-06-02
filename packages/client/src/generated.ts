@@ -73,6 +73,12 @@ export interface AdminSessionInfo {
  * User info returned by admin list endpoint.
  */
 export interface AdminUserInfo {
+  /**
+     * Scheduled start; while in the future the user is "staged" and cannot
+  authenticate yet.
+     * @nullable
+     */
+  activates_at?: string | null;
   banned: boolean;
   /** @nullable */
   banned_reason?: string | null;
@@ -85,6 +91,13 @@ export interface AdminUserInfo {
   email_verified: boolean;
   id: string;
   role: string;
+  /** Whether the account is globally suspended (offboarded). Distinct from
+  `banned` (security incidents). */
+  suspended: boolean;
+  /** @nullable */
+  suspended_at?: string | null;
+  /** @nullable */
+  suspended_reason?: string | null;
   updated_at: string;
 }
 
@@ -1216,6 +1229,17 @@ export interface SamlConfigResponse {
 }
 
 /**
+ * Request body for `POST /admin/users/{id}/schedule-start` (staged onboarding).
+ */
+export interface ScheduleStartRequest {
+  /**
+     * Scheduled start (RFC 3339). Null/absent clears it (active now).
+     * @nullable
+     */
+  activates_at?: string | null;
+}
+
+/**
  * Envelope returned by `GET /session` — wraps the authenticated user and
 surfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`
 shape so a single TypeScript client serves both backends.
@@ -1269,6 +1293,17 @@ export interface SsoConnectionTestResponse {
 export interface StatusResponse {
   plugins: string[];
   version: string;
+}
+
+/**
+ * Request body for `POST /admin/users/{id}/suspend` (global offboarding).
+ */
+export interface SuspendRequest {
+  /**
+     * Operator-facing context for the suspension.
+     * @nullable
+     */
+  reason?: string | null;
 }
 
 export interface TokenRequest {
@@ -1829,6 +1864,29 @@ export const adminImpersonate = async (id: string, options?: RequestInit): Promi
 
 
 
+export const getAdminScheduleStartUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/schedule-start`
+}
+
+export const adminScheduleStart = async (id: string,
+    scheduleStartRequest: ScheduleStartRequest, options?: RequestInit): Promise<AdminUserInfo> => {
+
+  return customFetch<AdminUserInfo>(getAdminScheduleStartUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      scheduleStartRequest,)
+  }
+);}
+
+
+
 export const getAdminDeleteUserSessionsUrl = (id: string,) => {
 
 
@@ -1845,6 +1903,29 @@ export const adminDeleteUserSessions = async (id: string, options?: RequestInit)
     method: 'DELETE'
 
 
+  }
+);}
+
+
+
+export const getAdminSuspendUserUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/suspend`
+}
+
+export const adminSuspendUser = async (id: string,
+    suspendRequest: SuspendRequest, options?: RequestInit): Promise<AdminUserInfo> => {
+
+  return customFetch<AdminUserInfo>(getAdminSuspendUserUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      suspendRequest,)
   }
 );}
 
@@ -1882,6 +1963,27 @@ export const getAccountLockoutAdminUnlockUrl = (id: string,) => {
 export const accountLockoutAdminUnlock = async (id: string, options?: RequestInit): Promise<AccountLockoutMessageResponse> => {
 
   return customFetch<AccountLockoutMessageResponse>(getAccountLockoutAdminUnlockUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAdminUnsuspendUserUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/unsuspend`
+}
+
+export const adminUnsuspendUser = async (id: string, options?: RequestInit): Promise<AdminUserInfo> => {
+
+  return customFetch<AdminUserInfo>(getAdminUnsuspendUserUrl(id),
   {
     ...options,
     method: 'POST'

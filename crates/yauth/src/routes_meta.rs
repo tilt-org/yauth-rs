@@ -225,6 +225,8 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<ListSessionsQuery>()
             .schema_from::<UpdateUserRequest>()
             .schema_from::<BanRequest>()
+            .schema_from::<SuspendRequest>()
+            .schema_from::<ScheduleStartRequest>()
             .schema_from::<DeleteUserSessionsResponse>()
             .schema_from::<ListAuditQuery>()
             .schema_from::<ListAuditResponse>()
@@ -1046,6 +1048,52 @@ fn admin_paths(builder: PathsBuilder) -> PathsBuilder {
                         .pipe(|b| with_response(b, "AdminUserInfo"))
                         .security(auth_req())
                         .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/admin/users/{id}/suspend",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_path_param(
+                        with_body(
+                            with_response(op("admin_suspendUser", "admin"), "AdminUserInfo"),
+                            "SuspendRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/admin/users/{id}/unsuspend",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_path_param(op("admin_unsuspendUser", "admin"), "id")
+                        .pipe(|b| with_response(b, "AdminUserInfo"))
+                        .security(auth_req())
+                        .build(),
+                )
+                .build(),
+        )
+        .path(
+            "/admin/users/{id}/schedule-start",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    with_path_param(
+                        with_body(
+                            with_response(op("admin_scheduleStart", "admin"), "AdminUserInfo"),
+                            "ScheduleStartRequest",
+                        ),
+                        "id",
+                    )
+                    .security(auth_req())
+                    .build(),
                 )
                 .build(),
         )
