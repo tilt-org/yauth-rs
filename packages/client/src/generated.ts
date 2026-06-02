@@ -911,6 +911,12 @@ export interface Oauth2AuthorizeRedirect {
 `Oauth2ClientJSON`.
  */
 export interface Oauth2ClientView {
+  backchannel_logout_session_required: boolean;
+  /**
+     * OIDC Back-Channel Logout 1.0: the client's back-channel logout endpoint.
+     * @nullable
+     */
+  backchannel_logout_uri?: string | null;
   banned: boolean;
   /** @nullable */
   banned_reason?: string | null;
@@ -928,6 +934,9 @@ export interface Oauth2ClientView {
      * @nullable
      */
   name?: string | null;
+  /** OIDC RP-Initiated Logout 1.0: registered post-logout redirect URIs.
+  Always emitted (empty list when none) to match yauth-go's wire shape. */
+  post_logout_redirect_uris: string[];
   redirect_uris: string[];
   /** @nullable */
   scopes?: string[] | null;
@@ -1004,9 +1013,19 @@ leaves it unchanged.
  */
 export interface Oauth2PatchClientRequest {
   /** @nullable */
+  backchannel_logout_session_required?: boolean | null;
+  /** @nullable */
+  backchannel_logout_uri?: string | null;
+  /** @nullable */
   banned?: boolean | null;
   /** @nullable */
   banned_reason?: string | null;
+  /**
+     * OIDC logout config. Any present field triggers a logout-config update,
+  merged with the client's current values for the fields left absent.
+     * @nullable
+     */
+  post_logout_redirect_uris?: string[] | null;
   /** @nullable */
   public_key_pem?: string | null;
 }

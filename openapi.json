@@ -5615,9 +5615,21 @@
           "is_public",
           "has_public_key",
           "banned",
-          "created_at"
+          "created_at",
+          "post_logout_redirect_uris",
+          "backchannel_logout_session_required"
         ],
         "properties": {
+          "backchannel_logout_session_required": {
+            "type": "boolean"
+          },
+          "backchannel_logout_uri": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "OIDC Back-Channel Logout 1.0: the client's back-channel logout endpoint."
+          },
           "banned": {
             "type": "boolean"
           },
@@ -5660,6 +5672,13 @@
               "null"
             ],
             "description": "yauth-go calls this field `name` on the wire — keep the Rust field\n`client_name` (closer to the domain model) but rename for serde."
+          },
+          "post_logout_redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "OIDC RP-Initiated Logout 1.0: registered post-logout redirect URIs.\nAlways emitted (empty list when none) to match yauth-go's wire shape."
           },
           "redirect_uris": {
             "type": "array",
@@ -5782,6 +5801,18 @@
         "type": "object",
         "description": "Body for `PATCH /oauth2/clients/{id}`. Mirrors yauth-go's\n`Oauth2PatchClientRequest`. Each field is optional; omitting a field\nleaves it unchanged.",
         "properties": {
+          "backchannel_logout_session_required": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "backchannel_logout_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "banned": {
             "type": [
               "boolean",
@@ -5793,6 +5824,16 @@
               "string",
               "null"
             ]
+          },
+          "post_logout_redirect_uris": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "OIDC logout config. Any present field triggers a logout-config update,\nmerged with the client's current values for the fields left absent."
           },
           "public_key_pem": {
             "type": [
