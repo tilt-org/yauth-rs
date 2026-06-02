@@ -22,6 +22,9 @@ diesel::table! {
         banned -> Bool,
         banned_reason -> Nullable<Text>,
         banned_until -> Nullable<Text>,
+        suspended_at -> Nullable<Text>,
+        suspended_reason -> Nullable<Text>,
+        activates_at -> Nullable<Text>,
         created_at -> Text,
         updated_at -> Text,
     }

@@ -30,6 +30,9 @@ fn users_table() -> TableDef {
         .column(ColumnDef::new("banned", ColumnType::Boolean).default("false"))
         .column(ColumnDef::new("banned_reason", ColumnType::Varchar).nullable())
         .column(ColumnDef::new("banned_until", ColumnType::DateTime).nullable())
+        .column(ColumnDef::new("suspended_at", ColumnType::DateTime).nullable())
+        .column(ColumnDef::new("suspended_reason", ColumnType::Varchar).nullable())
+        .column(ColumnDef::new("activates_at", ColumnType::DateTime).nullable())
         .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()"))
         .column(ColumnDef::new("updated_at", ColumnType::DateTime).default("now()"))
 }

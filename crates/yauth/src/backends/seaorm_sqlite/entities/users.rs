@@ -19,6 +19,10 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub banned_reason: Option<String>,
     pub banned_until: Option<DateTimeWithTimeZone>,
+    pub suspended_at: Option<DateTimeWithTimeZone>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }
@@ -56,6 +60,9 @@ impl Model {
             banned: self.banned,
             banned_reason: self.banned_reason,
             banned_until: self.banned_until.map(|dt| dt.naive_utc()),
+            suspended_at: self.suspended_at.map(|dt| dt.naive_utc()),
+            suspended_reason: self.suspended_reason,
+            activates_at: self.activates_at.map(|dt| dt.naive_utc()),
             created_at: self.created_at.naive_utc(),
             updated_at: self.updated_at.naive_utc(),
         }

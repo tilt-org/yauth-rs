@@ -21,6 +21,9 @@ diesel::table! {
         banned -> Bool,
         banned_reason -> Nullable<Text>,
         banned_until -> Nullable<Datetime>,
+        suspended_at -> Nullable<Datetime>,
+        suspended_reason -> Nullable<Text>,
+        activates_at -> Nullable<Datetime>,
         created_at -> Datetime,
         updated_at -> Datetime,
     }

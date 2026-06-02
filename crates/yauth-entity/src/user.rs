@@ -12,8 +12,32 @@ pub struct User {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<NaiveDateTime>,
+    /// `suspended_at` globally disables the account (offboarding) — distinct
+    /// from `banned`, which is for security incidents. A suspended user cannot
+    /// log in, receive tokens, or pass auth resolution; the account is retained.
+    #[serde(default)]
+    pub suspended_at: Option<NaiveDateTime>,
+    #[serde(default)]
+    pub suspended_reason: Option<String>,
+    /// `activates_at` schedules a start: while it is in the future the user is
+    /// "staged" and cannot authenticate yet (onboarding ahead of a start date).
+    #[serde(default)]
+    pub activates_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+}
+
+impl User {
+    /// Reports whether the user has a scheduled start still in the future.
+    pub fn staged(&self, now: NaiveDateTime) -> bool {
+        self.activates_at.is_some_and(|at| now < at)
+    }
+
+    /// Reports whether the user may currently sign in or receive tokens: not
+    /// banned, not suspended, and past any scheduled start.
+    pub fn can_authenticate(&self, now: NaiveDateTime) -> bool {
+        !self.banned && self.suspended_at.is_none() && !self.staged(now)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +50,12 @@ pub struct NewUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<NaiveDateTime>,
+    #[serde(default)]
+    pub suspended_at: Option<NaiveDateTime>,
+    #[serde(default)]
+    pub suspended_reason: Option<String>,
+    #[serde(default)]
+    pub activates_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -39,6 +69,9 @@ pub struct UpdateUser {
     pub banned: Option<bool>,
     pub banned_reason: Option<Option<String>>,
     pub banned_until: Option<Option<NaiveDateTime>>,
+    pub suspended_at: Option<Option<NaiveDateTime>>,
+    pub suspended_reason: Option<Option<String>>,
+    pub activates_at: Option<Option<NaiveDateTime>>,
     pub updated_at: Option<NaiveDateTime>,
 }
 
