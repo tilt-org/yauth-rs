@@ -86,6 +86,14 @@ impl YAuthPlugin for OAuth2ServerPlugin {
                 .route(
                     "/oauth/device",
                     get(device_verify_get).post(device_verify_post),
+                )
+                // OIDC RP-Initiated Logout 1.0. Public: must work whether or
+                // not a session is still active; browser-facing (GET) and
+                // form-POST per the spec.
+                .route(
+                    "/oauth/end_session",
+                    get(super::end_session::end_session_get)
+                        .post(super::end_session::end_session_post),
                 ),
         )
     }
