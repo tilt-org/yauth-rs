@@ -716,6 +716,9 @@ async fn handle_callback(
                 banned: false,
                 banned_reason: None,
                 banned_until: None,
+                suspended_at: None,
+                suspended_reason: None,
+                activates_at: None,
                 created_at: now,
                 updated_at: now,
             };

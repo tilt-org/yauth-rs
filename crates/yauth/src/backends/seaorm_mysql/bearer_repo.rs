@@ -73,6 +73,19 @@ impl RefreshTokenRepository for SeaOrmRefreshTokenRepo {
         })
     }
 
+    fn revoke_all_user_refresh_tokens(&self, user_id: Uuid) -> RepoFuture<'_, u64> {
+        Box::pin(async move {
+            let result = refresh_tokens::Entity::update_many()
+                .col_expr(refresh_tokens::Column::Revoked, Expr::value(true))
+                .filter(refresh_tokens::Column::UserId.eq(user_id.to_string()))
+                .filter(refresh_tokens::Column::Revoked.eq(false))
+                .exec(&self.db)
+                .await
+                .map_err(sea_err)?;
+            Ok(result.rows_affected)
+        })
+    }
+
     fn find_password_hash_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Option<String>> {
         Box::pin(async move {
             #[cfg(feature = "email-password")]

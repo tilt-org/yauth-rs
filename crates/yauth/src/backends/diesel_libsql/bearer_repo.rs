@@ -101,6 +101,23 @@ impl RefreshTokenRepository for LibsqlRefreshTokenRepo {
             Ok(())
         })
     }
+    fn revoke_all_user_refresh_tokens(&self, user_id: Uuid) -> RepoFuture<'_, u64> {
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            let uid = uuid_to_str(user_id);
+            let n = diesel::update(
+                yauth_refresh_tokens::table
+                    .filter(yauth_refresh_tokens::user_id.eq(&uid))
+                    .filter(yauth_refresh_tokens::revoked.eq(false)),
+            )
+            .set(yauth_refresh_tokens::revoked.eq(true))
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            Ok(n as u64)
+        })
+    }
+
     fn find_password_hash_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Option<String>> {
         Box::pin(async move {
             #[cfg(feature = "email-password")]

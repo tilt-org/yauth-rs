@@ -345,6 +345,9 @@ async fn update_user(
         banned: None,
         banned_reason: None,
         banned_until: None,
+        suspended_at: None,
+        suspended_reason: None,
+        activates_at: None,
         updated_at: Some(Utc::now().naive_utc()),
     };
 
@@ -476,6 +479,9 @@ async fn ban_user(
         banned: Some(true),
         banned_reason: Some(input.reason.clone()),
         banned_until: Some(banned_until),
+        suspended_at: None,
+        suspended_reason: None,
+        activates_at: None,
         updated_at: Some(Utc::now().naive_utc()),
     };
 
@@ -543,6 +549,9 @@ async fn unban_user(
         banned: Some(false),
         banned_reason: Some(None),
         banned_until: Some(None),
+        suspended_at: None,
+        suspended_reason: None,
+        activates_at: None,
         updated_at: Some(Utc::now().naive_utc()),
     };
 

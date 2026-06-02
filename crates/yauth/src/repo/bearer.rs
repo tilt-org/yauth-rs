@@ -13,6 +13,10 @@ pub trait RefreshTokenRepository: sealed::Sealed + Send + Sync {
     /// Revoke all tokens in a rotation family (token reuse detection).
     fn revoke_family(&self, family_id: Uuid) -> RepoFuture<'_, ()>;
 
+    /// Revoke every active refresh token for a user (lifecycle kill switch:
+    /// ban / global suspend / SCIM deprovision). Returns the number revoked.
+    fn revoke_all_user_refresh_tokens(&self, user_id: Uuid) -> RepoFuture<'_, u64>;
+
     /// Find password hash for a user (used by bearer plugin for password grant).
     fn find_password_hash_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Option<String>>;
 }

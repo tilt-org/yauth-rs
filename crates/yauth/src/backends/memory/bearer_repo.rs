@@ -66,6 +66,20 @@ impl RefreshTokenRepository for InMemoryRefreshTokenRepo {
         })
     }
 
+    fn revoke_all_user_refresh_tokens(&self, user_id: Uuid) -> RepoFuture<'_, u64> {
+        Box::pin(async move {
+            let mut map = self.storage.refresh_tokens.write().unwrap();
+            let mut revoked = 0u64;
+            for token in map.values_mut() {
+                if token.user_id == user_id && !token.revoked {
+                    token.revoked = true;
+                    revoked += 1;
+                }
+            }
+            Ok(revoked)
+        })
+    }
+
     fn find_password_hash_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Option<String>> {
         Box::pin(async move {
             // The bearer plugin's password grant needs to look up the user's password hash.

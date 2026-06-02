@@ -32,6 +32,9 @@ pub(crate) struct MysqlUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<NaiveDateTime>,
+    pub suspended_at: Option<NaiveDateTime>,
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -47,6 +50,9 @@ impl MysqlUser {
             banned: self.banned,
             banned_reason: self.banned_reason,
             banned_until: self.banned_until,
+            suspended_at: self.suspended_at,
+            suspended_reason: self.suspended_reason,
+            activates_at: self.activates_at,
             created_at: self.created_at,
             updated_at: self.updated_at,
         }
@@ -64,6 +70,9 @@ pub(crate) struct MysqlNewUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<NaiveDateTime>,
+    pub suspended_at: Option<NaiveDateTime>,
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -79,6 +88,9 @@ impl MysqlNewUser {
             banned: input.banned,
             banned_reason: input.banned_reason,
             banned_until: input.banned_until,
+            suspended_at: input.suspended_at,
+            suspended_reason: input.suspended_reason,
+            activates_at: input.activates_at,
             created_at: input.created_at,
             updated_at: input.updated_at,
         }
@@ -95,6 +107,9 @@ pub(crate) struct MysqlUpdateUser {
     pub banned: Option<bool>,
     pub banned_reason: Option<Option<String>>,
     pub banned_until: Option<Option<NaiveDateTime>>,
+    pub suspended_at: Option<Option<NaiveDateTime>>,
+    pub suspended_reason: Option<Option<String>>,
+    pub activates_at: Option<Option<NaiveDateTime>>,
     pub updated_at: Option<NaiveDateTime>,
 }
 
@@ -108,6 +123,9 @@ impl MysqlUpdateUser {
             banned: input.banned,
             banned_reason: input.banned_reason,
             banned_until: input.banned_until,
+            suspended_at: input.suspended_at,
+            suspended_reason: input.suspended_reason,
+            activates_at: input.activates_at,
             updated_at: input.updated_at,
         }
     }
