@@ -1535,6 +1535,9 @@ async fn dynamic_client_registration(
         token_endpoint_auth_method: Some(auth_method.to_string()),
         public_key_pem,
         jwks_uri,
+        // Mark as DCR-created so the stale-client sweep may reclaim it; never
+        // touches admin-provisioned clients.
+        dynamically_registered: true,
     };
 
     state
@@ -1560,6 +1563,29 @@ async fn dynamic_client_registration(
         #[cfg(not(feature = "telemetry"))]
         vec![],
     );
+
+    // Durable audit record of the registration, independent of the client row
+    // (which the stale-client sweep may later reclaim). Mirrors yauth-go's
+    // `oauth2.client.registered` event.
+    let audit_ip = if client_ip == "unknown" {
+        None
+    } else {
+        Some(client_ip.to_string())
+    };
+    state
+        .write_audit_log(
+            None,
+            "oauth2.client.registered",
+            Some(serde_json::json!({
+                "client_id": client_id,
+                "client_name": input.client_name,
+                "is_public": is_public,
+                "redirect_uris": input.redirect_uris,
+                "source": "dcr",
+            })),
+            audit_ip,
+        )
+        .await;
 
     let issuer = config.issuer.trim_end_matches('/');
     let registration_client_uri = format!("{}/oauth/register/{}", issuer, client_id);

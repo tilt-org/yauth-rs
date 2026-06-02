@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required FROM yauth_oauth2_clients WHERE client_id = ?",
+  "query": "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required, dynamically_registered, last_used_at FROM yauth_oauth2_clients WHERE banned_at IS NOT NULL ORDER BY banned_at DESC /* mysql */",
   "describe": {
     "columns": [
       {
@@ -155,10 +155,28 @@
           "flags": "NOT_NULL",
           "max_size": 1
         }
+      },
+      {
+        "ordinal": 17,
+        "name": "dynamically_registered",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "last_used_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "BINARY",
+          "max_size": 19
+        }
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       false,
@@ -177,8 +195,10 @@
       true,
       true,
       true,
-      false
+      false,
+      false,
+      true
     ]
   },
-  "hash": "9effc60c3035929f8aaa13ef6a4f6fef39efe850ab44191397e10ce7de3e4ae2"
+  "hash": "f1ef9a30fea8787e4bd05b6bbfcbfa9e8465ffc5b663612f2155127c7e453ab3"
 }

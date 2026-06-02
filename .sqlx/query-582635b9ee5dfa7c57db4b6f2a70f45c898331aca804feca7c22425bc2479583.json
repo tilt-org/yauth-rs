@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required FROM yauth_oauth2_clients WHERE client_id = $1",
+  "query": "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required, dynamically_registered, last_used_at FROM yauth_oauth2_clients WHERE client_id = $1",
   "describe": {
     "columns": [
       {
@@ -87,6 +87,16 @@
         "ordinal": 16,
         "name": "backchannel_logout_session_required",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 17,
+        "name": "dynamically_registered",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 18,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -111,8 +121,10 @@
       true,
       true,
       true,
-      false
+      false,
+      false,
+      true
     ]
   },
-  "hash": "9ee227e15809045d6b37b9966ed81c437e6dcf4c4f106995940aa3f8e59f4503"
+  "hash": "582635b9ee5dfa7c57db4b6f2a70f45c898331aca804feca7c22425bc2479583"
 }

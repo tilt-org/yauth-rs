@@ -159,6 +159,7 @@ async fn seed(state: &YAuthState, bcl_uri: &str) -> (Uuid, String) {
             token_endpoint_auth_method: Some("none".into()),
             public_key_pem: None,
             jwks_uri: None,
+            dynamically_registered: false,
         })
         .await
         .unwrap();

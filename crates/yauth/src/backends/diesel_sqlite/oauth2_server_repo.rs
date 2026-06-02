@@ -33,6 +33,8 @@ pub(crate) struct SqliteOauth2Client {
     pub post_logout_redirect_uris: Option<String>,
     pub backchannel_logout_uri: Option<String>,
     pub backchannel_logout_session_required: bool,
+    pub dynamically_registered: bool,
+    pub last_used_at: Option<String>,
 }
 impl SqliteOauth2Client {
     fn into_domain(self) -> domain::Oauth2Client {
@@ -54,6 +56,8 @@ impl SqliteOauth2Client {
             post_logout_redirect_uris: opt_str_to_json(self.post_logout_redirect_uris),
             backchannel_logout_uri: self.backchannel_logout_uri,
             backchannel_logout_session_required: self.backchannel_logout_session_required,
+            dynamically_registered: self.dynamically_registered,
+            last_used_at: opt_str_to_dt(self.last_used_at),
         }
     }
 }
@@ -174,7 +178,7 @@ impl Oauth2ClientRepository for SqliteOauth2ClientRepo {
     fn create(&self, i: domain::NewOauth2Client) -> RepoFuture<'_, ()> {
         Box::pin(async move {
             let mut c = get_conn(&self.pool).await?;
-            let (id, cid, csh, ru, cn, gt, sc, ip, ca, team, pkp, ju) = (
+            let (id, cid, csh, ru, cn, gt, sc, ip, ca, team, pkp, ju, dr) = (
                 uuid_to_str(i.id),
                 i.client_id,
                 i.client_secret_hash,
@@ -187,14 +191,16 @@ impl Oauth2ClientRepository for SqliteOauth2ClientRepo {
                 i.token_endpoint_auth_method,
                 i.public_key_pem,
                 i.jwks_uri,
+                i.dynamically_registered,
             );
-            diesel::sql_query("INSERT INTO yauth_oauth2_clients (id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            diesel::sql_query("INSERT INTO yauth_oauth2_clients (id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, dynamically_registered) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind::<diesel::sql_types::Text, _>(&id).bind::<diesel::sql_types::Text, _>(&cid).bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&csh)
             .bind::<diesel::sql_types::Text, _>(&ru).bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&cn).bind::<diesel::sql_types::Text, _>(&gt)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&sc).bind::<diesel::sql_types::Bool, _>(ip).bind::<diesel::sql_types::Text, _>(&ca)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&team)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&pkp)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&ju)
+            .bind::<diesel::sql_types::Bool, _>(dr)
             .execute(&mut *c).await.map_err(diesel_err)?;
             Ok(())
         })

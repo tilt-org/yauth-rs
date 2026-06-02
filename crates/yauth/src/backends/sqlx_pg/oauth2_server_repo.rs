@@ -30,6 +30,8 @@ struct Oauth2ClientRow {
     post_logout_redirect_uris: Option<serde_json::Value>,
     backchannel_logout_uri: Option<String>,
     backchannel_logout_session_required: bool,
+    dynamically_registered: bool,
+    last_used_at: Option<DateTime<Utc>>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -90,7 +92,7 @@ impl Oauth2ClientRepository for SqlxPgOauth2ClientRepo {
         Box::pin(async move {
             let row = sqlx::query_as!(
                 Oauth2ClientRow,
-                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required \
+                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required, dynamically_registered, last_used_at \
                  FROM yauth_oauth2_clients WHERE client_id = $1",
                 client_id
             )
@@ -115,6 +117,8 @@ impl Oauth2ClientRepository for SqlxPgOauth2ClientRepo {
                 post_logout_redirect_uris: r.post_logout_redirect_uris,
                 backchannel_logout_uri: r.backchannel_logout_uri,
                 backchannel_logout_session_required: r.backchannel_logout_session_required,
+                dynamically_registered: r.dynamically_registered,
+                last_used_at: r.last_used_at.map(|dt| dt.naive_utc()),
             }))
         })
     }
@@ -122,8 +126,8 @@ impl Oauth2ClientRepository for SqlxPgOauth2ClientRepo {
     fn create(&self, input: domain::NewOauth2Client) -> RepoFuture<'_, ()> {
         Box::pin(async move {
             sqlx::query!(
-                "INSERT INTO yauth_oauth2_clients (id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                "INSERT INTO yauth_oauth2_clients (id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, dynamically_registered) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
                 input.id,
                 input.client_id,
                 input.client_secret_hash as Option<String>,
@@ -136,6 +140,7 @@ impl Oauth2ClientRepository for SqlxPgOauth2ClientRepo {
                 input.token_endpoint_auth_method as Option<String>,
                 input.public_key_pem as Option<String>,
                 input.jwks_uri as Option<String>,
+                input.dynamically_registered,
             )
             .execute(&self.pool)
             .await
@@ -191,7 +196,7 @@ impl Oauth2ClientRepository for SqlxPgOauth2ClientRepo {
         Box::pin(async move {
             let rows = sqlx::query_as!(
                 Oauth2ClientRow,
-                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required \
+                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required, dynamically_registered, last_used_at \
                  FROM yauth_oauth2_clients WHERE banned_at IS NOT NULL ORDER BY banned_at DESC /* pg */"
             )
             .fetch_all(&self.pool)
@@ -217,6 +222,8 @@ impl Oauth2ClientRepository for SqlxPgOauth2ClientRepo {
                     post_logout_redirect_uris: r.post_logout_redirect_uris,
                     backchannel_logout_uri: r.backchannel_logout_uri,
                     backchannel_logout_session_required: r.backchannel_logout_session_required,
+                    dynamically_registered: r.dynamically_registered,
+                    last_used_at: r.last_used_at.map(|dt| dt.naive_utc()),
                 })
                 .collect())
         })

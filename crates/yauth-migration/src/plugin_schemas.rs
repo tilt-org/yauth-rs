@@ -274,7 +274,16 @@ pub fn oauth2_server_schema() -> Vec<TableDef> {
             .column(
                 ColumnDef::new("backchannel_logout_session_required", ColumnType::Boolean)
                     .default("false"),
-            ),
+            )
+            // Stale-DCR-client garbage collection.
+            //   dynamically_registered: true only for self-registered clients;
+            //     scopes the sweep so admin-provisioned clients are never
+            //     reclaimed.
+            //   last_used_at: last successful token-endpoint use (NULL → fall
+            //     back to created_at) so a client in active use is never swept
+            //     regardless of age.
+            .column(ColumnDef::new("dynamically_registered", ColumnType::Boolean).default("false"))
+            .column(ColumnDef::new("last_used_at", ColumnType::DateTime).nullable()),
         TableDef::new("yauth_authorization_codes")
             .description("OAuth2 authorization codes. Single-use, time-limited.")
             .column(

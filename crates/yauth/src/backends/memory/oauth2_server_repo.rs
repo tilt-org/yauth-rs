@@ -55,6 +55,8 @@ impl Oauth2ClientRepository for InMemoryOauth2ClientRepo {
                 post_logout_redirect_uris: None,
                 backchannel_logout_uri: None,
                 backchannel_logout_session_required: false,
+                dynamically_registered: input.dynamically_registered,
+                last_used_at: None,
             };
             let mut map = self.clients.write().unwrap();
             map.insert(client.id, client);

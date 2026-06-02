@@ -237,6 +237,8 @@ diesel::table! {
         post_logout_redirect_uris -> Nullable<Text>,
         backchannel_logout_uri -> Nullable<Text>,
         backchannel_logout_session_required -> Bool,
+        dynamically_registered -> Bool,
+        last_used_at -> Nullable<Datetime>,
     }
 }
 

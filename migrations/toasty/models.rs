@@ -158,6 +158,8 @@ pub struct YauthOauth2Client {
     pub post_logout_redirect_uris: Option<serde_json::Value>,
     pub backchannel_logout_uri: Option<String>,
     pub backchannel_logout_session_required: bool,
+    pub dynamically_registered: bool,
+    pub last_used_at: Option<jiff::Timestamp>,
 }
 
 /// Toasty model for `yauth_webhooks`.

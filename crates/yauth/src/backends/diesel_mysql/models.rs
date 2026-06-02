@@ -676,6 +676,8 @@ pub(crate) struct MysqlOauth2Client {
     pub post_logout_redirect_uris: Option<String>,
     pub backchannel_logout_uri: Option<String>,
     pub backchannel_logout_session_required: bool,
+    pub dynamically_registered: bool,
+    pub last_used_at: Option<NaiveDateTime>,
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -699,6 +701,8 @@ impl MysqlOauth2Client {
             post_logout_redirect_uris: self.post_logout_redirect_uris.map(|s| str_to_json(&s)),
             backchannel_logout_uri: self.backchannel_logout_uri,
             backchannel_logout_session_required: self.backchannel_logout_session_required,
+            dynamically_registered: self.dynamically_registered,
+            last_used_at: self.last_used_at,
         }
     }
 }

@@ -460,6 +460,9 @@ pub async fn create_oauth2_client(
         token_endpoint_auth_method: auth_method,
         public_key_pem: req.public_key_pem.clone(),
         jwks_uri: req.jwks_uri.clone(),
+        // Admin-provisioned clients are never eligible for the stale-client
+        // sweep.
+        dynamically_registered: false,
     };
 
     state

@@ -63,6 +63,8 @@ impl Oauth2ClientRepository for ToastyOauth2ClientRepo {
                 post_logout_redirect_uris: None::<serde_json::Value>,
                 backchannel_logout_uri: None::<String>,
                 backchannel_logout_session_required: false,
+                dynamically_registered: input.dynamically_registered,
+                last_used_at: None::<jiff::Timestamp>,
             })
             .exec(&mut db)
             .await
@@ -466,6 +468,8 @@ fn oauth2_client_to_domain(m: YauthOauth2Client) -> domain::Oauth2Client {
         post_logout_redirect_uris: m.post_logout_redirect_uris,
         backchannel_logout_uri: m.backchannel_logout_uri,
         backchannel_logout_session_required: m.backchannel_logout_session_required,
+        dynamically_registered: m.dynamically_registered,
+        last_used_at: opt_jiff_to_chrono(m.last_used_at),
     }
 }
 

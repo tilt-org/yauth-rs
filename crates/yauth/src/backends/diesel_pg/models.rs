@@ -906,6 +906,8 @@ pub(crate) struct DieselOauth2Client {
     pub post_logout_redirect_uris: Option<serde_json::Value>,
     pub backchannel_logout_uri: Option<String>,
     pub backchannel_logout_session_required: bool,
+    pub dynamically_registered: bool,
+    pub last_used_at: Option<NaiveDateTime>,
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -929,6 +931,8 @@ impl DieselOauth2Client {
             post_logout_redirect_uris: self.post_logout_redirect_uris,
             backchannel_logout_uri: self.backchannel_logout_uri,
             backchannel_logout_session_required: self.backchannel_logout_session_required,
+            dynamically_registered: self.dynamically_registered,
+            last_used_at: self.last_used_at,
         }
     }
 }
@@ -949,6 +953,7 @@ pub(crate) struct DieselNewOauth2Client {
     pub token_endpoint_auth_method: Option<String>,
     pub public_key_pem: Option<String>,
     pub jwks_uri: Option<String>,
+    pub dynamically_registered: bool,
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -967,6 +972,7 @@ impl DieselNewOauth2Client {
             token_endpoint_auth_method: input.token_endpoint_auth_method,
             public_key_pem: input.public_key_pem,
             jwks_uri: input.jwks_uri,
+            dynamically_registered: input.dynamically_registered,
         }
     }
 }

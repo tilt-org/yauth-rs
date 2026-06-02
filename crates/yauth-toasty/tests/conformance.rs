@@ -1184,6 +1184,7 @@ fn oauth2_client_create_find() {
                     token_endpoint_auth_method: None,
                     public_key_pem: None,
                     jwks_uri: None,
+                    dynamically_registered: false,
                 })
                 .await
                 .unwrap_or_else(|e| panic!("{name}: create oauth2 client: {e}"));

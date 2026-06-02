@@ -42,6 +42,17 @@ pub struct Oauth2Client {
     /// logout_token. yauth sends sub-only tokens, so this is informational.
     #[serde(default)]
     pub backchannel_logout_session_required: bool,
+    /// True for clients created via RFC 7591 dynamic client registration.
+    /// Only these are eligible for the stale-client garbage-collection sweep;
+    /// admin-provisioned clients are never touched.
+    #[serde(default)]
+    pub dynamically_registered: bool,
+    /// Last successful token-endpoint use of this client (any grant type).
+    /// `None` until first use → the sweep falls back to `created_at`. Stamped
+    /// best-effort on token issuance so an actively-used DCR client is never
+    /// reclaimed regardless of age.
+    #[serde(default)]
+    pub last_used_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +72,10 @@ pub struct NewOauth2Client {
     pub public_key_pem: Option<String>,
     #[serde(default)]
     pub jwks_uri: Option<String>,
+    /// Whether this client is being created via RFC 7591 dynamic registration.
+    /// `true` only from the DCR path; admin-provisioned clients pass `false`.
+    #[serde(default)]
+    pub dynamically_registered: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

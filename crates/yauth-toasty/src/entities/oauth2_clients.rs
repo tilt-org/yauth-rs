@@ -44,4 +44,7 @@ pub struct YauthOauth2Client {
 
     pub backchannel_logout_uri: Option<String>,
     pub backchannel_logout_session_required: bool,
+
+    pub dynamically_registered: bool,
+    pub last_used_at: Option<jiff::Timestamp>,
 }

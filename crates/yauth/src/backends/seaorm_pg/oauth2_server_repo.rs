@@ -59,6 +59,8 @@ impl Oauth2ClientRepository for SeaOrmOauth2ClientRepo {
                 post_logout_redirect_uris: Set(None),
                 backchannel_logout_uri: Set(None),
                 backchannel_logout_session_required: Set(false),
+                dynamically_registered: Set(input.dynamically_registered),
+                last_used_at: Set(None),
             };
             model.insert(&self.db).await.map_err(sea_err)?;
             Ok(())
