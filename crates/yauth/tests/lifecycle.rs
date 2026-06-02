@@ -81,7 +81,9 @@ async fn req(
     if let Some(c) = cookie {
         b = b.header("cookie", c);
     }
-    let body_str = body.map(|v| serde_json::to_string(&v).unwrap()).unwrap_or_default();
+    let body_str = body
+        .map(|v| serde_json::to_string(&v).unwrap())
+        .unwrap_or_default();
     let resp = app
         .clone()
         .oneshot(b.body(Body::from(body_str)).unwrap())
@@ -108,10 +110,7 @@ async fn register_and_login(app: &Router, email: &str) -> (Uuid, String) {
         None,
     )
     .await;
-    assert!(
-        status.is_success(),
-        "register {email} failed: {status}"
-    );
+    assert!(status.is_success(), "register {email} failed: {status}");
     let (status, body, set_cookie) = req(
         app,
         "POST",
@@ -154,7 +153,11 @@ async fn suspend_sets_suspended_at_and_trips_kill_switch() {
         Some(&target_cookie),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "target session should be valid pre-suspend");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "target session should be valid pre-suspend"
+    );
 
     // Admin suspends the target.
     let (status, body, _) = req(
@@ -170,7 +173,14 @@ async fn suspend_sets_suspended_at_and_trips_kill_switch() {
     assert_eq!(body["suspended_reason"], json!("offboarded"));
 
     // suspended_at is set + user can no longer authenticate.
-    let user = app.state.repos.users.find_by_id(target_id).await.unwrap().unwrap();
+    let user = app
+        .state
+        .repos
+        .users
+        .find_by_id(target_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(user.suspended_at.is_some());
     assert!(!user.can_authenticate(chrono::Utc::now().naive_utc()));
 
@@ -183,7 +193,11 @@ async fn suspend_sets_suspended_at_and_trips_kill_switch() {
         Some(&target_cookie),
     )
     .await;
-    assert_ne!(status, StatusCode::OK, "suspended user's session must be terminated");
+    assert_ne!(
+        status,
+        StatusCode::OK,
+        "suspended user's session must be terminated"
+    );
 
     // Kill switch: the refresh token is revoked (cannot mint a new access token).
     let (status, _, _) = req(
@@ -226,7 +240,14 @@ async fn unsuspend_clears_suspension() {
     assert_eq!(status, StatusCode::OK, "unsuspend failed: {body}");
     assert_eq!(body["suspended"], json!(false));
 
-    let user = app.state.repos.users.find_by_id(target_id).await.unwrap().unwrap();
+    let user = app
+        .state
+        .repos
+        .users
+        .find_by_id(target_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(user.suspended_at.is_none());
     assert!(user.can_authenticate(chrono::Utc::now().naive_utc()));
 }
@@ -260,7 +281,10 @@ async fn suspended_user_cannot_log_in() {
         "suspended user must not be able to log in"
     );
     // Distinct message from a ban (USER_SUSPENDED).
-    let msg = body["error"].as_str().or_else(|| body["message"].as_str()).unwrap_or("");
+    let msg = body["error"]
+        .as_str()
+        .or_else(|| body["message"].as_str())
+        .unwrap_or("");
     assert!(
         msg.to_lowercase().contains("deactivat"),
         "expected a suspended-specific message, got: {body}"
@@ -286,9 +310,19 @@ async fn schedule_start_stages_user_and_blocks_login() {
     assert_eq!(status, StatusCode::OK, "schedule-start failed: {body}");
 
     let now = chrono::Utc::now().naive_utc();
-    let user = app.state.repos.users.find_by_id(target_id).await.unwrap().unwrap();
+    let user = app
+        .state
+        .repos
+        .users
+        .find_by_id(target_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(user.activates_at.is_some());
-    assert!(user.staged(now), "future activates_at must make the user staged");
+    assert!(
+        user.staged(now),
+        "future activates_at must make the user staged"
+    );
     assert!(!user.can_authenticate(now));
 
     // Login is rejected with the not-started message.
@@ -301,7 +335,10 @@ async fn schedule_start_stages_user_and_blocks_login() {
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
-    let msg = body["error"].as_str().or_else(|| body["message"].as_str()).unwrap_or("");
+    let msg = body["error"]
+        .as_str()
+        .or_else(|| body["message"].as_str())
+        .unwrap_or("");
     assert!(
         msg.to_lowercase().contains("not active"),
         "expected a not-started message, got: {body}"
@@ -316,7 +353,14 @@ async fn schedule_start_stages_user_and_blocks_login() {
         Some(&admin_cookie),
     )
     .await;
-    let user = app.state.repos.users.find_by_id(target_id).await.unwrap().unwrap();
+    let user = app
+        .state
+        .repos
+        .users
+        .find_by_id(target_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(user.activates_at.is_none());
     assert!(user.can_authenticate(chrono::Utc::now().naive_utc()));
 }
@@ -353,7 +397,11 @@ async fn suspended_user_access_token_is_rejected_per_request() {
         )
         .await
         .unwrap();
-    assert_eq!(pre.status(), StatusCode::OK, "access token should work pre-suspend");
+    assert_eq!(
+        pre.status(),
+        StatusCode::OK,
+        "access token should work pre-suspend"
+    );
 
     // Suspend the target.
     req(
@@ -434,7 +482,11 @@ async fn suspended_user_api_key_is_rejected() {
         )
         .await
         .unwrap();
-    assert_eq!(pre.status(), StatusCode::OK, "api key should work pre-suspend");
+    assert_eq!(
+        pre.status(),
+        StatusCode::OK,
+        "api key should work pre-suspend"
+    );
 
     // Suspend the owner.
     req(

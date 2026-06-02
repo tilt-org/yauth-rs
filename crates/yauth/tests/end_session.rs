@@ -126,7 +126,12 @@ impl TestApp {
         let resp = self
             .router
             .clone()
-            .oneshot(req("POST", "/oauth2/clients", Some(cookie), Some(create.to_string())))
+            .oneshot(req(
+                "POST",
+                "/oauth2/clients",
+                Some(cookie),
+                Some(create.to_string()),
+            ))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED, "client create failed");
@@ -174,7 +179,12 @@ impl TestApp {
     }
 }
 
-fn req(method: &str, uri: &str, cookie: Option<&str>, body: Option<String>) -> axum::http::Request<axum::body::Body> {
+fn req(
+    method: &str,
+    uri: &str,
+    cookie: Option<&str>,
+    body: Option<String>,
+) -> axum::http::Request<axum::body::Body> {
     let mut b = axum::http::Request::builder().method(method).uri(uri);
     if let Some(c) = cookie {
         b = b.header("cookie", c);
@@ -194,7 +204,12 @@ async fn body_json(resp: axum::response::Response) -> Value {
 async fn get_end_session(app: &TestApp, query: &str) -> axum::response::Response {
     app.router
         .clone()
-        .oneshot(req("GET", &format!("/oauth/end_session?{query}"), None, None))
+        .oneshot(req(
+            "GET",
+            &format!("/oauth/end_session?{query}"),
+            None,
+            None,
+        ))
         .await
         .unwrap()
 }
@@ -225,7 +240,12 @@ async fn no_redirect_renders_logged_out_page() {
     let app = build_app().await;
     let resp = get_end_session(&app, "").await;
     assert_eq!(resp.status(), StatusCode::OK);
-    let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(ct.starts_with("text/html"), "expected html, got {ct}");
     // Always clears the session cookie.
     let sc = resp.headers().get("set-cookie").unwrap().to_str().unwrap();
