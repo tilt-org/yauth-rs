@@ -61,8 +61,8 @@ impl UserRepository for MysqlUserRepo {
 
             // MySQL does not support RETURNING — INSERT then SELECT
             diesel::sql_query(
-                "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind::<diesel::sql_types::Text, _>(&u.id)
             .bind::<diesel::sql_types::Text, _>(&u.email)
@@ -72,6 +72,9 @@ impl UserRepository for MysqlUserRepo {
             .bind::<diesel::sql_types::Bool, _>(u.banned)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&u.banned_reason)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Datetime>, _>(&u.banned_until)
+            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Datetime>, _>(&u.suspended_at)
+            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&u.suspended_reason)
+            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Datetime>, _>(&u.activates_at)
             .bind::<diesel::sql_types::Datetime, _>(&u.created_at)
             .bind::<diesel::sql_types::Datetime, _>(&u.updated_at)
             .execute(&mut *conn)

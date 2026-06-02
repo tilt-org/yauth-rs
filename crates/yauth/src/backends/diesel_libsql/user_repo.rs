@@ -45,7 +45,7 @@ impl UserRepository for LibsqlUserRepo {
             // Case-insensitive lookup per UserRepository trait contract.
             // SQLite's = is case-sensitive, so use LOWER() on the column.
             let result = diesel::sql_query(
-                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                  FROM yauth_users WHERE LOWER(email) = ?"
             )
             .bind::<diesel::sql_types::Text, _>(&email)
@@ -63,9 +63,9 @@ impl UserRepository for LibsqlUserRepo {
             let u = LibsqlNewUser::from_domain(input);
             // Use sql_query because diesel-libsql doesn't support Insertable derive
             let result = diesel::sql_query(
-                "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
-                 RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at"
+                "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                 RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at"
             )
             .bind::<diesel::sql_types::Text, _>(&u.id)
             .bind::<diesel::sql_types::Text, _>(&u.email)
@@ -75,6 +75,9 @@ impl UserRepository for LibsqlUserRepo {
             .bind::<diesel::sql_types::Bool, _>(u.banned)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&u.banned_reason)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&u.banned_until)
+            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&u.suspended_at)
+            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&u.suspended_reason)
+            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&u.activates_at)
             .bind::<diesel::sql_types::Text, _>(&u.created_at)
             .bind::<diesel::sql_types::Text, _>(&u.updated_at)
             .get_result::<LibsqlUserByName>(&mut *conn)
