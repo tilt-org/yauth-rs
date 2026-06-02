@@ -30,6 +30,9 @@ pub struct YauthUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<jiff::Timestamp>,
+    pub suspended_at: Option<jiff::Timestamp>,
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<jiff::Timestamp>,
     pub created_at: jiff::Timestamp,
     pub updated_at: jiff::Timestamp,
 

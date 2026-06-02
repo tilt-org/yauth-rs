@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at FROM yauth_users ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+  "query": "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at FROM yauth_users WHERE email ILIKE $1",
   "describe": {
     "columns": [
       {
@@ -45,19 +45,33 @@
       },
       {
         "ordinal": 8,
-        "name": "created_at",
+        "name": "suspended_at",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 9,
+        "name": "suspended_reason",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "activates_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Int8",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
@@ -69,9 +83,12 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "2fa189d13d3ffc57821a692e6feb4afdaec45d0eb643916876dc491644c2efa2"
+  "hash": "52bc2ea27464343eafbb13e8855150ef6e3866fdea6cb42d90314a2740eb9861"
 }

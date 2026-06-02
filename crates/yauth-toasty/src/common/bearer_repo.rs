@@ -86,6 +86,28 @@ impl RefreshTokenRepository for ToastyRefreshTokenRepo {
         })
     }
 
+    fn revoke_all_user_refresh_tokens(&self, user_id: Uuid) -> RepoFuture<'_, u64> {
+        Box::pin(async move {
+            let mut db = self.db.clone();
+            let rows: Vec<YauthRefreshToken> = YauthRefreshToken::filter_by_user_id(user_id)
+                .exec(&mut db)
+                .await
+                .map_err(toasty_err)?;
+            let mut revoked = 0u64;
+            for mut row in rows {
+                if !row.revoked {
+                    row.update()
+                        .revoked(true)
+                        .exec(&mut db)
+                        .await
+                        .map_err(toasty_err)?;
+                    revoked += 1;
+                }
+            }
+            Ok(revoked)
+        })
+    }
+
     fn find_password_hash_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Option<String>> {
         Box::pin(async move {
             #[cfg(feature = "email-password")]

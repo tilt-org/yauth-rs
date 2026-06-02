@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at FROM yauth_users WHERE email LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+  "query": "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at FROM yauth_users WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -77,6 +77,33 @@
       },
       {
         "ordinal": 8,
+        "name": "suspended_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "BINARY",
+          "max_size": 19
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "suspended_reason",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "activates_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "BINARY",
+          "max_size": 19
+        }
+      },
+      {
+        "ordinal": 11,
         "name": "created_at",
         "type_info": {
           "type": "Datetime",
@@ -85,7 +112,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 12,
         "name": "updated_at",
         "type_info": {
           "type": "Datetime",
@@ -95,7 +122,7 @@
       }
     ],
     "parameters": {
-      "Right": 3
+      "Right": 1
     },
     "nullable": [
       false,
@@ -106,9 +133,12 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "a527a1e3333585f10af64b7a10a5529c2038a2bd5a4b44d728497933a8162f60"
+  "hash": "3d92ec8844aca9586dafba45f96e894d02e9f85291cfc8993be6ccdc18f1d3b8"
 }

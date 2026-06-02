@@ -22,6 +22,9 @@ struct UserRow {
     banned: i64,
     banned_reason: Option<String>,
     banned_until: Option<String>,
+    suspended_at: Option<String>,
+    suspended_reason: Option<String>,
+    activates_at: Option<String>,
     created_at: String,
     updated_at: String,
 }
@@ -37,6 +40,9 @@ impl UserRow {
             banned: self.banned != 0,
             banned_reason: self.banned_reason,
             banned_until: opt_str_to_dt(self.banned_until),
+            suspended_at: opt_str_to_dt(self.suspended_at),
+            suspended_reason: self.suspended_reason,
+            activates_at: opt_str_to_dt(self.activates_at),
             created_at: str_to_dt(&self.created_at),
             updated_at: str_to_dt(&self.updated_at),
         }
@@ -89,7 +95,7 @@ impl UserRepository for SqlxSqliteUserRepo {
             let id_str = id.to_string();
             let row = sqlx::query_as!(
                 UserRow,
-                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                  FROM yauth_users WHERE id = ? /* sqlite */",
                 id_str
             )
@@ -105,7 +111,7 @@ impl UserRepository for SqlxSqliteUserRepo {
         Box::pin(async move {
             let row = sqlx::query_as!(
                 UserRow,
-                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                  FROM yauth_users WHERE email LIKE ? /* sqlite */",
                 email
             )
@@ -122,11 +128,13 @@ impl UserRepository for SqlxSqliteUserRepo {
             let created_str = dt_to_str(input.created_at);
             let updated_str = dt_to_str(input.updated_at);
             let banned_until_str = opt_dt_to_str(input.banned_until);
+            let suspended_at_str = opt_dt_to_str(input.suspended_at);
+            let activates_at_str = opt_dt_to_str(input.activates_at);
             let row = sqlx::query_as!(
                 UserRow,
-                "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
-                 RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at /* sqlite */",
+                "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                 RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at /* sqlite */",
                 id_str,
                 input.email,
                 input.display_name,
@@ -135,6 +143,9 @@ impl UserRepository for SqlxSqliteUserRepo {
                 input.banned,
                 input.banned_reason,
                 banned_until_str,
+                suspended_at_str,
+                input.suspended_reason,
+                activates_at_str,
                 created_str,
                 updated_str,
             )
@@ -165,6 +176,9 @@ impl UserRepository for SqlxSqliteUserRepo {
             push_set!(changes.banned, "banned");
             push_set!(changes.banned_reason, "banned_reason");
             push_set!(changes.banned_until, "banned_until");
+            push_set!(changes.suspended_at, "suspended_at");
+            push_set!(changes.suspended_reason, "suspended_reason");
+            push_set!(changes.activates_at, "activates_at");
             push_set!(changes.updated_at, "updated_at");
 
             if sets.is_empty() {
@@ -176,7 +190,7 @@ impl UserRepository for SqlxSqliteUserRepo {
 
             let sql = format!(
                 "UPDATE yauth_users SET {} WHERE id = ? \
-                 RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at",
+                 RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at",
                 sets.join(", ")
             );
 
@@ -202,6 +216,15 @@ impl UserRepository for SqlxSqliteUserRepo {
             }
             if let Some(ref banned_until) = changes.banned_until {
                 query = query.bind(opt_dt_to_str(*banned_until));
+            }
+            if let Some(ref suspended_at) = changes.suspended_at {
+                query = query.bind(opt_dt_to_str(*suspended_at));
+            }
+            if let Some(ref suspended_reason) = changes.suspended_reason {
+                query = query.bind(suspended_reason.clone());
+            }
+            if let Some(ref activates_at) = changes.activates_at {
+                query = query.bind(opt_dt_to_str(*activates_at));
             }
             if let Some(updated_at) = changes.updated_at {
                 query = query.bind(dt_to_str(updated_at));
@@ -257,7 +280,7 @@ impl UserRepository for SqlxSqliteUserRepo {
 
                 let rows = sqlx::query_as!(
                     UserRow,
-                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                      FROM yauth_users WHERE email LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ? /* sqlite */",
                     pattern,
                     limit,
@@ -276,7 +299,7 @@ impl UserRepository for SqlxSqliteUserRepo {
 
                 let rows = sqlx::query_as!(
                     UserRow,
-                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                      FROM yauth_users ORDER BY created_at DESC LIMIT ? OFFSET ? /* sqlite */",
                     limit,
                     offset

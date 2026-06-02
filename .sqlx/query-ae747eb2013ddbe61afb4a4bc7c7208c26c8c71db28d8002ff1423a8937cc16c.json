@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at FROM yauth_users WHERE id = $1",
+  "query": "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -45,18 +45,45 @@
       },
       {
         "ordinal": 8,
-        "name": "created_at",
+        "name": "suspended_at",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 9,
+        "name": "suspended_reason",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "activates_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Timestamptz",
+        "Timestamptz",
+        "Varchar",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -68,9 +95,12 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "6ca0b9f2c426b182d14ea0660d20f7743a44c6f03d9a332abef5b454c7716cf7"
+  "hash": "ae747eb2013ddbe61afb4a4bc7c7208c26c8c71db28d8002ff1423a8937cc16c"
 }

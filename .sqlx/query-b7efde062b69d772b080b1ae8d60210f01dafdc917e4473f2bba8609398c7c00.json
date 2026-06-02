@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at FROM yauth_users WHERE email LIKE ? /* sqlite */",
+  "query": "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at /* sqlite */",
   "describe": {
     "columns": [
       {
@@ -44,18 +44,33 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at",
+        "name": "suspended_at",
         "ordinal": 8,
         "type_info": "Text"
       },
       {
-        "name": "updated_at",
+        "name": "suspended_reason",
         "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "activates_at",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 12,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 13
     },
     "nullable": [
       true,
@@ -66,9 +81,12 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "9b8895c63e12d718526e365268a28ea2b3b44189cdbcce44fc07b2b55f826f91"
+  "hash": "b7efde062b69d772b080b1ae8d60210f01dafdc917e4473f2bba8609398c7c00"
 }

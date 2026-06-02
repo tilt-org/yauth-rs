@@ -20,6 +20,9 @@ struct UserRow {
     banned: bool,
     banned_reason: Option<String>,
     banned_until: Option<DateTime<Utc>>,
+    suspended_at: Option<DateTime<Utc>>,
+    suspended_reason: Option<String>,
+    activates_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -35,6 +38,9 @@ impl UserRow {
             banned: self.banned,
             banned_reason: self.banned_reason,
             banned_until: self.banned_until.map(|dt| dt.naive_utc()),
+            suspended_at: self.suspended_at.map(|dt| dt.naive_utc()),
+            suspended_reason: self.suspended_reason,
+            activates_at: self.activates_at.map(|dt| dt.naive_utc()),
             created_at: self.created_at.naive_utc(),
             updated_at: self.updated_at.naive_utc(),
         }
@@ -86,7 +92,7 @@ impl UserRepository for SqlxPgUserRepo {
         Box::pin(async move {
             let row = sqlx::query_as!(
                 UserRow,
-                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                  FROM yauth_users WHERE id = $1",
                 id
             )
@@ -102,7 +108,7 @@ impl UserRepository for SqlxPgUserRepo {
         Box::pin(async move {
             let row = sqlx::query_as!(
                 UserRow,
-                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                  FROM yauth_users WHERE email ILIKE $1",
                 email
             )
@@ -117,9 +123,9 @@ impl UserRepository for SqlxPgUserRepo {
         Box::pin(async move {
             let row = sqlx::query_as!(
                 UserRow,
-                "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
-                 RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at",
+                "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
+                 RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at",
                 input.id,
                 input.email,
                 input.display_name as Option<String>,
@@ -128,6 +134,9 @@ impl UserRepository for SqlxPgUserRepo {
                 input.banned,
                 input.banned_reason as Option<String>,
                 opt_naive_to_utc(input.banned_until) as Option<DateTime<Utc>>,
+                opt_naive_to_utc(input.suspended_at) as Option<DateTime<Utc>>,
+                input.suspended_reason as Option<String>,
+                opt_naive_to_utc(input.activates_at) as Option<DateTime<Utc>>,
                 naive_to_utc(input.created_at),
                 naive_to_utc(input.updated_at),
             )
@@ -160,6 +169,9 @@ impl UserRepository for SqlxPgUserRepo {
             push_set!(changes.banned, "banned");
             push_set!(changes.banned_reason, "banned_reason");
             push_set!(changes.banned_until, "banned_until");
+            push_set!(changes.suspended_at, "suspended_at");
+            push_set!(changes.suspended_reason, "suspended_reason");
+            push_set!(changes.activates_at, "activates_at");
             push_set!(changes.updated_at, "updated_at");
 
             if sets.is_empty() {
@@ -171,7 +183,7 @@ impl UserRepository for SqlxPgUserRepo {
 
             let sql = format!(
                 "UPDATE yauth_users SET {} WHERE id = $1 \
-                 RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at",
+                 RETURNING id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at",
                 sets.join(", ")
             );
 
@@ -196,7 +208,16 @@ impl UserRepository for SqlxPgUserRepo {
                 query = query.bind(banned_reason.clone());
             }
             if let Some(ref banned_until) = changes.banned_until {
-                query = query.bind(*banned_until);
+                query = query.bind(opt_naive_to_utc(*banned_until));
+            }
+            if let Some(ref suspended_at) = changes.suspended_at {
+                query = query.bind(opt_naive_to_utc(*suspended_at));
+            }
+            if let Some(ref suspended_reason) = changes.suspended_reason {
+                query = query.bind(suspended_reason.clone());
+            }
+            if let Some(ref activates_at) = changes.activates_at {
+                query = query.bind(opt_naive_to_utc(*activates_at));
             }
             if let Some(updated_at) = changes.updated_at {
                 query = query.bind(updated_at);
@@ -247,7 +268,7 @@ impl UserRepository for SqlxPgUserRepo {
 
                 let rows = sqlx::query_as!(
                     UserRow,
-                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                      FROM yauth_users WHERE email ILIKE $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
                     pattern,
                     limit,
@@ -266,7 +287,7 @@ impl UserRepository for SqlxPgUserRepo {
 
                 let rows = sqlx::query_as!(
                     UserRow,
-                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                      FROM yauth_users ORDER BY created_at DESC LIMIT $1 OFFSET $2",
                     limit,
                     offset

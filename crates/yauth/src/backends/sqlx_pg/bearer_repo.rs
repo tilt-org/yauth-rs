@@ -97,6 +97,19 @@ impl RefreshTokenRepository for SqlxPgRefreshTokenRepo {
         })
     }
 
+    fn revoke_all_user_refresh_tokens(&self, user_id: Uuid) -> RepoFuture<'_, u64> {
+        Box::pin(async move {
+            let result = sqlx::query!(
+                "UPDATE yauth_refresh_tokens SET revoked = true WHERE user_id = $1 AND revoked = false",
+                user_id
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(result.rows_affected())
+        })
+    }
+
     fn find_password_hash_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Option<String>> {
         Box::pin(async move {
             #[cfg(feature = "email-password")]

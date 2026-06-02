@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at FROM yauth_users WHERE email LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ? /* sqlite */",
+  "query": "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at FROM yauth_users WHERE id = ? /* sqlite */",
   "describe": {
     "columns": [
       {
@@ -44,18 +44,33 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at",
+        "name": "suspended_at",
         "ordinal": 8,
         "type_info": "Text"
       },
       {
-        "name": "updated_at",
+        "name": "suspended_reason",
         "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "activates_at",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 12,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 3
+      "Right": 1
     },
     "nullable": [
       true,
@@ -66,9 +81,12 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "7fcca6ebbb25b24e100d5f418b8eaf0f37ce7770ddf0f28d3312ae50340c8ae7"
+  "hash": "a2eecf56ed81754405dd1f42b63aca9642d56861e0ce386988c99db853313ff6"
 }
