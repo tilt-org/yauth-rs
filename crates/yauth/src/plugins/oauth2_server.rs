@@ -79,6 +79,75 @@ impl OAuth2ServerPlugin {
     }
 }
 
+/// Run a single stale-DCR-client sweep: purge dynamically-registered public
+/// clients unused past `ttl`, emitting an `oauth2.client.swept` audit event +
+/// log whenever anything is reclaimed. Never silent on a non-empty sweep.
+/// Returns the swept client_ids (used directly by tests).
+pub(crate) async fn run_stale_dcr_sweep(
+    state: &YAuthState,
+    ttl: std::time::Duration,
+) -> Vec<String> {
+    let cutoff = chrono::Utc::now().naive_utc()
+        - chrono::Duration::from_std(ttl).unwrap_or_else(|_| chrono::Duration::days(1));
+    let swept = match state
+        .repos
+        .oauth2_clients
+        .purge_stale_dynamic_clients(cutoff)
+        .await
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            crate::otel::record_error("oauth2_stale_dcr_sweep_failed", &e);
+            return Vec::new();
+        }
+    };
+    if swept.is_empty() {
+        return swept;
+    }
+    log::info!(
+        "oauth2: swept {} stale DCR client(s) (ttl {:?})",
+        swept.len(),
+        ttl
+    );
+    state
+        .write_audit_log(
+            None,
+            "oauth2.client.swept",
+            Some(serde_json::json!({
+                "count": swept.len(),
+                "client_ids": swept,
+            })),
+            None,
+        )
+        .await;
+    swept
+}
+
+/// Spawn the opt-in background sweep ticker. Gated by the caller on
+/// `dcr_stale_client_ttl > 0`; `interval` defaults to 24h when unset/zero.
+/// Mirrors the webhooks / audit-export worker pattern (tokio::spawn +
+/// interval). Best-effort: errors are logged, never propagated.
+pub(crate) fn spawn_stale_dcr_sweep(
+    state: YAuthState,
+    ttl: std::time::Duration,
+    interval: std::time::Duration,
+) {
+    let interval = if interval.is_zero() {
+        std::time::Duration::from_secs(24 * 60 * 60)
+    } else {
+        interval
+    };
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        // Skip the immediate first tick so the sweep does not fire at startup.
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            run_stale_dcr_sweep(&state, ttl).await;
+        }
+    });
+}
+
 impl YAuthPlugin for OAuth2ServerPlugin {
     fn name(&self) -> &'static str {
         "oauth2-server"
@@ -1105,6 +1174,14 @@ async fn handle_authorization_code_grant(
             )
             .await;
 
+        // Best-effort activity stamp so the stale-DCR-client sweep never
+        // reclaims a client in active use. Errors are intentionally ignored.
+        let _ = state
+            .repos
+            .oauth2_clients
+            .touch_last_used(client_id, chrono::Utc::now().naive_utc())
+            .await;
+
         // Generate OIDC id_token when openid scope is present
         #[cfg(feature = "oidc")]
         let id_token = if has_openid_scope {
@@ -1304,6 +1381,16 @@ async fn handle_oauth2_refresh_token(
         })?;
 
         let expires_in = access_ttl.as_secs();
+
+        // Best-effort activity stamp for the stale-DCR-client sweep (public
+        // clients send client_id on refresh). Errors are intentionally ignored.
+        if let Some(cid) = input.client_id.as_deref() {
+            let _ = state
+                .repos
+                .oauth2_clients
+                .touch_last_used(cid, chrono::Utc::now().naive_utc())
+                .await;
+        }
 
         return Ok(Json(OAuth2TokenResponse {
             access_token,
@@ -2187,6 +2274,13 @@ async fn handle_device_code_grant(
             )
             .await;
 
+        // Best-effort activity stamp for the stale-DCR-client sweep.
+        let _ = state
+            .repos
+            .oauth2_clients
+            .touch_last_used(client_id, chrono::Utc::now().naive_utc())
+            .await;
+
         return Ok(Json(OAuth2TokenResponse {
             access_token,
             token_type: "Bearer".into(),
@@ -2637,6 +2731,13 @@ async fn handle_client_credentials_grant(
                 })),
                 None,
             )
+            .await;
+
+        // Best-effort activity stamp for the stale-DCR-client sweep.
+        let _ = state
+            .repos
+            .oauth2_clients
+            .touch_last_used(client_id, chrono::Utc::now().naive_utc())
             .await;
 
         return Ok(Json(OAuth2ClientCredentialsTokenResponse {
