@@ -2,18 +2,31 @@
 # Used to compute diffs for subsequent migrations
 
 [[tables]]
-name = "yauth_totp_secrets"
+name = "yauth_rate_limits"
+columns = [
+    { name = "key", ty = "String" },
+    { name = "count", ty = "I32" },
+    { name = "window_start", ty = "String" },
+]
+primary_key = [0]
+indices = [
+    { name = "index_yauth_rate_limits_by_key", columns = [0], unique = true },
+]
+
+[[tables]]
+name = "yauth_unlock_tokens"
 columns = [
     { name = "id", ty = "Bytes" },
     { name = "user_id", ty = "Bytes" },
-    { name = "encrypted_secret", ty = "String" },
-    { name = "verified", ty = "Bool" },
+    { name = "token_hash", ty = "String" },
+    { name = "expires_at", ty = "String" },
     { name = "created_at", ty = "String" },
 ]
 primary_key = [0]
 indices = [
-    { name = "index_yauth_totp_secrets_by_id", columns = [0], unique = true },
-    { name = "index_yauth_totp_secrets_by_user_id", columns = [1] },
+    { name = "index_yauth_unlock_tokens_by_id", columns = [0], unique = true },
+    { name = "index_yauth_unlock_tokens_by_user_id", columns = [1] },
+    { name = "index_yauth_unlock_tokens_by_token_hash", columns = [2], unique = true },
 ]
 
 [[tables]]
@@ -27,6 +40,9 @@ columns = [
     { name = "banned", ty = "Bool" },
     { name = "banned_reason", ty = "String", nullable = true },
     { name = "banned_until", ty = "String", nullable = true },
+    { name = "suspended_at", ty = "String", nullable = true },
+    { name = "suspended_reason", ty = "String", nullable = true },
+    { name = "activates_at", ty = "String", nullable = true },
     { name = "created_at", ty = "String" },
     { name = "updated_at", ty = "String" },
 ]
@@ -45,6 +61,21 @@ columns = [
 primary_key = [0]
 indices = [
     { name = "index_yauth_passwords_by_user_id", columns = [0], unique = true },
+]
+
+[[tables]]
+name = "yauth_totp_secrets"
+columns = [
+    { name = "id", ty = "Bytes" },
+    { name = "user_id", ty = "Bytes" },
+    { name = "encrypted_secret", ty = "String" },
+    { name = "verified", ty = "Bool" },
+    { name = "created_at", ty = "String" },
+]
+primary_key = [0]
+indices = [
+    { name = "index_yauth_totp_secrets_by_id", columns = [0], unique = true },
+    { name = "index_yauth_totp_secrets_by_user_id", columns = [1] },
 ]
 
 [[tables]]
@@ -209,22 +240,6 @@ indices = [
 ]
 
 [[tables]]
-name = "yauth_unlock_tokens"
-columns = [
-    { name = "id", ty = "Bytes" },
-    { name = "user_id", ty = "Bytes" },
-    { name = "token_hash", ty = "String" },
-    { name = "expires_at", ty = "String" },
-    { name = "created_at", ty = "String" },
-]
-primary_key = [0]
-indices = [
-    { name = "index_yauth_unlock_tokens_by_id", columns = [0], unique = true },
-    { name = "index_yauth_unlock_tokens_by_user_id", columns = [1] },
-    { name = "index_yauth_unlock_tokens_by_token_hash", columns = [2], unique = true },
-]
-
-[[tables]]
 name = "yauth_consents"
 columns = [
     { name = "id", ty = "Bytes" },
@@ -237,6 +252,7 @@ primary_key = [0]
 indices = [
     { name = "index_yauth_consents_by_id", columns = [0], unique = true },
     { name = "index_yauth_consents_by_user_id", columns = [1] },
+    { name = "index_yauth_consents_by_client_id", columns = [2] },
 ]
 
 [[tables]]
@@ -259,79 +275,66 @@ primary_key = [0]
 indices = [
     { name = "index_yauth_authorization_codes_by_id", columns = [0], unique = true },
     { name = "index_yauth_authorization_codes_by_code_hash", columns = [1], unique = true },
+    { name = "index_yauth_authorization_codes_by_client_id", columns = [2] },
     { name = "index_yauth_authorization_codes_by_user_id", columns = [3] },
 ]
 
 [[tables]]
-name = "yauth_rate_limits"
-columns = [
-    { name = "key", ty = "String" },
-    { name = "count", ty = "I32" },
-    { name = "window_start", ty = "String" },
-]
-primary_key = [0]
-indices = [
-    { name = "index_yauth_rate_limits_by_key", columns = [0], unique = true },
-]
-
-[[tables]]
-name = "yauth_revocations"
-columns = [
-    { name = "key", ty = "String" },
-    { name = "expires_at", ty = "String" },
-]
-primary_key = [0]
-indices = [
-    { name = "index_yauth_revocations_by_key", columns = [0], unique = true },
-]
-
-[[tables]]
-name = "yauth_oauth_states"
-columns = [
-    { name = "state", ty = "String" },
-    { name = "provider", ty = "String" },
-    { name = "redirect_url", ty = "String", nullable = true },
-    { name = "expires_at", ty = "String" },
-    { name = "created_at", ty = "String" },
-]
-primary_key = [0]
-indices = [
-    { name = "index_yauth_oauth_states_by_state", columns = [0], unique = true },
-]
-
-[[tables]]
-name = "yauth_webhook_deliveries"
+name = "yauth_memberships"
 columns = [
     { name = "id", ty = "Bytes" },
-    { name = "webhook_id", ty = "Bytes" },
-    { name = "event_type", ty = "String" },
-    { name = "payload", ty = "String" },
-    { name = "status_code", ty = "I32", nullable = true },
-    { name = "response_body", ty = "String", nullable = true },
-    { name = "success", ty = "Bool" },
-    { name = "attempt", ty = "I32" },
-    { name = "created_at", ty = "String" },
-]
-primary_key = [0]
-indices = [
-    { name = "index_yauth_webhook_deliveries_by_id", columns = [0], unique = true },
-    { name = "index_yauth_webhook_deliveries_by_webhook_id", columns = [1] },
-]
-
-[[tables]]
-name = "yauth_webhooks"
-columns = [
-    { name = "id", ty = "Bytes" },
-    { name = "url", ty = "String" },
-    { name = "secret", ty = "String" },
-    { name = "events", ty = "String" },
-    { name = "active", ty = "Bool" },
+    { name = "organization_id", ty = "Bytes" },
+    { name = "user_id", ty = "Bytes" },
+    { name = "role", ty = "String" },
+    { name = "status", ty = "String" },
+    { name = "invited_at", ty = "String", nullable = true },
+    { name = "joined_at", ty = "String", nullable = true },
     { name = "created_at", ty = "String" },
     { name = "updated_at", ty = "String" },
 ]
 primary_key = [0]
 indices = [
-    { name = "index_yauth_webhooks_by_id", columns = [0], unique = true },
+    { name = "index_yauth_memberships_by_id", columns = [0], unique = true },
+    { name = "index_yauth_memberships_by_organization_id", columns = [1] },
+    { name = "index_yauth_memberships_by_user_id", columns = [2] },
+]
+
+[[tables]]
+name = "yauth_organizations"
+columns = [
+    { name = "id", ty = "Bytes" },
+    { name = "name", ty = "String" },
+    { name = "slug", ty = "String" },
+    { name = "display_name", ty = "String", nullable = true },
+    { name = "avatar_url", ty = "String", nullable = true },
+    { name = "metadata", ty = "String", nullable = true },
+    { name = "created_at", ty = "String" },
+    { name = "updated_at", ty = "String" },
+]
+primary_key = [0]
+indices = [
+    { name = "index_yauth_organizations_by_id", columns = [0], unique = true },
+    { name = "index_yauth_organizations_by_slug", columns = [2], unique = true },
+]
+
+[[tables]]
+name = "yauth_invitations"
+columns = [
+    { name = "id", ty = "Bytes" },
+    { name = "organization_id", ty = "Bytes" },
+    { name = "email", ty = "String" },
+    { name = "role", ty = "String" },
+    { name = "token_hash", ty = "String" },
+    { name = "invited_by_user_id", ty = "Bytes" },
+    { name = "expires_at", ty = "String" },
+    { name = "accepted_at", ty = "String", nullable = true },
+    { name = "created_at", ty = "String" },
+]
+primary_key = [0]
+indices = [
+    { name = "index_yauth_invitations_by_id", columns = [0], unique = true },
+    { name = "index_yauth_invitations_by_organization_id", columns = [1] },
+    { name = "index_yauth_invitations_by_token_hash", columns = [4], unique = true },
 ]
 
 [[tables]]
@@ -367,39 +370,38 @@ indices = [
 ]
 
 [[tables]]
-name = "yauth_oauth2_clients"
+name = "yauth_webhooks"
 columns = [
     { name = "id", ty = "Bytes" },
-    { name = "client_id", ty = "String" },
-    { name = "client_secret_hash", ty = "String", nullable = true },
-    { name = "redirect_uris", ty = "String" },
-    { name = "client_name", ty = "String", nullable = true },
-    { name = "grant_types", ty = "String" },
-    { name = "scopes", ty = "String", nullable = true },
-    { name = "is_public", ty = "Bool" },
+    { name = "url", ty = "String" },
+    { name = "secret", ty = "String" },
+    { name = "events", ty = "String" },
+    { name = "active", ty = "Bool" },
     { name = "created_at", ty = "String" },
-    { name = "token_endpoint_auth_method", ty = "String", nullable = true },
-    { name = "public_key_pem", ty = "String", nullable = true },
-    { name = "jwks_uri", ty = "String", nullable = true },
-    { name = "banned_at", ty = "String", nullable = true },
-    { name = "banned_reason", ty = "String", nullable = true },
+    { name = "updated_at", ty = "String" },
 ]
 primary_key = [0]
 indices = [
-    { name = "index_yauth_oauth2_clients_by_id", columns = [0], unique = true },
-    { name = "index_yauth_oauth2_clients_by_client_id", columns = [1], unique = true },
+    { name = "index_yauth_webhooks_by_id", columns = [0], unique = true },
 ]
 
 [[tables]]
-name = "yauth_challenges"
+name = "yauth_webhook_deliveries"
 columns = [
-    { name = "key", ty = "String" },
-    { name = "value", ty = "String" },
-    { name = "expires_at", ty = "String" },
+    { name = "id", ty = "Bytes" },
+    { name = "webhook_id", ty = "Bytes" },
+    { name = "event_type", ty = "String" },
+    { name = "payload", ty = "String" },
+    { name = "status_code", ty = "I32", nullable = true },
+    { name = "response_body", ty = "String", nullable = true },
+    { name = "success", ty = "Bool" },
+    { name = "attempt", ty = "I32" },
+    { name = "created_at", ty = "String" },
 ]
 primary_key = [0]
 indices = [
-    { name = "index_yauth_challenges_by_key", columns = [0], unique = true },
+    { name = "index_yauth_webhook_deliveries_by_id", columns = [0], unique = true },
+    { name = "index_yauth_webhook_deliveries_by_webhook_id", columns = [1] },
 ]
 
 [[tables]]
@@ -422,5 +424,72 @@ indices = [
     { name = "index_yauth_device_codes_by_id", columns = [0], unique = true },
     { name = "index_yauth_device_codes_by_device_code_hash", columns = [1], unique = true },
     { name = "index_yauth_device_codes_by_user_code", columns = [2], unique = true },
+    { name = "index_yauth_device_codes_by_client_id", columns = [3] },
+]
+
+[[tables]]
+name = "yauth_oauth2_clients"
+columns = [
+    { name = "id", ty = "Bytes" },
+    { name = "client_id", ty = "String" },
+    { name = "client_secret_hash", ty = "String", nullable = true },
+    { name = "redirect_uris", ty = "String" },
+    { name = "client_name", ty = "String", nullable = true },
+    { name = "grant_types", ty = "String" },
+    { name = "scopes", ty = "String", nullable = true },
+    { name = "is_public", ty = "Bool" },
+    { name = "created_at", ty = "String" },
+    { name = "token_endpoint_auth_method", ty = "String", nullable = true },
+    { name = "public_key_pem", ty = "String", nullable = true },
+    { name = "jwks_uri", ty = "String", nullable = true },
+    { name = "banned_at", ty = "String", nullable = true },
+    { name = "banned_reason", ty = "String", nullable = true },
+    { name = "post_logout_redirect_uris", ty = "String", nullable = true },
+    { name = "backchannel_logout_uri", ty = "String", nullable = true },
+    { name = "backchannel_logout_session_required", ty = "Bool" },
+    { name = "dynamically_registered", ty = "Bool" },
+    { name = "last_used_at", ty = "String", nullable = true },
+]
+primary_key = [0]
+indices = [
+    { name = "index_yauth_oauth2_clients_by_id", columns = [0], unique = true },
+    { name = "index_yauth_oauth2_clients_by_client_id", columns = [1], unique = true },
+]
+
+[[tables]]
+name = "yauth_oauth_states"
+columns = [
+    { name = "state", ty = "String" },
+    { name = "provider", ty = "String" },
+    { name = "redirect_url", ty = "String", nullable = true },
+    { name = "expires_at", ty = "String" },
+    { name = "created_at", ty = "String" },
+]
+primary_key = [0]
+indices = [
+    { name = "index_yauth_oauth_states_by_state", columns = [0], unique = true },
+]
+
+[[tables]]
+name = "yauth_revocations"
+columns = [
+    { name = "key", ty = "String" },
+    { name = "expires_at", ty = "String" },
+]
+primary_key = [0]
+indices = [
+    { name = "index_yauth_revocations_by_key", columns = [0], unique = true },
+]
+
+[[tables]]
+name = "yauth_challenges"
+columns = [
+    { name = "key", ty = "String" },
+    { name = "value", ty = "String" },
+    { name = "expires_at", ty = "String" },
+]
+primary_key = [0]
+indices = [
+    { name = "index_yauth_challenges_by_key", columns = [0], unique = true },
 ]
 

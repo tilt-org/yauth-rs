@@ -179,6 +179,9 @@ async fn create_test_user(repos: &Repositories, email: &str) -> Uuid {
             banned: false,
             banned_reason: None,
             banned_until: None,
+            suspended_at: None,
+            suspended_reason: None,
+            activates_at: None,
             created_at: n,
             updated_at: n,
         })
@@ -270,6 +273,9 @@ fn user_duplicate_email_conflict() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: now(),
                     updated_at: now(),
                 })
@@ -1379,6 +1385,9 @@ fn uuid_round_trip() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
@@ -1421,6 +1430,9 @@ fn boolean_storage_retrieval() {
                     banned: true,
                     banned_reason: Some("test".into()),
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
@@ -2801,6 +2813,9 @@ fn null_vs_empty_string() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
@@ -2828,6 +2843,9 @@ fn null_vs_empty_string() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
@@ -2869,6 +2887,9 @@ fn large_text_round_trip() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
@@ -2910,6 +2931,9 @@ fn special_characters_in_strings() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
