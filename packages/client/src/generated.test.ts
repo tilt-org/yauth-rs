@@ -113,6 +113,43 @@ describe("createYAuthClient", () => {
     }
   });
 
+  test("normalizes RFC 9457 problem+json (huma-native Go error shape)", async () => {
+    const fetchFn = mockFetch(403, {
+      type: "https://yauth/errors/forbidden",
+      title: "Forbidden",
+      status: 403,
+      detail: "Admin role required",
+    });
+    const client = createClient(fetchFn);
+
+    try {
+      await client.getSession();
+      expect(true).toBe(false); // should not reach here
+    } catch (e) {
+      expect(e).toBeInstanceOf(YAuthError);
+      expect((e as YAuthError).status).toBe(403);
+      // detail carries the human message; type is the machine code
+      expect((e as YAuthError).message).toBe("Admin role required");
+      expect((e as YAuthError).code).toBe("https://yauth/errors/forbidden");
+    }
+  });
+
+  test("problem+json falls back to title when detail is absent", async () => {
+    const fetchFn = mockFetch(404, {
+      type: "about:blank",
+      title: "Not Found",
+      status: 404,
+    });
+    const client = createClient(fetchFn);
+
+    try {
+      await client.getSession();
+      expect(true).toBe(false); // should not reach here
+    } catch (e) {
+      expect((e as YAuthError).message).toBe("Not Found");
+    }
+  });
+
   test("YAuthError includes body on JSON error response", async () => {
     const fetchFn = mockFetch(403, {
       error: "Banned",
