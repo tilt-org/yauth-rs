@@ -54,7 +54,7 @@ export function createOrganizations() {
     setLoading(true);
     setError(null);
     try {
-      setOrganizations(await client.organizations.list());
+      setOrganizations((await client.organizations.list()).organizations);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -171,7 +171,7 @@ export function createMembers(orgId: Accessor<string | null | undefined>) {
     setLoading(true);
     setError(null);
     try {
-      setMembers(await client.organizations.listMembers(current));
+      setMembers((await client.organizations.listMembers(current)).members);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -397,7 +397,7 @@ export function createDomains(orgId: Accessor<string | null>) {
     setLoading(true);
     setError(null);
     try {
-      setDomains(await client.organizations.listDomains(current));
+      setDomains((await client.organizations.listDomains(current)).domains);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
