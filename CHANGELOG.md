@@ -1,3 +1,9 @@
+## 0.14.0 (2026-06-03)
+
+### Breaking Changes
+
+- yauth-go parity — user lifecycle, OIDC logout/BCL, SAML SLO, DCR sweep, #125/#126 (#127)
+
 ## 0.13.0 (2026-05-31)
 
 ### Breaking Changes

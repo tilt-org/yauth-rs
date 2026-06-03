@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-yauth"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -7846,7 +7846,7 @@ dependencies = [
 
 [[package]]
 name = "yauth"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "argon2",
  "axum 0.8.9",
@@ -7919,7 +7919,7 @@ dependencies = [
 
 [[package]]
 name = "yauth-entity"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "chrono",
  "serde",
@@ -7929,7 +7929,7 @@ dependencies = [
 
 [[package]]
 name = "yauth-migration"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "chrono",
  "hex",
