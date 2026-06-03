@@ -14,6 +14,9 @@ pub struct YauthDeviceCode {
     #[unique]
     pub user_code: String,
 
+    // Indexed so `filter_by_client_id` is generated for the DCR stale-client
+    // cascade delete (no FK cascade in toasty). Not unique — many per client.
+    #[index]
     pub client_id: String,
 
     #[serialize(json, nullable)]

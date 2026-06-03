@@ -201,7 +201,7 @@ impl Oauth2ClientRepository for ToastyOauth2ClientRepo {
             let mut db = self.db.clone();
             // Toasty lacks rich WHERE predicates; fetch all and filter in-app.
             let rows: Vec<YauthOauth2Client> = YauthOauth2Client::all()
-                .collect(&mut db)
+                .exec(&mut db)
                 .await
                 .map_err(toasty_err)?;
             let cutoff_j = chrono_to_jiff(cutoff);
@@ -221,7 +221,7 @@ impl Oauth2ClientRepository for ToastyOauth2ClientRepo {
             // Cascade-delete dependents keyed by client_id (no FK cascade).
             for id in &ids {
                 let consents: Vec<YauthConsent> = YauthConsent::filter_by_client_id(id)
-                    .collect(&mut db)
+                    .exec(&mut db)
                     .await
                     .map_err(toasty_err)?;
                 for row in consents {
@@ -229,14 +229,14 @@ impl Oauth2ClientRepository for ToastyOauth2ClientRepo {
                 }
                 let codes: Vec<YauthAuthorizationCode> =
                     YauthAuthorizationCode::filter_by_client_id(id)
-                        .collect(&mut db)
+                        .exec(&mut db)
                         .await
                         .map_err(toasty_err)?;
                 for row in codes {
                     let _ = row.delete().exec(&mut db).await;
                 }
                 let devices: Vec<YauthDeviceCode> = YauthDeviceCode::filter_by_client_id(id)
-                    .collect(&mut db)
+                    .exec(&mut db)
                     .await
                     .map_err(toasty_err)?;
                 for row in devices {

@@ -12,6 +12,9 @@ pub struct YauthAuthorizationCode {
     #[unique]
     pub code_hash: String,
 
+    // Indexed so `filter_by_client_id` is generated for the DCR stale-client
+    // cascade delete (no FK cascade in toasty). Not unique — many per client.
+    #[index]
     pub client_id: String,
 
     #[index]
