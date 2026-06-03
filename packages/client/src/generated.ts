@@ -598,6 +598,13 @@ export interface DeleteUserSessionsResponse {
   deleted: number;
 }
 
+/**
+ * Wrapper for `GET /organizations/{id}/domains` — matches yauth-go's `{"domains":[…]}`.
+ */
+export interface DomainListResponse {
+  domains: DomainResponse[];
+}
+
 export interface ForgotPasswordRequest {
   email: string;
 }
@@ -874,6 +881,13 @@ export interface MembershipResponse {
   user_id: string;
 }
 
+/**
+ * Wrapper for `GET /organizations/{id}/members` — matches yauth-go's `{"members":[…]}`.
+ */
+export interface MembershipListResponse {
+  members: MembershipResponse[];
+}
+
 export interface MessageResponse {
   message: string;
 }
@@ -1059,6 +1073,13 @@ export interface OrganizationResponse {
   name: string;
   slug: string;
   updated_at: string;
+}
+
+/**
+ * Wrapper for `GET /organizations` — matches yauth-go's `{"organizations":[…]}`.
+ */
+export interface OrganizationListResponse {
+  organizations: OrganizationResponse[];
 }
 
 export interface OutboxEntryResponse {
@@ -3068,9 +3089,9 @@ export const getOrganizationsListUrl = () => {
   return `/organizations`
 }
 
-export const organizationsList = async ( options?: RequestInit): Promise<OrganizationResponse[]> => {
+export const organizationsList = async ( options?: RequestInit): Promise<OrganizationListResponse> => {
 
-  return customFetch<OrganizationResponse[]>(getOrganizationsListUrl(),
+  return customFetch<OrganizationListResponse>(getOrganizationsListUrl(),
   {
     ...options,
     method: 'GET'
@@ -3176,9 +3197,9 @@ export const getOrganizationsListDomainsUrl = (id: string,) => {
   return `/organizations/${id}/domains`
 }
 
-export const organizationsListDomains = async (id: string, options?: RequestInit): Promise<DomainResponse[]> => {
+export const organizationsListDomains = async (id: string, options?: RequestInit): Promise<DomainListResponse> => {
 
-  return customFetch<DomainResponse[]>(getOrganizationsListDomainsUrl(id),
+  return customFetch<DomainListResponse>(getOrganizationsListDomainsUrl(id),
   {
     ...options,
     method: 'GET'
@@ -3314,9 +3335,9 @@ export const getOrganizationsListMembersUrl = (id: string,) => {
   return `/organizations/${id}/members`
 }
 
-export const organizationsListMembers = async (id: string, options?: RequestInit): Promise<MembershipResponse[]> => {
+export const organizationsListMembers = async (id: string, options?: RequestInit): Promise<MembershipListResponse> => {
 
-  return customFetch<MembershipResponse[]>(getOrganizationsListMembersUrl(id),
+  return customFetch<MembershipListResponse>(getOrganizationsListMembersUrl(id),
   {
     ...options,
     method: 'GET'

@@ -2095,10 +2095,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/OrganizationResponse"
-                  }
+                  "$ref": "#/components/schemas/OrganizationListResponse"
                 }
               }
             }
@@ -2270,10 +2267,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/DomainResponse"
-                  }
+                  "$ref": "#/components/schemas/DomainListResponse"
                 }
               }
             }
@@ -2526,10 +2520,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/MembershipResponse"
-                  }
+                  "$ref": "#/components/schemas/MembershipListResponse"
                 }
               }
             }
@@ -4886,6 +4877,21 @@
           }
         }
       },
+      "DomainListResponse": {
+        "type": "object",
+        "description": "Wrapper for `GET /organizations/{id}/domains` — matches yauth-go's `{\"domains\":[…]}`.",
+        "required": [
+          "domains"
+        ],
+        "properties": {
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DomainResponse"
+            }
+          }
+        }
+      },
       "DomainResponse": {
         "type": "object",
         "required": [
@@ -5466,6 +5472,21 @@
           }
         }
       },
+      "MembershipListResponse": {
+        "type": "object",
+        "description": "Wrapper for `GET /organizations/{id}/members` — matches yauth-go's `{\"members\":[…]}`.",
+        "required": [
+          "members"
+        ],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MembershipResponse"
+            }
+          }
+        }
+      },
       "MembershipResponse": {
         "type": "object",
         "required": [
@@ -6022,6 +6043,21 @@
           },
           "role": {
             "type": "string"
+          }
+        }
+      },
+      "OrganizationListResponse": {
+        "type": "object",
+        "description": "Wrapper for `GET /organizations` — matches yauth-go's `{\"organizations\":[…]}`.",
+        "required": [
+          "organizations"
+        ],
+        "properties": {
+          "organizations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationResponse"
+            }
           }
         }
       },

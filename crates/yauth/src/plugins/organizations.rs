@@ -190,6 +190,13 @@ impl From<Organization> for OrganizationResponse {
     }
 }
 
+/// Wrapper for `GET /organizations` — matches yauth-go's `{"organizations":[…]}`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct OrganizationListResponse {
+    pub organizations: Vec<OrganizationResponse>,
+}
+
 #[derive(Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MembershipResponse {
@@ -214,6 +221,13 @@ impl From<Membership> for MembershipResponse {
             created_at: m.created_at,
         }
     }
+}
+
+/// Wrapper for `GET /organizations/{id}/members` — matches yauth-go's `{"members":[…]}`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct MembershipListResponse {
+    pub members: Vec<MembershipResponse>,
 }
 
 #[derive(Deserialize)]
@@ -383,9 +397,11 @@ async fn create_org(
 async fn list_orgs(
     State(state): State<YAuthState>,
     Extension(user): Extension<AuthUser>,
-) -> Result<Json<Vec<OrganizationResponse>>, ApiError> {
+) -> Result<Json<OrganizationListResponse>, ApiError> {
     let orgs = state.repos.organizations.list_for_user(user.id).await?;
-    Ok(Json(orgs.into_iter().map(Into::into).collect()))
+    Ok(Json(OrganizationListResponse {
+        organizations: orgs.into_iter().map(Into::into).collect(),
+    }))
 }
 
 async fn get_org(
@@ -454,7 +470,7 @@ async fn list_members(
     State(state): State<YAuthState>,
     Extension(user): Extension<AuthUser>,
     Path(id): Path<Uuid>,
-) -> Result<Json<Vec<MembershipResponse>>, ApiError> {
+) -> Result<Json<MembershipListResponse>, ApiError> {
     // H-3: soft rate-limit per-user to prevent enumeration grinding.
     let (limit, window) = RATE_LIMIT_MEMBER_LIST;
     enforce_rate_limit(&state, &format!("org-members:{}", user.id), limit, window).await?;
@@ -466,7 +482,9 @@ async fn list_members(
         .await?
         .ok_or_else(|| forbid("not a member of this organization"))?;
     let members = state.repos.memberships.list_by_org(id).await?;
-    Ok(Json(members.into_iter().map(Into::into).collect()))
+    Ok(Json(MembershipListResponse {
+        members: members.into_iter().map(Into::into).collect(),
+    }))
 }
 
 async fn create_invitation(
@@ -1058,6 +1076,13 @@ impl From<OrganizationDomain> for DomainResponse {
     }
 }
 
+/// Wrapper for `GET /organizations/{id}/domains` — matches yauth-go's `{"domains":[…]}`.
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DomainListResponse {
+    pub domains: Vec<DomainResponse>,
+}
+
 /// Returned by `POST /organizations/:id/domains` — wraps the claim plus
 /// the **verification token**, which is returned exactly once at claim
 /// time. Clients must surface it to the operator so they can publish the
@@ -1152,7 +1177,7 @@ async fn list_domains(
     State(state): State<YAuthState>,
     Extension(user): Extension<AuthUser>,
     Path(id): Path<Uuid>,
-) -> Result<Json<Vec<DomainResponse>>, ApiError> {
+) -> Result<Json<DomainListResponse>, ApiError> {
     // Any active member can view claimed domains for their org.
     state
         .repos
@@ -1161,7 +1186,9 @@ async fn list_domains(
         .await?
         .ok_or_else(|| forbid("not a member of this organization"))?;
     let rows = state.repos.organization_domains.list_for_org(id).await?;
-    Ok(Json(rows.into_iter().map(Into::into).collect()))
+    Ok(Json(DomainListResponse {
+        domains: rows.into_iter().map(Into::into).collect(),
+    }))
 }
 
 async fn update_domain(

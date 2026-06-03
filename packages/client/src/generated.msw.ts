@@ -610,6 +610,13 @@ export interface DeleteUserSessionsResponse {
   deleted: number;
 }
 
+/**
+ * Wrapper for `GET /organizations/{id}/domains` — matches yauth-go's `{"domains":[…]}`.
+ */
+export interface DomainListResponse {
+  domains: DomainResponse[];
+}
+
 export interface ForgotPasswordRequest {
   email: string;
 }
@@ -886,6 +893,13 @@ export interface MembershipResponse {
   user_id: string;
 }
 
+/**
+ * Wrapper for `GET /organizations/{id}/members` — matches yauth-go's `{"members":[…]}`.
+ */
+export interface MembershipListResponse {
+  members: MembershipResponse[];
+}
+
 export interface MessageResponse {
   message: string;
 }
@@ -1071,6 +1085,13 @@ export interface OrganizationResponse {
   name: string;
   slug: string;
   updated_at: string;
+}
+
+/**
+ * Wrapper for `GET /organizations` — matches yauth-go's `{"organizations":[…]}`.
+ */
+export interface OrganizationListResponse {
+  organizations: OrganizationResponse[];
 }
 
 export interface OutboxEntryResponse {
@@ -3080,9 +3101,9 @@ export const getOrganizationsListUrl = () => {
   return `/organizations`
 }
 
-export const organizationsList = async ( options?: RequestInit): Promise<OrganizationResponse[]> => {
+export const organizationsList = async ( options?: RequestInit): Promise<OrganizationListResponse> => {
 
-  return customFetch<OrganizationResponse[]>(getOrganizationsListUrl(),
+  return customFetch<OrganizationListResponse>(getOrganizationsListUrl(),
   {
     ...options,
     method: 'GET'
@@ -3188,9 +3209,9 @@ export const getOrganizationsListDomainsUrl = (id: string,) => {
   return `/organizations/${id}/domains`
 }
 
-export const organizationsListDomains = async (id: string, options?: RequestInit): Promise<DomainResponse[]> => {
+export const organizationsListDomains = async (id: string, options?: RequestInit): Promise<DomainListResponse> => {
 
-  return customFetch<DomainResponse[]>(getOrganizationsListDomainsUrl(id),
+  return customFetch<DomainListResponse>(getOrganizationsListDomainsUrl(id),
   {
     ...options,
     method: 'GET'
@@ -3326,9 +3347,9 @@ export const getOrganizationsListMembersUrl = (id: string,) => {
   return `/organizations/${id}/members`
 }
 
-export const organizationsListMembers = async (id: string, options?: RequestInit): Promise<MembershipResponse[]> => {
+export const organizationsListMembers = async (id: string, options?: RequestInit): Promise<MembershipListResponse> => {
 
-  return customFetch<MembershipResponse[]>(getOrganizationsListMembersUrl(id),
+  return customFetch<MembershipListResponse>(getOrganizationsListMembersUrl(id),
   {
     ...options,
     method: 'GET'
@@ -4287,7 +4308,7 @@ export const getOauth2AdminPatchClientResponseMock = (overrideResponse: Partial<
 
 export const getOauth2ServerConsentResponseMock = (overrideResponse: Partial<Extract<Oauth2AuthorizeRedirect, object>> = {}): Oauth2AuthorizeRedirect => ({redirect_url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getOrganizationsListResponseMock = (): OrganizationResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+export const getOrganizationsListResponseMock = (overrideResponse: Partial<Extract<OrganizationListResponse, object>> = {}): OrganizationListResponse => ({organizations: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), ...overrideResponse})
 
 export const getOrganizationsCreateResponseMock = (overrideResponse: Partial<Extract<OrganizationResponse, object>> = {}): OrganizationResponse => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
@@ -4295,7 +4316,7 @@ export const getOrganizationsGetResponseMock = (overrideResponse: Partial<Extrac
 
 export const getOrganizationsUpdateResponseMock = (overrideResponse: Partial<Extract<OrganizationResponse, object>> = {}): OrganizationResponse => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getOrganizationsListDomainsResponseMock = (): DomainResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({auto_join_on_signup: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_auto_join: faker.string.alpha({length: {min: 10, max: 20}}), domain: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), last_checked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), require_email_verified: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', verified_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined])})))
+export const getOrganizationsListDomainsResponseMock = (overrideResponse: Partial<Extract<DomainListResponse, object>> = {}): DomainListResponse => ({domains: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({auto_join_on_signup: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_auto_join: faker.string.alpha({length: {min: 10, max: 20}}), domain: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), last_checked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), require_email_verified: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', verified_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined])})), ...overrideResponse})
 
 export const getOrganizationsCreateDomainResponseMock = (overrideResponse: Partial<Extract<CreateDomainResponse, object>> = {}): CreateDomainResponse => ({dns_record_name: faker.string.alpha({length: {min: 10, max: 20}}), domain: {auto_join_on_signup: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_auto_join: faker.string.alpha({length: {min: 10, max: 20}}), domain: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), last_checked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), require_email_verified: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', verified_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined])}, verification_token: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -4305,7 +4326,7 @@ export const getOrganizationsVerifyDomainResponseMock = (overrideResponse: Parti
 
 export const getOrganizationsCreateInvitationResponseMock = (overrideResponse: Partial<Extract<CreateInvitationResponse, object>> = {}): CreateInvitationResponse => ({invitation: {created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', email: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}})}, token: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getOrganizationsListMembersResponseMock = (): MembershipResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid()})))
+export const getOrganizationsListMembersResponseMock = (overrideResponse: Partial<Extract<MembershipListResponse, object>> = {}): MembershipListResponse => ({members: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid()})), ...overrideResponse})
 
 export const getOrganizationsChangeRoleResponseMock = (overrideResponse: Partial<Extract<MembershipResponse, object>> = {}): MembershipResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid(), ...overrideResponse})
 
@@ -5158,7 +5179,7 @@ export const getOauth2ServerConsentMockHandler = (overrideResponse?: Oauth2Autho
   }, options)
 }
 
-export const getOrganizationsListMockHandler = (overrideResponse?: OrganizationResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<OrganizationResponse[]> | OrganizationResponse[]), options?: RequestHandlerOptions) => {
+export const getOrganizationsListMockHandler = (overrideResponse?: OrganizationListResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<OrganizationListResponse> | OrganizationListResponse), options?: RequestHandlerOptions) => {
   return http.get('*/organizations', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -5216,7 +5237,7 @@ export const getOrganizationsUpdateMockHandler = (overrideResponse?: Organizatio
   }, options)
 }
 
-export const getOrganizationsListDomainsMockHandler = (overrideResponse?: DomainResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DomainResponse[]> | DomainResponse[]), options?: RequestHandlerOptions) => {
+export const getOrganizationsListDomainsMockHandler = (overrideResponse?: DomainListResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DomainListResponse> | DomainListResponse), options?: RequestHandlerOptions) => {
   return http.get('*/organizations/:id/domains', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -5286,7 +5307,7 @@ export const getOrganizationsCreateInvitationMockHandler = (overrideResponse?: C
   }, options)
 }
 
-export const getOrganizationsListMembersMockHandler = (overrideResponse?: MembershipResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MembershipResponse[]> | MembershipResponse[]), options?: RequestHandlerOptions) => {
+export const getOrganizationsListMembersMockHandler = (overrideResponse?: MembershipListResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MembershipListResponse> | MembershipListResponse), options?: RequestHandlerOptions) => {
   return http.get('*/organizations/:id/members', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 

@@ -312,7 +312,9 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<CreateOrgRequest>()
             .schema_from::<UpdateOrgRequest>()
             .schema_from::<OrganizationResponse>()
+            .schema_from::<OrganizationListResponse>()
             .schema_from::<MembershipResponse>()
+            .schema_from::<MembershipListResponse>()
             .schema_from::<CreateInvitationRequest>()
             .schema_from::<CreateInvitationResponse>()
             .schema_from::<InvitationResponse>()
@@ -329,6 +331,7 @@ fn register_schemas(builder: ComponentsBuilder) -> ComponentsBuilder {
             .schema_from::<CreateDomainRequest>()
             .schema_from::<UpdateDomainRequest>()
             .schema_from::<DomainResponse>()
+            .schema_from::<DomainListResponse>()
             .schema_from::<CreateDomainResponse>()
             .schema_from::<VerifyDomainResponse>()
             // Per-org policy (#92)
@@ -1633,7 +1636,7 @@ fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
                 .operation(
                     HttpMethod::Get,
                     op("organizations_list", "organizations")
-                        .pipe(|b| with_array_response(b, "OrganizationResponse"))
+                        .pipe(|b| with_response(b, "OrganizationListResponse"))
                         .security(auth_req())
                         .build(),
                 )
@@ -1691,7 +1694,7 @@ fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
                 .operation(
                     HttpMethod::Get,
                     with_path_param(op("organizations_listMembers", "organizations"), "id")
-                        .pipe(|b| with_array_response(b, "MembershipResponse"))
+                        .pipe(|b| with_response(b, "MembershipListResponse"))
                         .security(auth_req())
                         .build(),
                 )
@@ -1810,7 +1813,7 @@ fn organizations_paths(builder: PathsBuilder) -> PathsBuilder {
                 .operation(
                     HttpMethod::Get,
                     with_path_param(op("organizations_listDomains", "organizations"), "id")
-                        .pipe(|b| with_array_response(b, "DomainResponse"))
+                        .pipe(|b| with_response(b, "DomainListResponse"))
                         .security(auth_req())
                         .build(),
                 )
