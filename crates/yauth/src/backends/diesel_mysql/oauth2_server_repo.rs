@@ -164,6 +164,70 @@ impl Oauth2ClientRepository for MysqlOauth2ClientRepo {
             Ok(updated > 0)
         })
     }
+
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            diesel::update(
+                yauth_oauth2_clients::table.filter(yauth_oauth2_clients::client_id.eq(&client_id)),
+            )
+            .set(yauth_oauth2_clients::last_used_at.eq(at))
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            Ok(())
+        })
+    }
+
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            let candidates: Vec<MysqlOauth2Client> = yauth_oauth2_clients::table
+                .filter(yauth_oauth2_clients::dynamically_registered.eq(true))
+                .filter(yauth_oauth2_clients::is_public.eq(true))
+                .filter(yauth_oauth2_clients::banned_at.is_null())
+                .select(MysqlOauth2Client::as_select())
+                .load(&mut *c)
+                .await
+                .map_err(diesel_err)?;
+            let ids: Vec<String> = candidates
+                .into_iter()
+                .filter(|m| m.last_used_at.unwrap_or(m.created_at) < cutoff)
+                .map(|m| m.client_id)
+                .collect();
+            if ids.is_empty() {
+                return Ok(ids);
+            }
+            diesel::delete(yauth_consents::table.filter(yauth_consents::client_id.eq_any(&ids)))
+                .execute(&mut *c)
+                .await
+                .map_err(diesel_err)?;
+            diesel::delete(
+                yauth_authorization_codes::table
+                    .filter(yauth_authorization_codes::client_id.eq_any(&ids)),
+            )
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            diesel::delete(
+                yauth_device_codes::table.filter(yauth_device_codes::client_id.eq_any(&ids)),
+            )
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            diesel::delete(
+                yauth_oauth2_clients::table.filter(yauth_oauth2_clients::client_id.eq_any(&ids)),
+            )
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            Ok(ids)
+        })
+    }
 }
 
 pub(crate) struct MysqlAuthorizationCodeRepo {

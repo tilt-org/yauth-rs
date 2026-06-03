@@ -251,6 +251,72 @@ impl Oauth2ClientRepository for SqlxPgOauth2ClientRepo {
             Ok(result.rows_affected() > 0)
         })
     }
+
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            sqlx::query!(
+                "UPDATE yauth_oauth2_clients SET last_used_at = $2 WHERE client_id = $1",
+                client_id,
+                naive_to_utc(at),
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(())
+        })
+    }
+
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let mut tx = self.pool.begin().await.map_err(sqlx_err)?;
+            let rows = sqlx::query!(
+                "SELECT client_id FROM yauth_oauth2_clients \
+                 WHERE dynamically_registered = TRUE AND is_public = TRUE AND banned_at IS NULL \
+                   AND COALESCE(last_used_at, created_at) < $1 FOR UPDATE",
+                naive_to_utc(cutoff),
+            )
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(sqlx_err)?;
+            let ids: Vec<String> = rows.into_iter().map(|r| r.client_id).collect();
+            if ids.is_empty() {
+                tx.commit().await.map_err(sqlx_err)?;
+                return Ok(ids);
+            }
+            // Cascade-delete dependents keyed by client_id (no FK cascade).
+            sqlx::query!("DELETE FROM yauth_consents WHERE client_id = ANY($1)", &ids,)
+                .execute(&mut *tx)
+                .await
+                .map_err(sqlx_err)?;
+            sqlx::query!(
+                "DELETE FROM yauth_authorization_codes WHERE client_id = ANY($1)",
+                &ids,
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(sqlx_err)?;
+            sqlx::query!(
+                "DELETE FROM yauth_device_codes WHERE client_id = ANY($1)",
+                &ids,
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(sqlx_err)?;
+            sqlx::query!(
+                "DELETE FROM yauth_oauth2_clients WHERE client_id = ANY($1)",
+                &ids,
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(sqlx_err)?;
+            tx.commit().await.map_err(sqlx_err)?;
+            Ok(ids)
+        })
+    }
 }
 
 // ── AuthorizationCode ──

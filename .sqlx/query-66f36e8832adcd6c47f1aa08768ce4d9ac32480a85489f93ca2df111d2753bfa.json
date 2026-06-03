@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE yauth_oauth2_clients SET last_used_at = ? WHERE client_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "66f36e8832adcd6c47f1aa08768ce4d9ac32480a85489f93ca2df111d2753bfa"
+}

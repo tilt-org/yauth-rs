@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM yauth_consents WHERE client_id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2ba8528a6e536718d146f63e6f1334e13609173c514f65fad3c2925faf2e1a7a"
+}

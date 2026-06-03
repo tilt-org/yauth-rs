@@ -153,6 +153,75 @@ impl Oauth2ClientRepository for SeaOrmOauth2ClientRepo {
             Ok(result.rows_affected > 0)
         })
     }
+
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            oauth2_clients::Entity::update_many()
+                .col_expr(
+                    oauth2_clients::Column::LastUsedAt,
+                    Expr::value(super::to_tz(at)),
+                )
+                .filter(oauth2_clients::Column::ClientId.eq(&client_id))
+                .exec(&self.db)
+                .await
+                .map_err(sea_err)?;
+            Ok(())
+        })
+    }
+
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            use sea_orm::TransactionTrait;
+            let txn = self.db.begin().await.map_err(sea_err)?;
+            // Select eligible candidates, apply COALESCE(last_used_at,
+            // created_at) < cutoff in Rust for dialect-agnostic comparison.
+            let candidates = oauth2_clients::Entity::find()
+                .filter(oauth2_clients::Column::DynamicallyRegistered.eq(true))
+                .filter(oauth2_clients::Column::IsPublic.eq(true))
+                .filter(oauth2_clients::Column::BannedAt.is_null())
+                .all(&txn)
+                .await
+                .map_err(sea_err)?;
+            let ids: Vec<String> = candidates
+                .into_iter()
+                .filter(|m| {
+                    let last = m.last_used_at.unwrap_or(m.created_at).naive_utc();
+                    last < cutoff
+                })
+                .map(|m| m.client_id)
+                .collect();
+            if ids.is_empty() {
+                txn.commit().await.map_err(sea_err)?;
+                return Ok(ids);
+            }
+            consents::Entity::delete_many()
+                .filter(consents::Column::ClientId.is_in(ids.clone()))
+                .exec(&txn)
+                .await
+                .map_err(sea_err)?;
+            authorization_codes::Entity::delete_many()
+                .filter(authorization_codes::Column::ClientId.is_in(ids.clone()))
+                .exec(&txn)
+                .await
+                .map_err(sea_err)?;
+            device_codes::Entity::delete_many()
+                .filter(device_codes::Column::ClientId.is_in(ids.clone()))
+                .exec(&txn)
+                .await
+                .map_err(sea_err)?;
+            oauth2_clients::Entity::delete_many()
+                .filter(oauth2_clients::Column::ClientId.is_in(ids.clone()))
+                .exec(&txn)
+                .await
+                .map_err(sea_err)?;
+            txn.commit().await.map_err(sea_err)?;
+            Ok(ids)
+        })
+    }
 }
 
 // ── AuthorizationCodeRepository ──

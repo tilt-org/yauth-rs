@@ -174,6 +174,81 @@ impl Oauth2ClientRepository for ToastyOauth2ClientRepo {
             }
         })
     }
+
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut db = self.db.clone();
+            if let Ok(mut row) = YauthOauth2Client::filter_by_client_id(&client_id)
+                .get(&mut db)
+                .await
+            {
+                row.update()
+                    .last_used_at(Some(chrono_to_jiff(at)))
+                    .exec(&mut db)
+                    .await
+                    .map_err(toasty_err)?;
+            }
+            Ok(())
+        })
+    }
+
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let mut db = self.db.clone();
+            // Toasty lacks rich WHERE predicates; fetch all and filter in-app.
+            let rows: Vec<YauthOauth2Client> = YauthOauth2Client::all()
+                .collect(&mut db)
+                .await
+                .map_err(toasty_err)?;
+            let cutoff_j = chrono_to_jiff(cutoff);
+            let stale: Vec<YauthOauth2Client> = rows
+                .into_iter()
+                .filter(|c| {
+                    c.dynamically_registered
+                        && c.is_public
+                        && c.banned_at.is_none()
+                        && c.last_used_at.unwrap_or(c.created_at) < cutoff_j
+                })
+                .collect();
+            if stale.is_empty() {
+                return Ok(Vec::new());
+            }
+            let ids: Vec<String> = stale.iter().map(|c| c.client_id.clone()).collect();
+            // Cascade-delete dependents keyed by client_id (no FK cascade).
+            for id in &ids {
+                let consents: Vec<YauthConsent> = YauthConsent::filter_by_client_id(id)
+                    .collect(&mut db)
+                    .await
+                    .map_err(toasty_err)?;
+                for row in consents {
+                    let _ = row.delete().exec(&mut db).await;
+                }
+                let codes: Vec<YauthAuthorizationCode> =
+                    YauthAuthorizationCode::filter_by_client_id(id)
+                        .collect(&mut db)
+                        .await
+                        .map_err(toasty_err)?;
+                for row in codes {
+                    let _ = row.delete().exec(&mut db).await;
+                }
+                let devices: Vec<YauthDeviceCode> = YauthDeviceCode::filter_by_client_id(id)
+                    .collect(&mut db)
+                    .await
+                    .map_err(toasty_err)?;
+                for row in devices {
+                    let _ = row.delete().exec(&mut db).await;
+                }
+            }
+            for client in stale {
+                client.delete().exec(&mut db).await.map_err(toasty_err)?;
+            }
+            Ok(ids)
+        })
+    }
 }
 
 // -- AuthorizationCodeRepository --

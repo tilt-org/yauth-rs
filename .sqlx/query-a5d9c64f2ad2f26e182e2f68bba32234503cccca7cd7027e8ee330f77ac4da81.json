@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT client_id FROM yauth_oauth2_clients WHERE dynamically_registered = 1 AND is_public = 1 AND banned_at IS NULL AND COALESCE(last_used_at, created_at) < ? /* sqlite */",
+  "describe": {
+    "columns": [
+      {
+        "name": "client_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a5d9c64f2ad2f26e182e2f68bba32234503cccca7cd7027e8ee330f77ac4da81"
+}

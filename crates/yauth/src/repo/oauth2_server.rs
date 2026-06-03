@@ -39,6 +39,23 @@ pub trait Oauth2ClientRepository: sealed::Sealed + Send + Sync {
         backchannel_logout_uri: Option<String>,
         backchannel_logout_session_required: bool,
     ) -> RepoFuture<'_, bool>;
+
+    /// Stamp the last successful token-endpoint use of a client. Called
+    /// best-effort on every token issuance (errors are ignored by callers) so
+    /// the stale-client sweep never reclaims an actively-used client. No-op
+    /// effect on the response — purely an activity marker.
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()>;
+
+    /// Purge dynamically-registered (RFC 7591) public clients whose last use
+    /// (or creation, if never used) predates `cutoff`. Admin-provisioned and
+    /// banned clients are never touched. Transactional: dependent consents,
+    /// authorization codes, and device codes (keyed by `client_id`, no FK
+    /// cascade) are deleted in the same transaction. Returns the swept
+    /// `client_id`s.
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>>;
 }
 
 /// Repository for authorization codes.

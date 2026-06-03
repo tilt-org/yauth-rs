@@ -362,6 +362,9 @@ impl DatabaseBackend for InMemoryBackend {
             #[cfg(feature = "oauth2-server")]
             oauth2_clients: Arc::new(oauth2_server_repo::InMemoryOauth2ClientRepo::new(
                 self.storage.oauth2_clients.clone(),
+                self.storage.consents.clone(),
+                self.storage.authorization_codes.clone(),
+                self.storage.device_codes.clone(),
             )),
             #[cfg(feature = "oauth2-server")]
             authorization_codes: Arc::new(oauth2_server_repo::InMemoryAuthorizationCodeRepo::new(

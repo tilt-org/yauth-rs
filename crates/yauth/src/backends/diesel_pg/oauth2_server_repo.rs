@@ -137,6 +137,73 @@ impl Oauth2ClientRepository for DieselOauth2ClientRepo {
             Ok(updated > 0)
         })
     }
+
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut conn = get_conn(&self.pool).await?;
+            diesel::update(
+                yauth_oauth2_clients::table.filter(yauth_oauth2_clients::client_id.eq(&client_id)),
+            )
+            .set(yauth_oauth2_clients::last_used_at.eq(at))
+            .execute(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+            Ok(())
+        })
+    }
+
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let mut conn = get_conn(&self.pool).await?;
+            // Select eligible candidates, then apply the COALESCE(last_used_at,
+            // created_at) < cutoff predicate in Rust — keeps the comparison
+            // backend-agnostic across the four diesel dialects.
+            let candidates: Vec<DieselOauth2Client> = yauth_oauth2_clients::table
+                .filter(yauth_oauth2_clients::dynamically_registered.eq(true))
+                .filter(yauth_oauth2_clients::is_public.eq(true))
+                .filter(yauth_oauth2_clients::banned_at.is_null())
+                .select(DieselOauth2Client::as_select())
+                .load(&mut conn)
+                .await
+                .map_err(diesel_err)?;
+            let ids: Vec<String> = candidates
+                .into_iter()
+                .filter(|c| c.last_used_at.unwrap_or(c.created_at) < cutoff)
+                .map(|c| c.client_id)
+                .collect();
+            if ids.is_empty() {
+                return Ok(ids);
+            }
+            diesel::delete(yauth_consents::table.filter(yauth_consents::client_id.eq_any(&ids)))
+                .execute(&mut conn)
+                .await
+                .map_err(diesel_err)?;
+            diesel::delete(
+                yauth_authorization_codes::table
+                    .filter(yauth_authorization_codes::client_id.eq_any(&ids)),
+            )
+            .execute(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+            diesel::delete(
+                yauth_device_codes::table.filter(yauth_device_codes::client_id.eq_any(&ids)),
+            )
+            .execute(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+            diesel::delete(
+                yauth_oauth2_clients::table.filter(yauth_oauth2_clients::client_id.eq_any(&ids)),
+            )
+            .execute(&mut conn)
+            .await
+            .map_err(diesel_err)?;
+            Ok(ids)
+        })
+    }
 }
 
 // ── AuthorizationCode ──

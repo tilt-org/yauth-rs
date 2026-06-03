@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT client_id FROM yauth_oauth2_clients WHERE dynamically_registered = TRUE AND is_public = TRUE AND banned_at IS NULL AND COALESCE(last_used_at, created_at) < $1 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "client_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8123f2dbaa39619674238bcec120ad8f7d7fca0c3b775d5ca1559e558bac44bf"
+}
