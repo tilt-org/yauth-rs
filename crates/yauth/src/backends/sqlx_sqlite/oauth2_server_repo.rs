@@ -26,6 +26,11 @@ struct Oauth2ClientRow {
     jwks_uri: Option<String>,
     banned_at: Option<String>,
     banned_reason: Option<String>,
+    post_logout_redirect_uris: Option<String>,
+    backchannel_logout_uri: Option<String>,
+    backchannel_logout_session_required: i64,
+    dynamically_registered: i64,
+    last_used_at: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -86,7 +91,7 @@ impl Oauth2ClientRepository for SqlxSqliteOauth2ClientRepo {
         Box::pin(async move {
             let row = sqlx::query_as!(
                 Oauth2ClientRow,
-                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason \
+                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required, dynamically_registered, last_used_at \
                  FROM yauth_oauth2_clients WHERE client_id = ? /* sqlite */",
                 client_id
             )
@@ -108,6 +113,11 @@ impl Oauth2ClientRepository for SqlxSqliteOauth2ClientRepo {
                 jwks_uri: r.jwks_uri,
                 banned_at: opt_str_to_dt(r.banned_at),
                 banned_reason: r.banned_reason,
+                post_logout_redirect_uris: opt_str_to_json(r.post_logout_redirect_uris),
+                backchannel_logout_uri: r.backchannel_logout_uri,
+                backchannel_logout_session_required: r.backchannel_logout_session_required != 0,
+                dynamically_registered: r.dynamically_registered != 0,
+                last_used_at: opt_str_to_dt(r.last_used_at),
             }))
         })
     }
@@ -120,8 +130,8 @@ impl Oauth2ClientRepository for SqlxSqliteOauth2ClientRepo {
             let scopes_str = input.scopes.map(|v| v.to_string());
             let created_str = dt_to_str(input.created_at);
             sqlx::query!(
-                "INSERT INTO yauth_oauth2_clients (id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) /* sqlite */",
+                "INSERT INTO yauth_oauth2_clients (id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, dynamically_registered) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) /* sqlite */",
                 id_str,
                 input.client_id,
                 input.client_secret_hash,
@@ -134,6 +144,7 @@ impl Oauth2ClientRepository for SqlxSqliteOauth2ClientRepo {
                 input.token_endpoint_auth_method,
                 input.public_key_pem,
                 input.jwks_uri,
+                input.dynamically_registered,
             )
             .execute(&self.pool)
             .await
@@ -189,7 +200,7 @@ impl Oauth2ClientRepository for SqlxSqliteOauth2ClientRepo {
         Box::pin(async move {
             let rows = sqlx::query_as!(
                 Oauth2ClientRow,
-                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason \
+                "SELECT id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, banned_at, banned_reason, post_logout_redirect_uris, backchannel_logout_uri, backchannel_logout_session_required, dynamically_registered, last_used_at \
                  FROM yauth_oauth2_clients WHERE banned_at IS NOT NULL ORDER BY banned_at DESC /* sqlite */"
             )
             .fetch_all(&self.pool)
@@ -212,8 +223,111 @@ impl Oauth2ClientRepository for SqlxSqliteOauth2ClientRepo {
                     jwks_uri: r.jwks_uri,
                     banned_at: opt_str_to_dt(r.banned_at),
                     banned_reason: r.banned_reason,
+                    post_logout_redirect_uris: opt_str_to_json(r.post_logout_redirect_uris),
+                    backchannel_logout_uri: r.backchannel_logout_uri,
+                    backchannel_logout_session_required: r.backchannel_logout_session_required != 0,
+                    dynamically_registered: r.dynamically_registered != 0,
+                    last_used_at: opt_str_to_dt(r.last_used_at),
                 })
                 .collect())
+        })
+    }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let uris_str = post_logout_redirect_uris.map(|v| v.to_string());
+            let result = sqlx::query!(
+                "UPDATE yauth_oauth2_clients SET post_logout_redirect_uris = ?, backchannel_logout_uri = ?, backchannel_logout_session_required = ? WHERE client_id = ? /* sqlite */",
+                uris_str,
+                backchannel_logout_uri,
+                backchannel_logout_session_required,
+                client_id,
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(result.rows_affected() > 0)
+        })
+    }
+
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let at_str = dt_to_str(at);
+            sqlx::query!(
+                "UPDATE yauth_oauth2_clients SET last_used_at = ? WHERE client_id = ? /* sqlite */",
+                at_str,
+                client_id,
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(())
+        })
+    }
+
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let cutoff_str = dt_to_str(cutoff);
+            let mut tx = self.pool.begin().await.map_err(sqlx_err)?;
+            // Timestamps are stored as ISO-8601 strings (fixed format) so the
+            // lexical COALESCE comparison matches chronological order.
+            let rows = sqlx::query!(
+                "SELECT client_id FROM yauth_oauth2_clients \
+                 WHERE dynamically_registered = 1 AND is_public = 1 AND banned_at IS NULL \
+                   AND COALESCE(last_used_at, created_at) < ? /* sqlite */",
+                cutoff_str,
+            )
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(sqlx_err)?;
+            let ids: Vec<String> = rows.into_iter().map(|r| r.client_id).collect();
+            if ids.is_empty() {
+                tx.commit().await.map_err(sqlx_err)?;
+                return Ok(ids);
+            }
+            for id in &ids {
+                sqlx::query!(
+                    "DELETE FROM yauth_consents WHERE client_id = ? /* sqlite */",
+                    id
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(sqlx_err)?;
+                sqlx::query!(
+                    "DELETE FROM yauth_authorization_codes WHERE client_id = ? /* sqlite */",
+                    id
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(sqlx_err)?;
+                sqlx::query!(
+                    "DELETE FROM yauth_device_codes WHERE client_id = ? /* sqlite */",
+                    id
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(sqlx_err)?;
+                sqlx::query!(
+                    "DELETE FROM yauth_oauth2_clients WHERE client_id = ? /* sqlite */",
+                    id
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(sqlx_err)?;
+            }
+            tx.commit().await.map_err(sqlx_err)?;
+            Ok(ids)
         })
     }
 }
@@ -387,6 +501,31 @@ impl ConsentRepository for SqlxSqliteConsentRepo {
             .await
             .map_err(sqlx_err)?;
             Ok(())
+        })
+    }
+
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let user_id_str = user_id.to_string();
+            let rows = sqlx::query_as!(
+                ConsentRow,
+                "SELECT id, user_id, client_id, scopes, created_at \
+                 FROM yauth_consents WHERE user_id = ? /* sqlite */",
+                user_id_str,
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(sqlx_err)?;
+            Ok(rows
+                .into_iter()
+                .map(|r| domain::Consent {
+                    id: str_to_uuid(&r.id.unwrap_or_default()),
+                    user_id: str_to_uuid(&r.user_id.unwrap_or_default()),
+                    client_id: r.client_id,
+                    scopes: opt_str_to_json(r.scopes),
+                    created_at: str_to_dt(&r.created_at),
+                })
+                .collect())
         })
     }
 }

@@ -37,6 +37,9 @@ impl YAuthPlugin for AdminPlugin {
             .route("/admin/users/{id}", delete(delete_user))
             .route("/admin/users/{id}/ban", post(ban_user))
             .route("/admin/users/{id}/unban", post(unban_user))
+            .route("/admin/users/{id}/suspend", post(suspend_user))
+            .route("/admin/users/{id}/unsuspend", post(unsuspend_user))
+            .route("/admin/users/{id}/schedule-start", post(schedule_start))
             .route("/admin/users/{id}/impersonate", post(impersonate_user))
             .route("/admin/users/{id}/sessions", delete(delete_user_sessions))
             .route("/admin/audit", get(list_audit))
@@ -123,6 +126,22 @@ pub struct BanRequest {
     pub until: Option<String>,
 }
 
+/// Request body for `POST /admin/users/{id}/suspend` (global offboarding).
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SuspendRequest {
+    /// Operator-facing context for the suspension.
+    pub reason: Option<String>,
+}
+
+/// Request body for `POST /admin/users/{id}/schedule-start` (staged onboarding).
+#[derive(Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ScheduleStartRequest {
+    /// Scheduled start (RFC 3339). Null/absent clears it (active now).
+    pub activates_at: Option<String>,
+}
+
 /// Response type for `GET /admin/users` (schema-only, used for OpenAPI spec).
 #[derive(Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -145,6 +164,14 @@ pub struct AdminUserInfo {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<String>,
+    /// Whether the account is globally suspended (offboarded). Distinct from
+    /// `banned` (security incidents).
+    pub suspended: bool,
+    pub suspended_at: Option<String>,
+    pub suspended_reason: Option<String>,
+    /// Scheduled start; while in the future the user is "staged" and cannot
+    /// authenticate yet.
+    pub activates_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -160,6 +187,10 @@ impl From<crate::domain::User> for AdminUserInfo {
             banned: u.banned,
             banned_reason: u.banned_reason,
             banned_until: u.banned_until.map(|t| t.to_string()),
+            suspended: u.suspended_at.is_some(),
+            suspended_at: u.suspended_at.map(|t| t.to_string()),
+            suspended_reason: u.suspended_reason,
+            activates_at: u.activates_at.map(|t| t.to_string()),
             created_at: u.created_at.to_string(),
             updated_at: u.updated_at.to_string(),
         }
@@ -345,6 +376,9 @@ async fn update_user(
         banned: None,
         banned_reason: None,
         banned_until: None,
+        suspended_at: None,
+        suspended_reason: None,
+        activates_at: None,
         updated_at: Some(Utc::now().naive_utc()),
     };
 
@@ -476,6 +510,9 @@ async fn ban_user(
         banned: Some(true),
         banned_reason: Some(input.reason.clone()),
         banned_until: Some(banned_until),
+        suspended_at: None,
+        suspended_reason: None,
+        activates_at: None,
         updated_at: Some(Utc::now().naive_utc()),
     };
 
@@ -484,10 +521,18 @@ async fn ban_user(
         api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
     })?;
 
-    // Delete all active sessions for the banned user
+    // Kill switch: terminate sessions + revoke refresh tokens so the banned
+    // user is kicked out of every active client immediately. (yauth-go bans
+    // delete sessions only; revoking refresh tokens here closes the gap where a
+    // banned user could still mint a fresh access token from a live refresh
+    // token before its next per-request gate.)
     let deleted_sessions = session::delete_all_user_sessions(&state, id)
         .await
         .unwrap_or(0);
+    revoke_all_user_refresh_tokens(&state, id).await;
+
+    // Offboarding event → OIDC Back-Channel Logout fan-out to the user's RPs.
+    let _ = state.emit_event(&crate::plugin::AuthEvent::UserBanned { user_id: id });
 
     crate::otel::add_event(
         "admin_user_banned",
@@ -543,6 +588,9 @@ async fn unban_user(
         banned: Some(false),
         banned_reason: Some(None),
         banned_until: Some(None),
+        suspended_at: None,
+        suspended_reason: None,
+        activates_at: None,
         updated_at: Some(Utc::now().naive_utc()),
     };
 
@@ -567,6 +615,211 @@ async fn unban_user(
             Some(admin.id),
             "admin_unban_user",
             Some(serde_json::json!({ "target_user_id": id })),
+            None,
+        )
+        .await;
+
+    Ok(Json(AdminUserInfo::from(updated)))
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle kill switch helper
+// ---------------------------------------------------------------------------
+
+/// Revokes every active refresh token for a user. Best-effort: errors are
+/// recorded but not surfaced (the lifecycle change itself already succeeded).
+/// No-op when the `bearer` feature is disabled (no refresh-token store).
+async fn revoke_all_user_refresh_tokens(state: &YAuthState, user_id: Uuid) {
+    #[cfg(feature = "bearer")]
+    {
+        if let Err(e) = state
+            .repos
+            .refresh_tokens
+            .revoke_all_user_refresh_tokens(user_id)
+            .await
+        {
+            crate::otel::record_error("admin_revoke_refresh_tokens_error", &e);
+        }
+    }
+    #[cfg(not(feature = "bearer"))]
+    {
+        let _ = (state, user_id);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /admin/users/{id}/suspend  (global offboarding + kill switch)
+// ---------------------------------------------------------------------------
+
+async fn suspend_user(
+    State(state): State<YAuthState>,
+    Extension(admin): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<SuspendRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    if admin.id == id {
+        return Err(api_err(StatusCode::BAD_REQUEST, "Cannot suspend yourself"));
+    }
+
+    let reason = input
+        .reason
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let now = Utc::now().naive_utc();
+    let changeset = crate::domain::UpdateUser {
+        suspended_at: Some(Some(now)),
+        suspended_reason: Some(reason.clone()),
+        updated_at: Some(now),
+        ..Default::default()
+    };
+
+    let updated = state.repos.users.update(id, changeset).await.map_err(|e| {
+        if matches!(e, crate::repo::RepoError::NotFound) {
+            return api_err(StatusCode::NOT_FOUND, "User not found");
+        }
+        crate::otel::record_error("admin_db_suspend_user_error", &e);
+        api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+    })?;
+
+    // Kill switch: terminate sessions + revoke refresh tokens now.
+    let deleted_sessions = session::delete_all_user_sessions(&state, id)
+        .await
+        .unwrap_or(0);
+    revoke_all_user_refresh_tokens(&state, id).await;
+
+    // Offboarding event → OIDC Back-Channel Logout fan-out to the user's RPs.
+    let _ = state.emit_event(&crate::plugin::AuthEvent::UserSuspended { user_id: id });
+
+    crate::otel::add_event(
+        "admin_user_suspended",
+        #[cfg(feature = "telemetry")]
+        vec![
+            opentelemetry::KeyValue::new("admin.id", admin.id.to_string()),
+            opentelemetry::KeyValue::new("target.id", id.to_string()),
+            opentelemetry::KeyValue::new("sessions_deleted", deleted_sessions.to_string()),
+        ],
+        #[cfg(not(feature = "telemetry"))]
+        vec![],
+    );
+
+    state
+        .write_audit_log(
+            Some(admin.id),
+            "admin_suspend_user",
+            Some(serde_json::json!({ "target_user_id": id, "reason": reason })),
+            None,
+        )
+        .await;
+
+    Ok(Json(AdminUserInfo::from(updated)))
+}
+
+// ---------------------------------------------------------------------------
+// POST /admin/users/{id}/unsuspend  (reactivate)
+// ---------------------------------------------------------------------------
+
+async fn unsuspend_user(
+    State(state): State<YAuthState>,
+    Extension(admin): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let now = Utc::now().naive_utc();
+    let changeset = crate::domain::UpdateUser {
+        suspended_at: Some(None),
+        suspended_reason: Some(None),
+        updated_at: Some(now),
+        ..Default::default()
+    };
+
+    let updated = state.repos.users.update(id, changeset).await.map_err(|e| {
+        if matches!(e, crate::repo::RepoError::NotFound) {
+            return api_err(StatusCode::NOT_FOUND, "User not found");
+        }
+        crate::otel::record_error("admin_db_unsuspend_user_error", &e);
+        api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+    })?;
+
+    crate::otel::add_event(
+        "admin_user_unsuspended",
+        #[cfg(feature = "telemetry")]
+        vec![
+            opentelemetry::KeyValue::new("admin.id", admin.id.to_string()),
+            opentelemetry::KeyValue::new("target.id", id.to_string()),
+        ],
+        #[cfg(not(feature = "telemetry"))]
+        vec![],
+    );
+
+    state
+        .write_audit_log(
+            Some(admin.id),
+            "admin_unsuspend_user",
+            Some(serde_json::json!({ "target_user_id": id })),
+            None,
+        )
+        .await;
+
+    Ok(Json(AdminUserInfo::from(updated)))
+}
+
+// ---------------------------------------------------------------------------
+// POST /admin/users/{id}/schedule-start  (staged onboarding)
+// ---------------------------------------------------------------------------
+
+async fn schedule_start(
+    State(state): State<YAuthState>,
+    Extension(admin): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<ScheduleStartRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let activates_at = match input.activates_at {
+        Some(ref ts) => {
+            let parsed = chrono::DateTime::parse_from_rfc3339(ts).map_err(|_| {
+                api_err(
+                    StatusCode::BAD_REQUEST,
+                    "Invalid 'activates_at' timestamp, expected RFC 3339 format",
+                )
+            })?;
+            Some(parsed.naive_utc())
+        }
+        None => None,
+    };
+
+    let now = Utc::now().naive_utc();
+    let changeset = crate::domain::UpdateUser {
+        // Outer Some => apply; inner is the (possibly-None) new value, so a null
+        // request body clears the scheduled start.
+        activates_at: Some(activates_at),
+        updated_at: Some(now),
+        ..Default::default()
+    };
+
+    let updated = state.repos.users.update(id, changeset).await.map_err(|e| {
+        if matches!(e, crate::repo::RepoError::NotFound) {
+            return api_err(StatusCode::NOT_FOUND, "User not found");
+        }
+        crate::otel::record_error("admin_db_schedule_start_error", &e);
+        api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+    })?;
+
+    crate::otel::add_event(
+        "admin_user_schedule_start",
+        #[cfg(feature = "telemetry")]
+        vec![
+            opentelemetry::KeyValue::new("admin.id", admin.id.to_string()),
+            opentelemetry::KeyValue::new("target.id", id.to_string()),
+        ],
+        #[cfg(not(feature = "telemetry"))]
+        vec![],
+    );
+
+    state
+        .write_audit_log(
+            Some(admin.id),
+            "admin_schedule_start",
+            Some(serde_json::json!({ "target_user_id": id, "activates_at": input.activates_at })),
             None,
         )
         .await;

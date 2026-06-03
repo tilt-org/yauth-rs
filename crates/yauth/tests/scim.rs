@@ -101,6 +101,9 @@ async fn build_app() -> TestApp {
             banned: false,
             banned_reason: None,
             banned_until: None,
+            suspended_at: None,
+            suspended_reason: None,
+            activates_at: None,
             created_at: now,
             updated_at: now,
         })
@@ -371,8 +374,34 @@ async fn patch_active_false_suspends_membership() {
     let body = body_json(resp).await;
     assert_eq!(body["active"], json!(false));
 
-    // Confirm via state that the membership is suspended.
     let uid_p: Uuid = uid.parse().unwrap();
+
+    // BREAKING (v0.14.0 parity): SCIM `active:false` now drives a GLOBAL
+    // suspend, not just a membership flip. The user row carries `suspended_at`
+    // with the SCIM-originated reason, so the account is locked out everywhere.
+    let user = app
+        .state
+        .repos
+        .users
+        .find_by_id(uid_p)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        user.suspended_at.is_some(),
+        "active:false must globally suspend the user"
+    );
+    assert_eq!(
+        user.suspended_reason.as_deref(),
+        Some("SCIM deprovisioned"),
+        "suspension must be marked SCIM-originated so a later active:true clears it"
+    );
+    assert!(
+        !user.can_authenticate(chrono::Utc::now().naive_utc()),
+        "globally suspended user must not be able to authenticate"
+    );
+
+    // The org membership is still flipped to suspended as well.
     let m = app
         .state
         .repos
@@ -382,6 +411,117 @@ async fn patch_active_false_suspends_membership() {
         .unwrap()
         .unwrap();
     assert_eq!(m.status, yauth_entity::MembershipStatus::Suspended);
+}
+
+#[tokio::test]
+async fn patch_active_true_clears_scim_suspension() {
+    let app = build_app().await;
+    let path = format!("/api/scim/v2/organizations/{}/Users", app.org_id);
+    let create = json!({
+        "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+        "userName": "carol-reactivate@acme.com",
+        "emails": [{"value": "carol-reactivate@acme.com", "primary": true}],
+    });
+    let resp = app
+        .router
+        .clone()
+        .oneshot(req_post(&path, &app.api_key, create))
+        .await
+        .unwrap();
+    let uid = body_json(resp).await["id"].as_str().unwrap().to_string();
+    let uid_p: Uuid = uid.parse().unwrap();
+
+    // Deactivate then reactivate via SCIM.
+    for active in [false, true] {
+        let patch = json!({
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "active", "value": active}],
+        });
+        let resp = app
+            .router
+            .clone()
+            .oneshot(req_patch(&format!("{path}/{uid}"), &app.api_key, patch))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // active:true must clear the SCIM-originated suspension.
+    let user = app
+        .state
+        .repos
+        .users
+        .find_by_id(uid_p)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        user.suspended_at.is_none(),
+        "active:true must clear a SCIM-originated suspension"
+    );
+    assert!(user.can_authenticate(chrono::Utc::now().naive_utc()));
+}
+
+#[tokio::test]
+async fn scim_active_true_does_not_clear_manual_admin_suspension() {
+    let app = build_app().await;
+    let path = format!("/api/scim/v2/organizations/{}/Users", app.org_id);
+    let create = json!({
+        "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+        "userName": "manual-offboard@acme.com",
+        "emails": [{"value": "manual-offboard@acme.com", "primary": true}],
+    });
+    let resp = app
+        .router
+        .clone()
+        .oneshot(req_post(&path, &app.api_key, create))
+        .await
+        .unwrap();
+    let uid = body_json(resp).await["id"].as_str().unwrap().to_string();
+    let uid_p: Uuid = uid.parse().unwrap();
+
+    // Simulate a manual admin offboard: suspend with a NON-SCIM reason.
+    let now = chrono::Utc::now().naive_utc();
+    app.state
+        .repos
+        .users
+        .update(
+            uid_p,
+            yauth_entity::UpdateUser {
+                suspended_at: Some(Some(now)),
+                suspended_reason: Some(Some("admin offboard".to_string())),
+                updated_at: Some(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // A routine SCIM sync with active:true must NOT silently undo it.
+    let patch = json!({
+        "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+        "Operations": [{"op": "replace", "path": "active", "value": true}],
+    });
+    let resp = app
+        .router
+        .clone()
+        .oneshot(req_patch(&format!("{path}/{uid}"), &app.api_key, patch))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let user = app
+        .state
+        .repos
+        .users
+        .find_by_id(uid_p)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        user.suspended_at.is_some(),
+        "a manual (non-SCIM) suspension must survive a routine SCIM active:true"
+    );
 }
 
 #[tokio::test]

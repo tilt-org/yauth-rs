@@ -32,6 +32,9 @@ pub(crate) struct MysqlUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<NaiveDateTime>,
+    pub suspended_at: Option<NaiveDateTime>,
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -47,6 +50,9 @@ impl MysqlUser {
             banned: self.banned,
             banned_reason: self.banned_reason,
             banned_until: self.banned_until,
+            suspended_at: self.suspended_at,
+            suspended_reason: self.suspended_reason,
+            activates_at: self.activates_at,
             created_at: self.created_at,
             updated_at: self.updated_at,
         }
@@ -64,6 +70,9 @@ pub(crate) struct MysqlNewUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<NaiveDateTime>,
+    pub suspended_at: Option<NaiveDateTime>,
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -79,6 +88,9 @@ impl MysqlNewUser {
             banned: input.banned,
             banned_reason: input.banned_reason,
             banned_until: input.banned_until,
+            suspended_at: input.suspended_at,
+            suspended_reason: input.suspended_reason,
+            activates_at: input.activates_at,
             created_at: input.created_at,
             updated_at: input.updated_at,
         }
@@ -95,6 +107,9 @@ pub(crate) struct MysqlUpdateUser {
     pub banned: Option<bool>,
     pub banned_reason: Option<Option<String>>,
     pub banned_until: Option<Option<NaiveDateTime>>,
+    pub suspended_at: Option<Option<NaiveDateTime>>,
+    pub suspended_reason: Option<Option<String>>,
+    pub activates_at: Option<Option<NaiveDateTime>>,
     pub updated_at: Option<NaiveDateTime>,
 }
 
@@ -108,6 +123,9 @@ impl MysqlUpdateUser {
             banned: input.banned,
             banned_reason: input.banned_reason,
             banned_until: input.banned_until,
+            suspended_at: input.suspended_at,
+            suspended_reason: input.suspended_reason,
+            activates_at: input.activates_at,
             updated_at: input.updated_at,
         }
     }
@@ -655,6 +673,11 @@ pub(crate) struct MysqlOauth2Client {
     pub jwks_uri: Option<String>,
     pub banned_at: Option<NaiveDateTime>,
     pub banned_reason: Option<String>,
+    pub post_logout_redirect_uris: Option<String>,
+    pub backchannel_logout_uri: Option<String>,
+    pub backchannel_logout_session_required: bool,
+    pub dynamically_registered: bool,
+    pub last_used_at: Option<NaiveDateTime>,
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -675,6 +698,11 @@ impl MysqlOauth2Client {
             jwks_uri: self.jwks_uri,
             banned_at: self.banned_at,
             banned_reason: self.banned_reason,
+            post_logout_redirect_uris: self.post_logout_redirect_uris.map(|s| str_to_json(&s)),
+            backchannel_logout_uri: self.backchannel_logout_uri,
+            backchannel_logout_session_required: self.backchannel_logout_session_required,
+            dynamically_registered: self.dynamically_registered,
+            last_used_at: self.last_used_at,
         }
     }
 }

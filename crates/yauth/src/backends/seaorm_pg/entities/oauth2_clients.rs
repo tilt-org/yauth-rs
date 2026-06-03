@@ -33,6 +33,14 @@ pub struct Model {
     pub banned_at: Option<DateTimeWithTimeZone>,
     #[sea_orm(column_type = "Text", nullable)]
     pub banned_reason: Option<String>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub post_logout_redirect_uris: Option<serde_json::Value>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub backchannel_logout_uri: Option<String>,
+    pub backchannel_logout_session_required: bool,
+    pub dynamically_registered: bool,
+    #[sea_orm(nullable)]
+    pub last_used_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -57,6 +65,11 @@ impl Model {
             jwks_uri: self.jwks_uri,
             banned_at: self.banned_at.map(|dt| dt.naive_utc()),
             banned_reason: self.banned_reason,
+            post_logout_redirect_uris: self.post_logout_redirect_uris,
+            backchannel_logout_uri: self.backchannel_logout_uri,
+            backchannel_logout_session_required: self.backchannel_logout_session_required,
+            dynamically_registered: self.dynamically_registered,
+            last_used_at: self.last_used_at.map(|dt| dt.naive_utc()),
         }
     }
 }

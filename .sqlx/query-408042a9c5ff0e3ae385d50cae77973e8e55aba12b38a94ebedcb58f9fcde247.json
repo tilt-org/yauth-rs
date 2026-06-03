@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM yauth_oauth2_clients WHERE client_id = ? /* sqlite */",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "408042a9c5ff0e3ae385d50cae77973e8e55aba12b38a94ebedcb58f9fcde247"
+}

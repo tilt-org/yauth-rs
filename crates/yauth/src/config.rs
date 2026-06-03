@@ -466,6 +466,32 @@ pub struct OAuth2ServerConfig {
     /// with all query params forwarded. When None, returns JSON (API-only mode).
     #[serde(default)]
     pub consent_ui_url: Option<String>,
+    /// Per-delivery timeout for an OIDC Back-Channel Logout `logout_token` POST
+    /// (default: 5 seconds). Bounds the outbound request so a slow/unreachable
+    /// RP never blocks the offboarding that triggered the fan-out, and is part
+    /// of the SSRF defense (paired with redirect-disabled delivery).
+    #[serde(default = "default_backchannel_logout_timeout", with = "duration_secs")]
+    pub backchannel_logout_timeout: Duration,
+    /// Lifetime of issued OAuth2/OIDC access tokens. When `Some`, overrides the
+    /// `bearer.access_token_ttl` fallback for tokens minted at the OAuth2 token
+    /// endpoint (all grant types). Shorter is better for instant termination:
+    /// it bounds how long a suspended/banned user's token stays usable at RPs
+    /// that validate the JWT locally rather than introspecting. `None` → fall
+    /// back to `bearer.access_token_ttl` (no behavior change).
+    #[serde(default)]
+    pub access_ttl: Option<DurationSecs>,
+    /// Enables the opt-in background sweep of stale dynamically-registered (RFC
+    /// 7591) clients. A public DCR client whose last successful token-endpoint
+    /// use (or, absent any, its creation) is older than this TTL is purged,
+    /// cascade-deleting its dependent consents / authorization codes / device
+    /// codes. `None`/`0` → the sweep never runs (admin-provisioned clients are
+    /// never touched regardless).
+    #[serde(default)]
+    pub dcr_stale_client_ttl: Option<DurationSecs>,
+    /// How often the stale-DCR-client sweep runs when `dcr_stale_client_ttl` is
+    /// set. `None` → defaults to 24h.
+    #[serde(default)]
+    pub dcr_stale_sweep_interval: Option<DurationSecs>,
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -476,6 +502,11 @@ fn default_device_code_ttl() -> Duration {
 #[cfg(feature = "oauth2-server")]
 fn default_device_poll_interval() -> u32 {
     5
+}
+
+#[cfg(feature = "oauth2-server")]
+fn default_backchannel_logout_timeout() -> Duration {
+    Duration::from_secs(5)
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -493,6 +524,10 @@ impl Default for OAuth2ServerConfig {
             device_poll_interval: 5,
             device_verification_uri: None,
             consent_ui_url: None,
+            backchannel_logout_timeout: Duration::from_secs(5),
+            access_ttl: None,
+            dcr_stale_client_ttl: None,
+            dcr_stale_sweep_interval: None,
         }
     }
 }

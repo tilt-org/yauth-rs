@@ -73,6 +73,12 @@ export interface AdminSessionInfo {
  * User info returned by admin list endpoint.
  */
 export interface AdminUserInfo {
+  /**
+     * Scheduled start; while in the future the user is "staged" and cannot
+  authenticate yet.
+     * @nullable
+     */
+  activates_at?: string | null;
   banned: boolean;
   /** @nullable */
   banned_reason?: string | null;
@@ -85,6 +91,13 @@ export interface AdminUserInfo {
   email_verified: boolean;
   id: string;
   role: string;
+  /** Whether the account is globally suspended (offboarded). Distinct from
+  `banned` (security incidents). */
+  suspended: boolean;
+  /** @nullable */
+  suspended_at?: string | null;
+  /** @nullable */
+  suspended_reason?: string | null;
   updated_at: string;
 }
 
@@ -585,6 +598,13 @@ export interface DeleteUserSessionsResponse {
   deleted: number;
 }
 
+/**
+ * Wrapper for `GET /organizations/{id}/domains` — matches yauth-go's `{"domains":[…]}`.
+ */
+export interface DomainListResponse {
+  domains: DomainResponse[];
+}
+
 export interface ForgotPasswordRequest {
   email: string;
 }
@@ -861,6 +881,13 @@ export interface MembershipResponse {
   user_id: string;
 }
 
+/**
+ * Wrapper for `GET /organizations/{id}/members` — matches yauth-go's `{"members":[…]}`.
+ */
+export interface MembershipListResponse {
+  members: MembershipResponse[];
+}
+
 export interface MessageResponse {
   message: string;
 }
@@ -898,6 +925,12 @@ export interface Oauth2AuthorizeRedirect {
 `Oauth2ClientJSON`.
  */
 export interface Oauth2ClientView {
+  backchannel_logout_session_required: boolean;
+  /**
+     * OIDC Back-Channel Logout 1.0: the client's back-channel logout endpoint.
+     * @nullable
+     */
+  backchannel_logout_uri?: string | null;
   banned: boolean;
   /** @nullable */
   banned_reason?: string | null;
@@ -915,6 +948,9 @@ export interface Oauth2ClientView {
      * @nullable
      */
   name?: string | null;
+  /** OIDC RP-Initiated Logout 1.0: registered post-logout redirect URIs.
+  Always emitted (empty list when none) to match yauth-go's wire shape. */
+  post_logout_redirect_uris: string[];
   redirect_uris: string[];
   /** @nullable */
   scopes?: string[] | null;
@@ -991,9 +1027,19 @@ leaves it unchanged.
  */
 export interface Oauth2PatchClientRequest {
   /** @nullable */
+  backchannel_logout_session_required?: boolean | null;
+  /** @nullable */
+  backchannel_logout_uri?: string | null;
+  /** @nullable */
   banned?: boolean | null;
   /** @nullable */
   banned_reason?: string | null;
+  /**
+     * OIDC logout config. Any present field triggers a logout-config update,
+  merged with the client's current values for the fields left absent.
+     * @nullable
+     */
+  post_logout_redirect_uris?: string[] | null;
   /** @nullable */
   public_key_pem?: string | null;
 }
@@ -1027,6 +1073,13 @@ export interface OrganizationResponse {
   name: string;
   slug: string;
   updated_at: string;
+}
+
+/**
+ * Wrapper for `GET /organizations` — matches yauth-go's `{"organizations":[…]}`.
+ */
+export interface OrganizationListResponse {
+  organizations: OrganizationResponse[];
 }
 
 export interface OutboxEntryResponse {
@@ -1216,6 +1269,17 @@ export interface SamlConfigResponse {
 }
 
 /**
+ * Request body for `POST /admin/users/{id}/schedule-start` (staged onboarding).
+ */
+export interface ScheduleStartRequest {
+  /**
+     * Scheduled start (RFC 3339). Null/absent clears it (active now).
+     * @nullable
+     */
+  activates_at?: string | null;
+}
+
+/**
  * Envelope returned by `GET /session` — wraps the authenticated user and
 surfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`
 shape so a single TypeScript client serves both backends.
@@ -1269,6 +1333,17 @@ export interface SsoConnectionTestResponse {
 export interface StatusResponse {
   plugins: string[];
   version: string;
+}
+
+/**
+ * Request body for `POST /admin/users/{id}/suspend` (global offboarding).
+ */
+export interface SuspendRequest {
+  /**
+     * Operator-facing context for the suspension.
+     * @nullable
+     */
+  reason?: string | null;
 }
 
 export interface TokenRequest {
@@ -1829,6 +1904,29 @@ export const adminImpersonate = async (id: string, options?: RequestInit): Promi
 
 
 
+export const getAdminScheduleStartUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/schedule-start`
+}
+
+export const adminScheduleStart = async (id: string,
+    scheduleStartRequest: ScheduleStartRequest, options?: RequestInit): Promise<AdminUserInfo> => {
+
+  return customFetch<AdminUserInfo>(getAdminScheduleStartUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      scheduleStartRequest,)
+  }
+);}
+
+
+
 export const getAdminDeleteUserSessionsUrl = (id: string,) => {
 
 
@@ -1845,6 +1943,29 @@ export const adminDeleteUserSessions = async (id: string, options?: RequestInit)
     method: 'DELETE'
 
 
+  }
+);}
+
+
+
+export const getAdminSuspendUserUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/suspend`
+}
+
+export const adminSuspendUser = async (id: string,
+    suspendRequest: SuspendRequest, options?: RequestInit): Promise<AdminUserInfo> => {
+
+  return customFetch<AdminUserInfo>(getAdminSuspendUserUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      suspendRequest,)
   }
 );}
 
@@ -1882,6 +2003,27 @@ export const getAccountLockoutAdminUnlockUrl = (id: string,) => {
 export const accountLockoutAdminUnlock = async (id: string, options?: RequestInit): Promise<AccountLockoutMessageResponse> => {
 
   return customFetch<AccountLockoutMessageResponse>(getAccountLockoutAdminUnlockUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAdminUnsuspendUserUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/unsuspend`
+}
+
+export const adminUnsuspendUser = async (id: string, options?: RequestInit): Promise<AdminUserInfo> => {
+
+  return customFetch<AdminUserInfo>(getAdminUnsuspendUserUrl(id),
   {
     ...options,
     method: 'POST'
@@ -2947,9 +3089,9 @@ export const getOrganizationsListUrl = () => {
   return `/organizations`
 }
 
-export const organizationsList = async ( options?: RequestInit): Promise<OrganizationResponse[]> => {
+export const organizationsList = async ( options?: RequestInit): Promise<OrganizationListResponse> => {
 
-  return customFetch<OrganizationResponse[]>(getOrganizationsListUrl(),
+  return customFetch<OrganizationListResponse>(getOrganizationsListUrl(),
   {
     ...options,
     method: 'GET'
@@ -3055,9 +3197,9 @@ export const getOrganizationsListDomainsUrl = (id: string,) => {
   return `/organizations/${id}/domains`
 }
 
-export const organizationsListDomains = async (id: string, options?: RequestInit): Promise<DomainResponse[]> => {
+export const organizationsListDomains = async (id: string, options?: RequestInit): Promise<DomainListResponse> => {
 
-  return customFetch<DomainResponse[]>(getOrganizationsListDomainsUrl(id),
+  return customFetch<DomainListResponse>(getOrganizationsListDomainsUrl(id),
   {
     ...options,
     method: 'GET'
@@ -3193,9 +3335,9 @@ export const getOrganizationsListMembersUrl = (id: string,) => {
   return `/organizations/${id}/members`
 }
 
-export const organizationsListMembers = async (id: string, options?: RequestInit): Promise<MembershipResponse[]> => {
+export const organizationsListMembers = async (id: string, options?: RequestInit): Promise<MembershipListResponse> => {
 
-  return customFetch<MembershipResponse[]>(getOrganizationsListMembersUrl(id),
+  return customFetch<MembershipListResponse>(getOrganizationsListMembersUrl(id),
   {
     ...options,
     method: 'GET'

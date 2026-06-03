@@ -12,6 +12,9 @@ diesel::table! {
         banned -> Bool,
         banned_reason -> Nullable<Varchar>,
         banned_until -> Nullable<Timestamptz>,
+        suspended_at -> Nullable<Timestamptz>,
+        suspended_reason -> Nullable<Varchar>,
+        activates_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
     }
@@ -222,6 +225,11 @@ diesel::table! {
         jwks_uri -> Nullable<Varchar>,
         banned_at -> Nullable<Timestamptz>,
         banned_reason -> Nullable<Varchar>,
+        post_logout_redirect_uris -> Nullable<Jsonb>,
+        backchannel_logout_uri -> Nullable<Text>,
+        backchannel_logout_session_required -> Bool,
+        dynamically_registered -> Bool,
+        last_used_at -> Nullable<Timestamptz>,
     }
 }
 

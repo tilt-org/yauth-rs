@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM yauth_authorization_codes WHERE client_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "039ce9188625955955ba3f1c799759f69a45322d3fb07f95c12ac9ba857e13b9"
+}

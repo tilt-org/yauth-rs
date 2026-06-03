@@ -67,6 +67,9 @@ impl UserRepository for InMemoryUserRepo {
                 banned: input.banned,
                 banned_reason: input.banned_reason,
                 banned_until: input.banned_until,
+                suspended_at: input.suspended_at,
+                suspended_reason: input.suspended_reason,
+                activates_at: input.activates_at,
                 created_at: input.created_at,
                 updated_at: input.updated_at,
             };
@@ -100,6 +103,15 @@ impl UserRepository for InMemoryUserRepo {
             }
             if let Some(banned_until) = changes.banned_until {
                 user.banned_until = banned_until;
+            }
+            if let Some(suspended_at) = changes.suspended_at {
+                user.suspended_at = suspended_at;
+            }
+            if let Some(suspended_reason) = changes.suspended_reason {
+                user.suspended_reason = suspended_reason;
+            }
+            if let Some(activates_at) = changes.activates_at {
+                user.activates_at = activates_at;
             }
             if let Some(updated_at) = changes.updated_at {
                 user.updated_at = updated_at;

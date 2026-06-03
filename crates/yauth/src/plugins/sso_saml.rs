@@ -13,7 +13,7 @@
 //! | `POST` | `/sso/saml/acs`                                           | Assertion Consumer Service                        |
 //! | `GET`  | `/sso/saml/metadata/{cid}`                                | SP metadata XML for the IdP admin to import       |
 //! | `GET`  | `/sso/saml/logout`                                        | SP-initiated SLO redirect (best-effort)           |
-//! | `POST` | `/sso/saml/slo`                                           | IdP-initiated SLO receiver (best-effort)          |
+//! | `GET`/`POST` | `/sso/saml/slo`                                     | IdP-initiated SLO receiver (signature-verified)   |
 //!
 //! All endpoints are public (no auth required) and feature-gated on
 //! `organizations`.
@@ -23,8 +23,9 @@
 
 use axum::{
     Form, Router,
-    extract::{Path, Query, State},
-    http::{StatusCode, header},
+    body::Bytes,
+    extract::{Path, Query, RawQuery, State},
+    http::{Method, StatusCode, header},
     response::IntoResponse,
     routing::{get, post},
 };
@@ -34,12 +35,16 @@ use uuid::Uuid;
 
 use crate::auth::{
     rbac::{self, roles},
-    saml_sp::{DefaultSamlProvider, SamlError, SamlProvider},
+    saml_sp::{
+        DefaultSamlProvider, SamlError, SamlProvider, inflate_raw, parse_logout_request,
+        parse_raw_query, verify_redirect_binding_signature,
+    },
     session,
     session::session_set_cookie,
 };
 use crate::error::{ApiError, api_err};
 use crate::state::YAuthState;
+use base64::Engine;
 use yauth_entity::{
     ConnectionKind, ConnectionStatus, DomainStatus, NewExternalIdentity, NewMembership,
     NewSsoLoginState, NewUser, SsoConnection, saml_provider,
@@ -52,7 +57,10 @@ pub(crate) fn public_routes() -> Router<YAuthState> {
         .route("/sso/saml/acs", post(acs))
         .route("/sso/saml/metadata/{cid}", get(metadata))
         .route("/sso/saml/logout", get(logout_redirect))
-        .route("/sso/saml/slo", post(slo_receiver))
+        // IdP-initiated Single Logout (HTTP-Redirect binding). The
+        // signed params arrive in the query (GET) or, for some IdPs, a
+        // urlencoded body (POST). Both bind to the same receiver.
+        .route("/sso/saml/slo", get(slo_receiver).post(slo_receiver))
 }
 
 // ──────────────────────────────────────────────
@@ -63,6 +71,15 @@ fn provider_for_state(_state: &YAuthState) -> &'static DefaultSamlProvider {
     use std::sync::OnceLock;
     static PROVIDER: OnceLock<DefaultSamlProvider> = OnceLock::new();
     PROVIDER.get_or_init(DefaultSamlProvider::new)
+}
+
+/// Process-wide replay cache for inbound IdP-initiated SLO request IDs.
+/// Keyed by `(provider, LogoutRequest.ID)`; a repeat ID inside the TTL
+/// is an idempotent success. Mirrors the OIDC BCL RP's `jti_cache()`.
+fn slo_replay_cache() -> &'static crate::auth::saml_sp::ReplayCache {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<crate::auth::saml_sp::ReplayCache> = OnceLock::new();
+    CACHE.get_or_init(crate::auth::saml_sp::ReplayCache::new)
 }
 
 fn safe_redirect(input: Option<String>) -> Option<String> {
@@ -436,6 +453,9 @@ async fn provision_user(
             banned: false,
             banned_reason: None,
             banned_until: None,
+            suspended_at: None,
+            suspended_reason: None,
+            activates_at: None,
             created_at: now,
             updated_at: now,
         })
@@ -589,16 +609,278 @@ async fn logout_redirect(
         .into_response())
 }
 
+/// `GET`/`POST /sso/saml/slo` — IdP-initiated SAML Single Logout
+/// receiver over the HTTP-Redirect binding.
+///
+/// Mirrors yauth-go's `handleSamlSLO`. The LogoutRequest signature is
+/// **required** and verified against the connection's IdP cert (SAML
+/// Bindings §3.4.4.1 redirect-binding signature over the raw query); an
+/// unsigned or badly-signed request is rejected, closing the
+/// "anyone can force-logout any NameID" hole the previous stub had. On
+/// a verified request we map the NameID to the local user and terminate
+/// every session + refresh token (the IdP-side offboarding kill switch).
+///
+/// The handler takes the RAW request source (GET = raw query string,
+/// POST = raw body bytes) so the signed octet string can be
+/// reconstructed byte-exactly — `Form`/`Query` would percent-decode and
+/// break the signature. `Bytes` is the final extractor (consumes the
+/// body), so it must come last in the argument list.
 async fn slo_receiver(
-    State(_state): State<YAuthState>,
-    Form(_form): Form<AcsForm>,
-) -> Result<StatusCode, ApiError> {
-    // Best-effort: SAML SLO is a wire-spec nightmare in practice
-    // (XML signatures + back-channel coordination across IdPs that
-    // implement it inconsistently). We accept the request, log it,
-    // and return 204. yauth's session cookie is already cleared by
-    // the SP-initiated `/logout` route.
-    Ok(StatusCode::NO_CONTENT)
+    State(state): State<YAuthState>,
+    method: Method,
+    RawQuery(raw_query): RawQuery,
+    body: Bytes,
+) -> Result<axum::response::Response, ApiError> {
+    // Redirect binding carries params in the query (GET) or, for some
+    // IdPs, a urlencoded body (POST). Use the raw source verbatim.
+    let raw_source = if method == Method::POST {
+        String::from_utf8_lossy(&body).into_owned()
+    } else {
+        raw_query.unwrap_or_default()
+    };
+    let raw = parse_raw_query(&raw_source);
+
+    let saml_req = raw
+        .get("SAMLRequest")
+        .map(|v| url_decode(v))
+        .unwrap_or_default();
+    let sig_alg = raw.get("SigAlg").map(|v| url_decode(v)).unwrap_or_default();
+    let signature = raw
+        .get("Signature")
+        .map(|v| url_decode(v))
+        .unwrap_or_default();
+    let relay_state = raw
+        .get("RelayState")
+        .map(|v| url_decode(v))
+        .unwrap_or_default();
+    if saml_req.is_empty() || sig_alg.is_empty() || signature.is_empty() {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "missing SAMLRequest/SigAlg/Signature (signed HTTP-Redirect binding required)",
+        ));
+    }
+
+    // base64-decode + raw-DEFLATE-inflate → LogoutRequest XML.
+    let compressed = base64::engine::general_purpose::STANDARD
+        .decode(saml_req.trim())
+        .map_err(|_| api_err(StatusCode::BAD_REQUEST, "could not decode SAMLRequest"))?;
+    let xml_bytes = inflate_raw(&compressed)
+        .map_err(|_| api_err(StatusCode::BAD_REQUEST, "could not decode SAMLRequest"))?;
+    let xml = std::str::from_utf8(&xml_bytes)
+        .map_err(|_| api_err(StatusCode::BAD_REQUEST, "malformed LogoutRequest"))?;
+    let lr = parse_logout_request(xml)
+        .map_err(|_| api_err(StatusCode::BAD_REQUEST, "malformed LogoutRequest"))?;
+
+    // Find the active SAML connection whose IdP entity id matches the
+    // request issuer.
+    let conns = state.repos.sso_connections.list_all().await?;
+    let mut matched: Option<SsoConnection> = None;
+    for conn in conns {
+        if conn.kind != ConnectionKind::SamlSp || conn.status != ConnectionStatus::Active {
+            continue;
+        }
+        let Some(cfg) = conn.saml_config() else {
+            continue;
+        };
+        if cfg.idp_entity_id.trim() == lr.issuer.trim() {
+            matched = Some(conn);
+            break;
+        }
+    }
+    let Some(conn) = matched else {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "no SAML connection matches the request issuer",
+        ));
+    };
+    let cfg = conn
+        .saml_config()
+        .ok_or_else(|| api_err(StatusCode::BAD_REQUEST, "connection is not a SAML SP"))?;
+
+    // Verify the redirect-binding signature against the IdP cert. This
+    // MUST pass before we touch any session — a bad signature can't even
+    // poison the replay cache.
+    verify_redirect_binding_signature(&raw_source, &sig_alg, &signature, &cfg.idp_x509_cert)
+        .map_err(|e| {
+            crate::otel::record_error("sso_saml_slo_bad_signature", &e);
+            api_err(StatusCode::BAD_REQUEST, "LogoutRequest signature invalid")
+        })?;
+
+    let provider_str = saml_provider(&cfg.idp_entity_id);
+
+    // Replay protection on the request ID. An already-seen ID is an
+    // idempotent success (200), matching yauth-go — NOT a rejection.
+    // Process-local cache (multi-replica deployments fall back to the
+    // session-already-gone idempotence), mirroring the OIDC BCL RP.
+    if !lr.id.is_empty()
+        && slo_replay_cache()
+            .check_and_insert(
+                &provider_str,
+                &lr.id,
+                std::time::Duration::from_secs(yauth_entity::STATE_TTL_SECS as u64),
+            )
+            .is_err()
+    {
+        return Ok(StatusCode::OK.into_response());
+    }
+
+    // Map NameID → local user and terminate every session + refresh
+    // token (the kill switch — same mapping the ACS path uses).
+    if let Some(ext) = state
+        .repos
+        .external_identities
+        .find_by_provider_external_id(&provider_str, &lr.name_id)
+        .await?
+    {
+        let _ = session::delete_all_user_sessions(&state, ext.user_id).await;
+        let _ = state
+            .repos
+            .refresh_tokens
+            .revoke_all_user_refresh_tokens(ext.user_id)
+            .await;
+        state
+            .write_audit_log(
+                Some(ext.user_id),
+                "sso_saml_slo_logged_out",
+                Some(serde_json::json!({
+                    "connection_id": conn.id,
+                    "organization_id": conn.organization_id,
+                    "idp_entity_id": cfg.idp_entity_id,
+                })),
+                None,
+            )
+            .await;
+    }
+
+    // Clear this browser's session cookie too.
+    let clear_cookie = format!(
+        "{}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0{}",
+        state.config.session_cookie_name,
+        if state.config.secure_cookies {
+            "; Secure"
+        } else {
+            ""
+        },
+    );
+
+    // Reply with a LogoutResponse over the redirect binding when the IdP
+    // published an SLO endpoint; otherwise a bare 200.
+    if let Some(slo_url) = cfg.idp_slo_url.as_deref().filter(|s| !s.is_empty())
+        && let Some(location) = build_logout_response_redirect(&cfg, slo_url, &lr.id, &relay_state)
+    {
+        return Ok((
+            StatusCode::FOUND,
+            [
+                (header::LOCATION, location),
+                (header::SET_COOKIE, clear_cookie),
+            ],
+            axum::body::Body::empty(),
+        )
+            .into_response());
+    }
+    Ok((
+        StatusCode::OK,
+        [(header::SET_COOKIE, clear_cookie)],
+        axum::body::Body::empty(),
+    )
+        .into_response())
+}
+
+/// Percent-decode a single raw query value. Returns the empty string on
+/// a malformed escape (mirrors yauth-go's `urlDecode`).
+fn url_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' => {
+                if i + 2 >= bytes.len() {
+                    return String::new();
+                }
+                let hi = (bytes[i + 1] as char).to_digit(16);
+                let lo = (bytes[i + 2] as char).to_digit(16);
+                match (hi, lo) {
+                    (Some(h), Some(l)) => {
+                        out.push((h * 16 + l) as u8);
+                        i += 3;
+                    }
+                    _ => return String::new(),
+                }
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).unwrap_or_default()
+}
+
+/// Build a minimal, UNSIGNED `<samlp:LogoutResponse>` and return the
+/// HTTP-Redirect binding URL to send the user back to the IdP's SLO
+/// endpoint. Unsigned is consistent with the SP's AuthnRequest (also
+/// unsigned in MVP); the load-bearing security work is the server-side
+/// session kill, not this courtesy response.
+fn build_logout_response_redirect(
+    cfg: &yauth_entity::SamlConnectionConfig,
+    slo_url: &str,
+    in_response_to: &str,
+    relay_state: &str,
+) -> Option<String> {
+    use uuid::Uuid;
+    let id = format!("_{}", Uuid::now_v7().simple());
+    let instant = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let irt_attr = if in_response_to.is_empty() {
+        String::new()
+    } else {
+        format!(" InResponseTo=\"{}\"", xml_attr_escape(in_response_to))
+    };
+    let xml = format!(
+        r#"<samlp:LogoutResponse xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="{id}" Version="2.0" IssueInstant="{instant}" Destination="{dest}"{irt}><saml:Issuer>{issuer}</saml:Issuer><samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status></samlp:LogoutResponse>"#,
+        id = xml_attr_escape(&id),
+        instant = xml_attr_escape(&instant),
+        dest = xml_attr_escape(slo_url),
+        irt = irt_attr,
+        issuer = xml_text_escape(&cfg.sp_entity_id),
+    );
+    let deflated = deflate_raw(xml.as_bytes()).ok()?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&deflated);
+    let sep = if slo_url.contains('?') { '&' } else { '?' };
+    let mut url = format!(
+        "{slo_url}{sep}SAMLResponse={resp}",
+        resp = urlencoding_encode(&b64),
+    );
+    if !relay_state.is_empty() {
+        url.push_str(&format!("&RelayState={}", urlencoding_encode(relay_state)));
+    }
+    Some(url)
+}
+
+fn deflate_raw(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+    use flate2::Compression;
+    use flate2::write::DeflateEncoder;
+    use std::io::Write;
+    let mut e = DeflateEncoder::new(Vec::new(), Compression::default());
+    e.write_all(data)?;
+    e.finish()
+}
+
+fn xml_attr_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn xml_text_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 // ──────────────────────────────────────────────

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE yauth_oauth2_clients SET post_logout_redirect_uris = ?, backchannel_logout_uri = ?, backchannel_logout_session_required = ? WHERE client_id = ? /* sqlite */",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "7adc09b061caaa9c52ee7e495ea04b0da2e022719404151f22adc6f650b4fa8b"
+}

@@ -57,6 +57,9 @@ impl UserRepository for ToastyUserRepo {
                 banned: input.banned,
                 banned_reason: input.banned_reason,
                 banned_until: opt_chrono_to_jiff(input.banned_until),
+                suspended_at: opt_chrono_to_jiff(input.suspended_at),
+                suspended_reason: input.suspended_reason,
+                activates_at: opt_chrono_to_jiff(input.activates_at),
                 created_at: chrono_to_jiff(input.created_at),
                 updated_at: chrono_to_jiff(input.updated_at),
             })
@@ -96,6 +99,15 @@ impl UserRepository for ToastyUserRepo {
             }
             if let Some(banned_until) = changes.banned_until {
                 update = update.banned_until(opt_chrono_to_jiff(banned_until));
+            }
+            if let Some(suspended_at) = changes.suspended_at {
+                update = update.suspended_at(opt_chrono_to_jiff(suspended_at));
+            }
+            if let Some(suspended_reason) = changes.suspended_reason {
+                update = update.suspended_reason(suspended_reason);
+            }
+            if let Some(activates_at) = changes.activates_at {
+                update = update.activates_at(opt_chrono_to_jiff(activates_at));
             }
             if let Some(updated_at) = changes.updated_at {
                 update = update.updated_at(chrono_to_jiff(updated_at));
@@ -256,6 +268,9 @@ fn user_to_domain(m: YauthUser) -> domain::User {
         banned: m.banned,
         banned_reason: m.banned_reason,
         banned_until: opt_jiff_to_chrono(m.banned_until),
+        suspended_at: opt_jiff_to_chrono(m.suspended_at),
+        suspended_reason: m.suspended_reason,
+        activates_at: opt_jiff_to_chrono(m.activates_at),
         created_at: jiff_to_chrono(m.created_at),
         updated_at: jiff_to_chrono(m.updated_at),
     }

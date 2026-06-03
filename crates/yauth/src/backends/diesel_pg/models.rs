@@ -26,6 +26,9 @@ pub(crate) struct DieselUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<NaiveDateTime>,
+    pub suspended_at: Option<NaiveDateTime>,
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -41,6 +44,9 @@ impl DieselUser {
             banned: self.banned,
             banned_reason: self.banned_reason,
             banned_until: self.banned_until,
+            suspended_at: self.suspended_at,
+            suspended_reason: self.suspended_reason,
+            activates_at: self.activates_at,
             created_at: self.created_at,
             updated_at: self.updated_at,
         }
@@ -58,6 +64,9 @@ pub(crate) struct DieselNewUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<NaiveDateTime>,
+    pub suspended_at: Option<NaiveDateTime>,
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -73,6 +82,9 @@ impl DieselNewUser {
             banned: input.banned,
             banned_reason: input.banned_reason,
             banned_until: input.banned_until,
+            suspended_at: input.suspended_at,
+            suspended_reason: input.suspended_reason,
+            activates_at: input.activates_at,
             created_at: input.created_at,
             updated_at: input.updated_at,
         }
@@ -89,6 +101,9 @@ pub(crate) struct DieselUpdateUser {
     pub banned: Option<bool>,
     pub banned_reason: Option<Option<String>>,
     pub banned_until: Option<Option<NaiveDateTime>>,
+    pub suspended_at: Option<Option<NaiveDateTime>>,
+    pub suspended_reason: Option<Option<String>>,
+    pub activates_at: Option<Option<NaiveDateTime>>,
     pub updated_at: Option<NaiveDateTime>,
 }
 
@@ -102,6 +117,9 @@ impl DieselUpdateUser {
             banned: input.banned,
             banned_reason: input.banned_reason,
             banned_until: input.banned_until,
+            suspended_at: input.suspended_at,
+            suspended_reason: input.suspended_reason,
+            activates_at: input.activates_at,
             updated_at: input.updated_at,
         }
     }
@@ -885,6 +903,11 @@ pub(crate) struct DieselOauth2Client {
     pub jwks_uri: Option<String>,
     pub banned_at: Option<NaiveDateTime>,
     pub banned_reason: Option<String>,
+    pub post_logout_redirect_uris: Option<serde_json::Value>,
+    pub backchannel_logout_uri: Option<String>,
+    pub backchannel_logout_session_required: bool,
+    pub dynamically_registered: bool,
+    pub last_used_at: Option<NaiveDateTime>,
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -905,6 +928,11 @@ impl DieselOauth2Client {
             jwks_uri: self.jwks_uri,
             banned_at: self.banned_at,
             banned_reason: self.banned_reason,
+            post_logout_redirect_uris: self.post_logout_redirect_uris,
+            backchannel_logout_uri: self.backchannel_logout_uri,
+            backchannel_logout_session_required: self.backchannel_logout_session_required,
+            dynamically_registered: self.dynamically_registered,
+            last_used_at: self.last_used_at,
         }
     }
 }
@@ -925,6 +953,7 @@ pub(crate) struct DieselNewOauth2Client {
     pub token_endpoint_auth_method: Option<String>,
     pub public_key_pem: Option<String>,
     pub jwks_uri: Option<String>,
+    pub dynamically_registered: bool,
 }
 
 #[cfg(feature = "oauth2-server")]
@@ -943,6 +972,7 @@ impl DieselNewOauth2Client {
             token_endpoint_auth_method: input.token_endpoint_auth_method,
             public_key_pem: input.public_key_pem,
             jwks_uri: input.jwks_uri,
+            dynamically_registered: input.dynamically_registered,
         }
     }
 }

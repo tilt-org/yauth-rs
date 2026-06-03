@@ -68,6 +68,11 @@ async fn openid_configuration(State(state): State<YAuthState>) -> Json<serde_jso
         "introspection_endpoint": format!("{}/oauth/introspect", issuer),
         "revocation_endpoint": format!("{}/oauth/revoke", issuer),
         "device_authorization_endpoint": format!("{}/oauth/device/code", issuer),
+        // OIDC RP-Initiated Logout 1.0 + Back-Channel Logout 1.0.
+        "end_session_endpoint": format!("{}/oauth/end_session", issuer),
+        "backchannel_logout_supported": true,
+        // yauth sends sub-only logout_tokens (no per-RP sid tracking yet).
+        "backchannel_logout_session_supported": false,
         "scopes_supported": ["openid", "profile", "email"],
         "response_types_supported": ["code"],
         "grant_types_supported": [

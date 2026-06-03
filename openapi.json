@@ -506,6 +506,51 @@
         ]
       }
     },
+    "/admin/users/{id}/schedule-start": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_scheduleStart",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserInfo"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/admin/users/{id}/sessions": {
       "delete": {
         "tags": [
@@ -529,6 +574,51 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeleteUserSessionsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/admin/users/{id}/suspend": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_suspendUser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserInfo"
                 }
               }
             }
@@ -599,6 +689,41 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AccountLockoutMessageResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/admin/users/{id}/unsuspend": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "admin_unsuspendUser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserInfo"
                 }
               }
             }
@@ -1970,10 +2095,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/OrganizationResponse"
-                  }
+                  "$ref": "#/components/schemas/OrganizationListResponse"
                 }
               }
             }
@@ -2145,10 +2267,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/DomainResponse"
-                  }
+                  "$ref": "#/components/schemas/DomainListResponse"
                 }
               }
             }
@@ -2401,10 +2520,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/MembershipResponse"
-                  }
+                  "$ref": "#/components/schemas/MembershipListResponse"
                 }
               }
             }
@@ -3855,10 +3971,18 @@
           "email_verified",
           "role",
           "banned",
+          "suspended",
           "created_at",
           "updated_at"
         ],
         "properties": {
+          "activates_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Scheduled start; while in the future the user is \"staged\" and cannot\nauthenticate yet."
+          },
           "banned": {
             "type": "boolean"
           },
@@ -3894,6 +4018,22 @@
           },
           "role": {
             "type": "string"
+          },
+          "suspended": {
+            "type": "boolean",
+            "description": "Whether the account is globally suspended (offboarded). Distinct from\n`banned` (security incidents)."
+          },
+          "suspended_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "suspended_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "updated_at": {
             "type": "string"
@@ -4737,6 +4877,21 @@
           }
         }
       },
+      "DomainListResponse": {
+        "type": "object",
+        "description": "Wrapper for `GET /organizations/{id}/domains` — matches yauth-go's `{\"domains\":[…]}`.",
+        "required": [
+          "domains"
+        ],
+        "properties": {
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DomainResponse"
+            }
+          }
+        }
+      },
       "DomainResponse": {
         "type": "object",
         "required": [
@@ -5317,6 +5472,21 @@
           }
         }
       },
+      "MembershipListResponse": {
+        "type": "object",
+        "description": "Wrapper for `GET /organizations/{id}/members` — matches yauth-go's `{\"members\":[…]}`.",
+        "required": [
+          "members"
+        ],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MembershipResponse"
+            }
+          }
+        }
+      },
       "MembershipResponse": {
         "type": "object",
         "required": [
@@ -5466,9 +5636,21 @@
           "is_public",
           "has_public_key",
           "banned",
-          "created_at"
+          "created_at",
+          "post_logout_redirect_uris",
+          "backchannel_logout_session_required"
         ],
         "properties": {
+          "backchannel_logout_session_required": {
+            "type": "boolean"
+          },
+          "backchannel_logout_uri": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "OIDC Back-Channel Logout 1.0: the client's back-channel logout endpoint."
+          },
           "banned": {
             "type": "boolean"
           },
@@ -5511,6 +5693,13 @@
               "null"
             ],
             "description": "yauth-go calls this field `name` on the wire — keep the Rust field\n`client_name` (closer to the domain model) but rename for serde."
+          },
+          "post_logout_redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "OIDC RP-Initiated Logout 1.0: registered post-logout redirect URIs.\nAlways emitted (empty list when none) to match yauth-go's wire shape."
           },
           "redirect_uris": {
             "type": "array",
@@ -5633,6 +5822,18 @@
         "type": "object",
         "description": "Body for `PATCH /oauth2/clients/{id}`. Mirrors yauth-go's\n`Oauth2PatchClientRequest`. Each field is optional; omitting a field\nleaves it unchanged.",
         "properties": {
+          "backchannel_logout_session_required": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "backchannel_logout_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "banned": {
             "type": [
               "boolean",
@@ -5644,6 +5845,16 @@
               "string",
               "null"
             ]
+          },
+          "post_logout_redirect_uris": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "OIDC logout config. Any present field triggers a logout-config update,\nmerged with the client's current values for the fields left absent."
           },
           "public_key_pem": {
             "type": [
@@ -5832,6 +6043,21 @@
           },
           "role": {
             "type": "string"
+          }
+        }
+      },
+      "OrganizationListResponse": {
+        "type": "object",
+        "description": "Wrapper for `GET /organizations` — matches yauth-go's `{\"organizations\":[…]}`.",
+        "required": [
+          "organizations"
+        ],
+        "properties": {
+          "organizations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationResponse"
+            }
           }
         }
       },
@@ -6514,6 +6740,19 @@
           }
         }
       },
+      "ScheduleStartRequest": {
+        "type": "object",
+        "description": "Request body for `POST /admin/users/{id}/schedule-start` (staged onboarding).",
+        "properties": {
+          "activates_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Scheduled start (RFC 3339). Null/absent clears it (active now)."
+          }
+        }
+      },
       "SessionResponse": {
         "type": "object",
         "description": "Envelope returned by `GET /session` — wraps the authenticated user and\nsurfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`\nshape so a single TypeScript client serves both backends.",
@@ -6674,6 +6913,19 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "SuspendRequest": {
+        "type": "object",
+        "description": "Request body for `POST /admin/users/{id}/suspend` (global offboarding).",
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Operator-facing context for the suspension."
           }
         }
       },

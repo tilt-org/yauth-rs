@@ -46,6 +46,11 @@ pub enum AuthEvent {
     UserUnbanned {
         user_id: Uuid,
     },
+    /// A user was offboarded via suspension (admin suspend or SCIM
+    /// `active:false` de-provision). Drives OIDC Back-Channel Logout fan-out.
+    UserSuspended {
+        user_id: Uuid,
+    },
     MagicLinkSent {
         email: String,
     },
@@ -193,6 +198,9 @@ mod tests {
                 user_id: Uuid::nil(),
             },
             AuthEvent::UserUnbanned {
+                user_id: Uuid::nil(),
+            },
+            AuthEvent::UserSuspended {
                 user_id: Uuid::nil(),
             },
             AuthEvent::MagicLinkSent {

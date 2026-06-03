@@ -16,11 +16,26 @@ use crate::repo::{
 
 pub(crate) struct InMemoryOauth2ClientRepo {
     clients: Arc<RwLock<HashMap<Uuid, domain::Oauth2Client>>>,
+    // Held for cascade-delete during the stale-client sweep (no FK cascade in
+    // the memory backend, so dependents are removed explicitly).
+    consents: Arc<RwLock<HashMap<Uuid, domain::Consent>>>,
+    authorization_codes: Arc<RwLock<HashMap<Uuid, domain::AuthorizationCode>>>,
+    device_codes: Arc<RwLock<HashMap<Uuid, domain::DeviceCode>>>,
 }
 
 impl InMemoryOauth2ClientRepo {
-    pub(crate) fn new(clients: Arc<RwLock<HashMap<Uuid, domain::Oauth2Client>>>) -> Self {
-        Self { clients }
+    pub(crate) fn new(
+        clients: Arc<RwLock<HashMap<Uuid, domain::Oauth2Client>>>,
+        consents: Arc<RwLock<HashMap<Uuid, domain::Consent>>>,
+        authorization_codes: Arc<RwLock<HashMap<Uuid, domain::AuthorizationCode>>>,
+        device_codes: Arc<RwLock<HashMap<Uuid, domain::DeviceCode>>>,
+    ) -> Self {
+        Self {
+            clients,
+            consents,
+            authorization_codes,
+            device_codes,
+        }
     }
 }
 
@@ -52,6 +67,11 @@ impl Oauth2ClientRepository for InMemoryOauth2ClientRepo {
                 jwks_uri: input.jwks_uri,
                 banned_at: None,
                 banned_reason: None,
+                post_logout_redirect_uris: None,
+                backchannel_logout_uri: None,
+                backchannel_logout_session_required: false,
+                dynamically_registered: input.dynamically_registered,
+                last_used_at: None,
             };
             let mut map = self.clients.write().unwrap();
             map.insert(client.id, client);
@@ -110,6 +130,77 @@ impl Oauth2ClientRepository for InMemoryOauth2ClientRepo {
                 .collect();
             out.sort_by_key(|c| std::cmp::Reverse(c.banned_at));
             Ok(out)
+        })
+    }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut map = self.clients.write().unwrap();
+            let Some(client) = map.values_mut().find(|c| c.client_id == client_id) else {
+                return Ok(false);
+            };
+            client.post_logout_redirect_uris = post_logout_redirect_uris;
+            client.backchannel_logout_uri = backchannel_logout_uri;
+            client.backchannel_logout_session_required = backchannel_logout_session_required;
+            Ok(true)
+        })
+    }
+
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut map = self.clients.write().unwrap();
+            if let Some(client) = map.values_mut().find(|c| c.client_id == client_id) {
+                client.last_used_at = Some(at);
+            }
+            Ok(())
+        })
+    }
+
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let mut clients = self.clients.write().unwrap();
+            let swept: Vec<String> = clients
+                .values()
+                .filter(|c| {
+                    c.dynamically_registered
+                        && c.is_public
+                        && c.banned_at.is_none()
+                        && c.last_used_at.unwrap_or(c.created_at) < cutoff
+                })
+                .map(|c| c.client_id.clone())
+                .collect();
+            if swept.is_empty() {
+                return Ok(swept);
+            }
+            let swept_set: std::collections::HashSet<&String> = swept.iter().collect();
+            clients.retain(|_, c| !swept_set.contains(&c.client_id));
+            drop(clients);
+
+            // Cascade-delete dependents keyed by client_id (no FK cascade here).
+            self.consents
+                .write()
+                .unwrap()
+                .retain(|_, v| !swept_set.contains(&v.client_id));
+            self.authorization_codes
+                .write()
+                .unwrap()
+                .retain(|_, v| !swept_set.contains(&v.client_id));
+            self.device_codes
+                .write()
+                .unwrap()
+                .retain(|_, v| !swept_set.contains(&v.client_id));
+            Ok(swept)
         })
     }
 }
@@ -234,6 +325,17 @@ impl ConsentRepository for InMemoryConsentRepo {
                 consent.scopes = scopes;
             }
             Ok(())
+        })
+    }
+
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let map = self.consents.read().unwrap();
+            Ok(map
+                .values()
+                .filter(|c| c.user_id == user_id)
+                .cloned()
+                .collect())
         })
     }
 }

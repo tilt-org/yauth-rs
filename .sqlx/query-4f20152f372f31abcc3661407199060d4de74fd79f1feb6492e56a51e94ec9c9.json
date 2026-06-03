@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT client_id FROM yauth_oauth2_clients WHERE dynamically_registered = TRUE AND is_public = TRUE AND banned_at IS NULL AND COALESCE(last_used_at, created_at) < ? FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "client_id",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | UNIQUE_KEY | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4f20152f372f31abcc3661407199060d4de74fd79f1feb6492e56a51e94ec9c9"
+}

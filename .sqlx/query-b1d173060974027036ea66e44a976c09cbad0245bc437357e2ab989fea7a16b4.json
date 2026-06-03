@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at FROM yauth_users ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "email_verified",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "banned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "banned_reason",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "banned_until",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "suspended_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "suspended_reason",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "activates_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b1d173060974027036ea66e44a976c09cbad0245bc437357e2ab989fea7a16b4"
+}

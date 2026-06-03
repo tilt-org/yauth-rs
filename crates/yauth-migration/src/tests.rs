@@ -20,7 +20,7 @@ fn core_schema_has_six_tables() {
 fn users_table_columns_match() {
     let tables = core_schema();
     let users = &tables[0];
-    assert_eq!(users.columns.len(), 10);
+    assert_eq!(users.columns.len(), 13);
     assert_eq!(users.columns[0].name, "id");
     assert!(users.columns[0].primary_key);
     assert_eq!(users.columns[1].name, "email");

@@ -1,0 +1,92 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at FROM yauth_users WHERE email LIKE ? /* sqlite */",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "email",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "display_name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "email_verified",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "role",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "banned",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "banned_reason",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "banned_until",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "suspended_at",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "suspended_reason",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "activates_at",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 12,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "01fb92a4a7a42349507dfb2d2d52e1f813cb976e4bbe5f765bdbe601441d89a3"
+}

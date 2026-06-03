@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE yauth_oauth2_clients SET last_used_at = ? WHERE client_id = ? /* sqlite */",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "9ebb887e370258e3907cbc683f8c99236d497b38da16b37d12376229c53b32fa"
+}

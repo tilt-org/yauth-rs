@@ -54,7 +54,7 @@ export function useOrganizations() {
     loading.value = true;
     error.value = null;
     try {
-      organizations.value = await client.organizations.list();
+      organizations.value = (await client.organizations.list()).organizations;
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {
@@ -180,7 +180,7 @@ export function useMembers(orgId: () => string | null | undefined) {
     loading.value = true;
     error.value = null;
     try {
-      members.value = await client.organizations.listMembers(current);
+      members.value = (await client.organizations.listMembers(current)).members;
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {
@@ -404,7 +404,7 @@ export function useDomains(orgId: () => string | null) {
     loading.value = true;
     error.value = null;
     try {
-      domains.value = await client.organizations.listDomains(current);
+      domains.value = (await client.organizations.listDomains(current)).domains;
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {

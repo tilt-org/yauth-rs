@@ -60,6 +60,13 @@ pub struct Oauth2ClientView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub banned_reason: Option<String>,
     pub created_at: String,
+    /// OIDC RP-Initiated Logout 1.0: registered post-logout redirect URIs.
+    /// Always emitted (empty list when none) to match yauth-go's wire shape.
+    pub post_logout_redirect_uris: Vec<String>,
+    /// OIDC Back-Channel Logout 1.0: the client's back-channel logout endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backchannel_logout_uri: Option<String>,
+    pub backchannel_logout_session_required: bool,
 }
 
 impl From<crate::domain::Oauth2Client> for Oauth2ClientView {
@@ -68,6 +75,10 @@ impl From<crate::domain::Oauth2Client> for Oauth2ClientView {
             serde_json::from_value(c.redirect_uris).unwrap_or_default();
         let grant_types: Vec<String> = serde_json::from_value(c.grant_types).unwrap_or_default();
         let scopes: Option<Vec<String>> = c.scopes.and_then(|v| serde_json::from_value(v).ok());
+        let post_logout_redirect_uris: Vec<String> = c
+            .post_logout_redirect_uris
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
         Self {
             id: c.id.to_string(),
             client_id: c.client_id,
@@ -82,6 +93,9 @@ impl From<crate::domain::Oauth2Client> for Oauth2ClientView {
             banned: c.banned_at.is_some(),
             banned_reason: c.banned_reason,
             created_at: c.created_at.and_utc().to_rfc3339(),
+            post_logout_redirect_uris,
+            backchannel_logout_uri: c.backchannel_logout_uri,
+            backchannel_logout_session_required: c.backchannel_logout_session_required,
         }
     }
 }
@@ -144,6 +158,30 @@ pub struct Oauth2PatchClientRequest {
     pub banned_reason: Option<String>,
     #[serde(default)]
     pub public_key_pem: Option<String>,
+    /// OIDC logout config. Any present field triggers a logout-config update,
+    /// merged with the client's current values for the fields left absent.
+    #[serde(default)]
+    pub post_logout_redirect_uris: Option<Vec<String>>,
+    #[serde(default)]
+    pub backchannel_logout_uri: Option<String>,
+    #[serde(default)]
+    pub backchannel_logout_session_required: Option<bool>,
+}
+
+/// Strip CR/LF and trim surrounding whitespace from a URL. Terminals line-wrap
+/// long URIs on copy/paste; a valid URI never contains raw newlines, so this
+/// repairs that damage without altering real URIs. Mirrors yauth-go's
+/// `sanitizeURL`.
+fn sanitize_url(s: &str) -> String {
+    s.replace(['\r', '\n'], "").trim().to_string()
+}
+
+/// Reject a URI that is not absolute http(s). This is the open-redirect /
+/// SSRF guard for logout URIs — the back-channel logout URI is POSTed to
+/// server-side, so a non-http(s) scheme (e.g. `file:`, `gopher:`) must never
+/// be accepted.
+fn is_http_url(s: &str) -> bool {
+    matches!(url::Url::parse(s), Ok(u) if u.scheme() == "http" || u.scheme() == "https")
 }
 
 fn actor_from_extensions(
@@ -422,6 +460,9 @@ pub async fn create_oauth2_client(
         token_endpoint_auth_method: auth_method,
         public_key_pem: req.public_key_pem.clone(),
         jwks_uri: req.jwks_uri.clone(),
+        // Admin-provisioned clients are never eligible for the stale-client
+        // sweep.
+        dynamically_registered: false,
     };
 
     state
@@ -491,7 +532,7 @@ pub async fn patch_oauth2_client(
     Json(req): Json<Oauth2PatchClientRequest>,
 ) -> Result<Json<Oauth2ClientView>, ApiError> {
     // Verify the client exists up front so a no-op patch returns 404 cleanly.
-    state
+    let current = state
         .repos
         .oauth2_clients
         .find_by_client_id(&client_id)
@@ -563,6 +604,74 @@ pub async fn patch_oauth2_client(
             StatusCode::BAD_REQUEST,
             "public_key_pem requires the asymmetric-jwt feature",
         ));
+    }
+
+    // OIDC logout config. Any present field triggers an update, merged against
+    // the client's current values for the fields left absent.
+    if req.post_logout_redirect_uris.is_some()
+        || req.backchannel_logout_uri.is_some()
+        || req.backchannel_logout_session_required.is_some()
+    {
+        // post_logout_redirect_uris: replace the whole list when provided;
+        // sanitize CR/LF and reject any non-http(s) entry (open-redirect guard).
+        let plru = match req.post_logout_redirect_uris {
+            Some(uris) => {
+                let mut cleaned = Vec::with_capacity(uris.len());
+                for u in uris {
+                    let s = sanitize_url(&u);
+                    if !is_http_url(&s) {
+                        return Err(api_err(
+                            StatusCode::BAD_REQUEST,
+                            "post_logout_redirect_uris must be absolute http(s) URLs",
+                        ));
+                    }
+                    cleaned.push(s);
+                }
+                Some(serde_json::json!(cleaned))
+            }
+            None => current.post_logout_redirect_uris.clone(),
+        };
+
+        // backchannel_logout_uri: a present empty string clears it; a present
+        // non-empty value must be an http(s) URL (SSRF guard — we POST here).
+        let bcl_uri = match req.backchannel_logout_uri {
+            Some(raw) => {
+                let s = sanitize_url(&raw);
+                if s.is_empty() {
+                    None
+                } else if !is_http_url(&s) {
+                    return Err(api_err(
+                        StatusCode::BAD_REQUEST,
+                        "backchannel_logout_uri must be an absolute http(s) URL",
+                    ));
+                } else {
+                    Some(s)
+                }
+            }
+            None => current.backchannel_logout_uri.clone(),
+        };
+
+        let sess_req = req
+            .backchannel_logout_session_required
+            .unwrap_or(current.backchannel_logout_session_required);
+
+        state
+            .repos
+            .oauth2_clients
+            .set_logout_config(&client_id, plru, bcl_uri, sess_req)
+            .await
+            .map_err(|e| {
+                crate::otel::record_error("oauth2_client_set_logout_config_failed", &e);
+                api_err(StatusCode::INTERNAL_SERVER_ERROR, "Patch failed")
+            })?;
+        write_admin_audit(
+            &state,
+            user.as_ref().map(|Extension(u)| u),
+            machine.as_ref().map(|Extension(m)| m),
+            "oauth2_client_logout_config_updated",
+            serde_json::json!({ "target_client_id": client_id, "via": "patch" }),
+        )
+        .await;
     }
 
     let row = state

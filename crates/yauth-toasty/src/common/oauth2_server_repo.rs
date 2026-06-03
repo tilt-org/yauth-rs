@@ -60,6 +60,11 @@ impl Oauth2ClientRepository for ToastyOauth2ClientRepo {
                 jwks_uri: input.jwks_uri,
                 banned_at: None::<jiff::Timestamp>,
                 banned_reason: None::<String>,
+                post_logout_redirect_uris: None::<serde_json::Value>,
+                backchannel_logout_uri: None::<String>,
+                backchannel_logout_session_required: false,
+                dynamically_registered: input.dynamically_registered,
+                last_used_at: None::<jiff::Timestamp>,
             })
             .exec(&mut db)
             .await
@@ -138,6 +143,110 @@ impl Oauth2ClientRepository for ToastyOauth2ClientRepo {
             // Newest ban first
             banned.sort_by_key(|b| std::cmp::Reverse(b.banned_at));
             Ok(banned)
+        })
+    }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut db = self.db.clone();
+            match YauthOauth2Client::filter_by_client_id(&client_id)
+                .get(&mut db)
+                .await
+            {
+                Ok(mut row) => {
+                    row.update()
+                        .post_logout_redirect_uris(post_logout_redirect_uris)
+                        .backchannel_logout_uri(backchannel_logout_uri)
+                        .backchannel_logout_session_required(backchannel_logout_session_required)
+                        .exec(&mut db)
+                        .await
+                        .map_err(toasty_err)?;
+                    Ok(true)
+                }
+                Err(_) => Ok(false),
+            }
+        })
+    }
+
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut db = self.db.clone();
+            if let Ok(mut row) = YauthOauth2Client::filter_by_client_id(&client_id)
+                .get(&mut db)
+                .await
+            {
+                row.update()
+                    .last_used_at(Some(chrono_to_jiff(at)))
+                    .exec(&mut db)
+                    .await
+                    .map_err(toasty_err)?;
+            }
+            Ok(())
+        })
+    }
+
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let mut db = self.db.clone();
+            // Toasty lacks rich WHERE predicates; fetch all and filter in-app.
+            let rows: Vec<YauthOauth2Client> = YauthOauth2Client::all()
+                .exec(&mut db)
+                .await
+                .map_err(toasty_err)?;
+            let cutoff_j = chrono_to_jiff(cutoff);
+            let stale: Vec<YauthOauth2Client> = rows
+                .into_iter()
+                .filter(|c| {
+                    c.dynamically_registered
+                        && c.is_public
+                        && c.banned_at.is_none()
+                        && c.last_used_at.unwrap_or(c.created_at) < cutoff_j
+                })
+                .collect();
+            if stale.is_empty() {
+                return Ok(Vec::new());
+            }
+            let ids: Vec<String> = stale.iter().map(|c| c.client_id.clone()).collect();
+            // Cascade-delete dependents keyed by client_id (no FK cascade).
+            for id in &ids {
+                let consents: Vec<YauthConsent> = YauthConsent::filter_by_client_id(id)
+                    .exec(&mut db)
+                    .await
+                    .map_err(toasty_err)?;
+                for row in consents {
+                    let _ = row.delete().exec(&mut db).await;
+                }
+                let codes: Vec<YauthAuthorizationCode> =
+                    YauthAuthorizationCode::filter_by_client_id(id)
+                        .exec(&mut db)
+                        .await
+                        .map_err(toasty_err)?;
+                for row in codes {
+                    let _ = row.delete().exec(&mut db).await;
+                }
+                let devices: Vec<YauthDeviceCode> = YauthDeviceCode::filter_by_client_id(id)
+                    .exec(&mut db)
+                    .await
+                    .map_err(toasty_err)?;
+                for row in devices {
+                    let _ = row.delete().exec(&mut db).await;
+                }
+            }
+            for client in stale {
+                client.delete().exec(&mut db).await.map_err(toasty_err)?;
+            }
+            Ok(ids)
         })
     }
 }
@@ -283,6 +392,17 @@ impl ConsentRepository for ToastyConsentRepo {
             Ok(())
         })
     }
+
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let mut db = self.db.clone();
+            let rows: Vec<YauthConsent> = YauthConsent::filter_by_user_id(user_id)
+                .exec(&mut db)
+                .await
+                .map_err(toasty_err)?;
+            Ok(rows.into_iter().map(consent_to_domain).collect())
+        })
+    }
 }
 
 // -- DeviceCodeRepository --
@@ -420,6 +540,11 @@ fn oauth2_client_to_domain(m: YauthOauth2Client) -> domain::Oauth2Client {
         jwks_uri: m.jwks_uri,
         banned_at: opt_jiff_to_chrono(m.banned_at),
         banned_reason: m.banned_reason,
+        post_logout_redirect_uris: m.post_logout_redirect_uris,
+        backchannel_logout_uri: m.backchannel_logout_uri,
+        backchannel_logout_session_required: m.backchannel_logout_session_required,
+        dynamically_registered: m.dynamically_registered,
+        last_used_at: opt_jiff_to_chrono(m.last_used_at),
     }
 }
 

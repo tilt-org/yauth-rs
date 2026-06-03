@@ -16,6 +16,9 @@ struct UserRow {
     banned: i8,
     banned_reason: Option<String>,
     banned_until: Option<NaiveDateTime>,
+    suspended_at: Option<NaiveDateTime>,
+    suspended_reason: Option<String>,
+    activates_at: Option<NaiveDateTime>,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
 }
@@ -31,6 +34,9 @@ impl UserRow {
             banned: self.banned != 0,
             banned_reason: self.banned_reason,
             banned_until: self.banned_until,
+            suspended_at: self.suspended_at,
+            suspended_reason: self.suspended_reason,
+            activates_at: self.activates_at,
             created_at: self.created_at,
             updated_at: self.updated_at,
         }
@@ -81,7 +87,7 @@ impl UserRepository for SqlxMysqlUserRepo {
             let id_str = id.to_string();
             let row = sqlx::query_as!(
                 UserRow,
-                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                  FROM yauth_users WHERE id = ?",
                 id_str
             )
@@ -98,7 +104,7 @@ impl UserRepository for SqlxMysqlUserRepo {
             // MySQL LIKE is case-insensitive with default collation
             let row = sqlx::query_as!(
                 UserRow,
-                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                  FROM yauth_users WHERE email LIKE ?",
                 email
             )
@@ -114,8 +120,8 @@ impl UserRepository for SqlxMysqlUserRepo {
             let id_str = input.id.to_string();
             // MySQL: no RETURNING — INSERT then SELECT
             sqlx::query!(
-                "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO yauth_users (id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 id_str,
                 input.email,
                 input.display_name,
@@ -124,6 +130,9 @@ impl UserRepository for SqlxMysqlUserRepo {
                 input.banned,
                 input.banned_reason,
                 input.banned_until,
+                input.suspended_at,
+                input.suspended_reason,
+                input.activates_at,
                 input.created_at,
                 input.updated_at,
             )
@@ -133,7 +142,7 @@ impl UserRepository for SqlxMysqlUserRepo {
 
             let row = sqlx::query_as!(
                 UserRow,
-                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                  FROM yauth_users WHERE id = ?",
                 id_str
             )
@@ -164,6 +173,9 @@ impl UserRepository for SqlxMysqlUserRepo {
             push_set!(changes.banned, "banned");
             push_set!(changes.banned_reason, "banned_reason");
             push_set!(changes.banned_until, "banned_until");
+            push_set!(changes.suspended_at, "suspended_at");
+            push_set!(changes.suspended_reason, "suspended_reason");
+            push_set!(changes.activates_at, "activates_at");
             push_set!(changes.updated_at, "updated_at");
 
             if sets.is_empty() {
@@ -197,6 +209,15 @@ impl UserRepository for SqlxMysqlUserRepo {
             }
             if let Some(ref banned_until) = changes.banned_until {
                 query = query.bind(*banned_until);
+            }
+            if let Some(ref suspended_at) = changes.suspended_at {
+                query = query.bind(*suspended_at);
+            }
+            if let Some(ref suspended_reason) = changes.suspended_reason {
+                query = query.bind(suspended_reason.clone());
+            }
+            if let Some(ref activates_at) = changes.activates_at {
+                query = query.bind(*activates_at);
             }
             if let Some(updated_at) = changes.updated_at {
                 query = query.bind(updated_at);
@@ -255,7 +276,7 @@ impl UserRepository for SqlxMysqlUserRepo {
 
                 let rows = sqlx::query_as!(
                     UserRow,
-                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                      FROM yauth_users WHERE email LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
                     pattern,
                     limit,
@@ -274,7 +295,7 @@ impl UserRepository for SqlxMysqlUserRepo {
 
                 let rows = sqlx::query_as!(
                     UserRow,
-                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, created_at, updated_at \
+                    "SELECT id, email, display_name, email_verified, role, banned, banned_reason, banned_until, suspended_at, suspended_reason, activates_at, created_at, updated_at \
                      FROM yauth_users ORDER BY created_at DESC LIMIT ? OFFSET ?",
                     limit,
                     offset

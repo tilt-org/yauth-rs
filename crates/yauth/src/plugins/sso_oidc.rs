@@ -53,6 +53,13 @@ pub(crate) fn public_routes() -> Router<YAuthState> {
     Router::new()
         .route("/sso/login", get(login))
         .route("/sso/callback", get(callback))
+        // OIDC Back-Channel Logout 1.0 RP endpoint: the upstream IdP POSTs a
+        // signed logout_token here when a federated user is logged out at the
+        // IdP, so the suspension propagates to this relying party.
+        .route(
+            "/sso/backchannel-logout",
+            axum::routing::post(backchannel_logout),
+        )
 }
 
 // ──────────────────────────────────────────────
@@ -544,6 +551,9 @@ async fn provision_user(
             banned: false,
             banned_reason: None,
             banned_until: None,
+            suspended_at: None,
+            suspended_reason: None,
+            activates_at: None,
             created_at: now,
             updated_at: now,
         })
@@ -609,6 +619,275 @@ fn map_id_token_error(e: IdTokenError) -> ApiError {
         | IdTokenError::JwksLookup(_) => StatusCode::BAD_REQUEST,
     };
     api_err(code, &e.to_string())
+}
+
+// ──────────────────────────────────────────────
+// OIDC Back-Channel Logout 1.0 — RP consumer
+// ──────────────────────────────────────────────
+
+/// The OIDC BCL 1.0 event identifier that MUST be present (as a key with an
+/// empty-object value) in a logout_token's `events` claim.
+const BACKCHANNEL_LOGOUT_EVENT: &str = "http://schemas.openid.net/event/backchannel-logout";
+
+/// Process-local single-use store for logout_token `jti` values, enforcing
+/// OIDC BCL §2.6's replay rejection. Process-local: in a multi-replica
+/// deployment each replica dedups its own traffic, acceptable for an idempotent
+/// "kill all sessions" action.
+struct JtiReplayCache {
+    seen: std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    ttl: std::time::Duration,
+}
+
+impl JtiReplayCache {
+    fn new(ttl: std::time::Duration) -> Self {
+        Self {
+            seen: std::sync::Mutex::new(std::collections::HashMap::new()),
+            ttl,
+        }
+    }
+
+    /// Record `jti` and report whether it was already present (a replay).
+    fn seen(&self, jti: &str) -> bool {
+        let now = std::time::Instant::now();
+        let mut map = self.seen.lock().unwrap();
+        // Opportunistic GC of expired entries.
+        map.retain(|_, exp| *exp > now);
+        if map.contains_key(jti) {
+            return true;
+        }
+        map.insert(jti.to_string(), now + self.ttl);
+        false
+    }
+}
+
+fn jti_cache() -> &'static JtiReplayCache {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<JtiReplayCache> = OnceLock::new();
+    CACHE.get_or_init(|| JtiReplayCache::new(std::time::Duration::from_secs(600)))
+}
+
+#[derive(Deserialize)]
+struct BackchannelLogoutForm {
+    #[serde(default)]
+    logout_token: Option<String>,
+}
+
+/// `POST /sso/backchannel-logout` — OIDC BCL 1.0 RP endpoint.
+///
+/// The request is unsolicited and org-less, so we match it to one of our active
+/// OIDC SSO connections by (issuer, audience=client_id), verify the signature
+/// against that connection's published JWKS, then map the token's `sub` back to
+/// the local user via the stored external identity and revoke their sessions.
+/// Always returns 200 on a valid token (BCL §2.8); structural/verification
+/// failures return 400.
+async fn backchannel_logout(
+    State(state): State<YAuthState>,
+    axum::extract::Form(form): axum::extract::Form<BackchannelLogoutForm>,
+) -> impl IntoResponse {
+    // BCL §2.8: the response must not be cached.
+    let no_store = [(header::CACHE_CONTROL, "no-store")];
+
+    let Some(raw) = form.logout_token.filter(|s| !s.is_empty()) else {
+        return (StatusCode::BAD_REQUEST, no_store, "missing logout_token").into_response();
+    };
+
+    // Unverified peek to learn iss + aud so we can pick a connection (and thus
+    // the JWKS) to verify against.
+    let unverified = match peek_logout_token(&raw) {
+        Some(v) => v,
+        None => {
+            return (StatusCode::BAD_REQUEST, no_store, "malformed logout_token").into_response();
+        }
+    };
+    let Some(iss) = unverified
+        .get("iss")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            no_store,
+            "logout_token missing iss",
+        )
+            .into_response();
+    };
+
+    let client = http_client();
+    let cache = jwks_cache();
+
+    // Find an active OIDC connection whose discovery `issuer` == the token's iss
+    // and whose client_id == the token's aud.
+    let conns = match state.repos.sso_connections.list_all().await {
+        Ok(c) => c,
+        Err(e) => {
+            crate::otel::record_error("bcl_list_connections_failed", &e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                no_store,
+                "internal error",
+            )
+                .into_response();
+        }
+    };
+
+    let mut matched: Option<(crate::auth::oidc_client::DiscoveryDocument, String)> = None;
+    for conn in conns {
+        if conn.kind != ConnectionKind::OidcClient || conn.status != ConnectionStatus::Active {
+            continue;
+        }
+        let Some(cfg) = conn.oidc_config() else {
+            continue;
+        };
+        if !crate::auth::oidc_client::logout_token_audience_matches(
+            unverified.get("aud"),
+            &cfg.client_id,
+        ) {
+            continue;
+        }
+        // Resolve the connection's actual issuer via discovery, then compare to
+        // the token's iss (trailing-slash-insensitive).
+        let Ok(doc) = cache.discover(&client, &cfg.discovery_url).await else {
+            continue;
+        };
+        if normalize_issuer(&doc.issuer) == normalize_issuer(iss) {
+            matched = Some((doc, cfg.client_id.clone()));
+            break;
+        }
+    }
+    let Some((doc, client_id)) = matched else {
+        return (
+            StatusCode::BAD_REQUEST,
+            no_store,
+            "no connection matches logout_token issuer/audience",
+        )
+            .into_response();
+    };
+
+    // Verify the signature against the matched connection's JWKS.
+    let kid = match id_token_kid(&raw) {
+        Ok(k) => k,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                no_store,
+                "logout_token missing kid",
+            )
+                .into_response();
+        }
+    };
+    let jwk = match cache
+        .key_for_kid(&client, &doc.issuer, &doc.jwks_uri, &kid)
+        .await
+    {
+        Ok(j) => j,
+        Err(_) => {
+            return (StatusCode::BAD_GATEWAY, no_store, "JWKS fetch failed").into_response();
+        }
+    };
+    let claims =
+        match crate::auth::oidc_client::verify_logout_token(&raw, &jwk, &doc.issuer, &client_id) {
+            Ok(c) => c,
+            Err(e) => {
+                crate::otel::record_error("bcl_verify_logout_token_failed", &e);
+                return (
+                    StatusCode::BAD_REQUEST,
+                    no_store,
+                    "logout_token verification failed",
+                )
+                    .into_response();
+            }
+        };
+
+    // BCL §2.4 structural validation against the *verified* claims.
+    if claims.contains_key("nonce") {
+        return (
+            StatusCode::BAD_REQUEST,
+            no_store,
+            "logout_token must not contain nonce",
+        )
+            .into_response();
+    }
+    let has_event = claims
+        .get("events")
+        .and_then(|v| v.as_object())
+        .map(|evs| evs.contains_key(BACKCHANNEL_LOGOUT_EVENT))
+        .unwrap_or(false);
+    if !has_event {
+        return (
+            StatusCode::BAD_REQUEST,
+            no_store,
+            "logout_token events missing backchannel-logout",
+        )
+            .into_response();
+    }
+    let Some(jti) = claims
+        .get("jti")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            no_store,
+            "logout_token missing jti",
+        )
+            .into_response();
+    };
+    // We support sub-based logout (kill all the user's sessions); a sid-only
+    // token can't be mapped without per-session sid tracking.
+    let Some(sub) = claims
+        .get("sub")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            no_store,
+            "logout_token missing sub",
+        )
+            .into_response();
+    };
+
+    // Replay protection: a re-sent jti is an idempotent success.
+    if jti_cache().seen(jti) {
+        return (StatusCode::OK, no_store, "").into_response();
+    }
+
+    // Map the IdP sub to the local user and revoke their sessions.
+    let provider = oidc_provider(&doc.issuer);
+    if let Ok(Some(ext)) = state
+        .repos
+        .external_identities
+        .find_by_provider_external_id(&provider, sub)
+        .await
+    {
+        let _ = session::delete_all_user_sessions(&state, ext.user_id).await;
+        let _ = state
+            .repos
+            .refresh_tokens
+            .revoke_all_user_refresh_tokens(ext.user_id)
+            .await;
+    }
+
+    // Always 200 on a valid token even if no local session existed — the OP
+    // only needs to know the token was accepted.
+    (StatusCode::OK, no_store, "").into_response()
+}
+
+/// Decode a JWT's claims without verifying the signature, for the
+/// issuer/audience peek that selects which connection to verify against.
+fn peek_logout_token(raw: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
+    use base64::Engine;
+    let payload_b64 = raw.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload_b64)
+        .ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// Trim a trailing slash so issuer comparisons are robust to the common
+/// "with/without trailing slash" discrepancy.
+fn normalize_issuer(s: &str) -> &str {
+    s.trim().trim_end_matches('/')
 }
 
 #[cfg(test)]

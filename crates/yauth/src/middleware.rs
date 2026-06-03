@@ -230,9 +230,16 @@ pub async fn auth_middleware(
         {
             Ok(Some(session_user)) => {
                 match lookup_user(&state, session_user.user_id, AuthMethod::Session).await {
-                    Ok(mut auth_user) => {
+                    Ok((mut auth_user, can_authenticate)) => {
                         if auth_user.banned {
                             return api_err(StatusCode::FORBIDDEN, "Account suspended")
+                                .into_response();
+                        }
+                        // Globally suspended (offboarded) or staged (scheduled
+                        // start in the future) users cannot authenticate — this
+                        // gates every cookie-authenticated route.
+                        if !can_authenticate {
+                            return api_err(StatusCode::FORBIDDEN, "Account is not active")
                                 .into_response();
                         }
                         // Issue #89: stamp active-org context from the session row.
@@ -326,11 +333,19 @@ pub async fn auth_middleware(
     api_err(StatusCode::UNAUTHORIZED, "Authentication required").into_response()
 }
 
+/// Loads the user and reports whether they may currently authenticate.
+///
+/// Returns `(AuthUser, can_authenticate)`. `can_authenticate` is `false` when
+/// the user is banned, globally suspended (offboarded), or staged (scheduled
+/// start not yet reached) — mirroring yauth-go's session middleware, which
+/// gates every cookie-authenticated route on `CanAuthenticate`. The flag is
+/// kept separate because [`AuthUser`] is a flattened projection that does not
+/// carry the lifecycle timestamps.
 async fn lookup_user(
     state: &YAuthState,
     user_id: Uuid,
     method: AuthMethod,
-) -> Result<AuthUser, String> {
+) -> Result<(AuthUser, bool), String> {
     let user = state
         .repos
         .users
@@ -339,19 +354,24 @@ async fn lookup_user(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "User not found".to_string())?;
 
-    Ok(AuthUser {
-        id: user.id,
-        email: user.email,
-        display_name: user.display_name,
-        email_verified: user.email_verified,
-        role: user.role,
-        banned: user.banned,
-        auth_method: method,
-        scopes: None,
-        active_org_id: None,
-        org_role: None,
-        all_orgs: Vec::new(),
-    })
+    let can_authenticate = user.can_authenticate(chrono::Utc::now().naive_utc());
+
+    Ok((
+        AuthUser {
+            id: user.id,
+            email: user.email,
+            display_name: user.display_name,
+            email_verified: user.email_verified,
+            role: user.role,
+            banned: user.banned,
+            auth_method: method,
+            scopes: None,
+            active_org_id: None,
+            org_role: None,
+            all_orgs: Vec::new(),
+        },
+        can_authenticate,
+    ))
 }
 
 /// Populate the org-related fields on [`AuthUser`] from the user's

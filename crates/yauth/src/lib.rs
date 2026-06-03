@@ -485,6 +485,30 @@ impl YAuthBuilder {
 
         #[cfg(feature = "oauth2-server")]
         if let Some(o2s_config) = self.oauth2_server_config {
+            // OIDC Back-Channel Logout emitter: fan out signed logout_tokens to
+            // the user's RPs on offboarding. Requires `oidc` (the spec is OIDC
+            // BCL 1.0); only registered when an OIDC provider is configured.
+            #[cfg(feature = "oidc")]
+            if self.oidc_config.is_some() {
+                self.plugins.push(Box::new(
+                    plugins::backchannel_logout_emitter::BackchannelLogoutEmitterPlugin::new(
+                        o2s_config.issuer.clone(),
+                        o2s_config.backchannel_logout_timeout,
+                    ),
+                ));
+            }
+            // Opt-in background sweep of stale dynamically-registered clients.
+            // Spawned here (not from the plugin) so it owns a state handle; gated
+            // on a configured TTL > 0. Interval defaults to 24h.
+            if let Some(ttl) = o2s_config.dcr_stale_client_ttl.map(|d| d.0)
+                && !ttl.is_zero()
+            {
+                let interval = o2s_config
+                    .dcr_stale_sweep_interval
+                    .map(|d| d.0)
+                    .unwrap_or_default();
+                plugins::oauth2_server::spawn_stale_dcr_sweep(state.clone(), ttl, interval);
+            }
             self.plugins
                 .push(Box::new(plugins::oauth2_server::OAuth2ServerPlugin::new(
                     o2s_config,

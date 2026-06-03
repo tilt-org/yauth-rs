@@ -479,6 +479,9 @@ async fn create_test_user(repos: &Repositories, email: &str) -> Uuid {
             banned: false,
             banned_reason: None,
             banned_until: None,
+            suspended_at: None,
+            suspended_reason: None,
+            activates_at: None,
             created_at: n,
             updated_at: n,
         })
@@ -572,6 +575,9 @@ fn user_duplicate_email_conflict() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: now(),
                     updated_at: now(),
                 })
@@ -1503,6 +1509,7 @@ fn oauth2_client_create_find() {
                     token_endpoint_auth_method: Some("client_secret_post".into()),
                     public_key_pem: None,
                     jwks_uri: None,
+                    dynamically_registered: false,
                 })
                 .await
                 .unwrap_or_else(|e| panic!("{name}: create oauth2 client: {e}"));
@@ -1540,6 +1547,7 @@ fn make_test_client(cid: &str, pem: Option<&str>, method: &str) -> domain::NewOa
         token_endpoint_auth_method: Some(method.into()),
         public_key_pem: pem.map(String::from),
         jwks_uri: None,
+        dynamically_registered: false,
     }
 }
 
@@ -1885,6 +1893,9 @@ fn uuid_round_trip() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
@@ -1928,6 +1939,9 @@ fn boolean_storage_retrieval() {
                     banned: true,
                     banned_reason: Some("test".into()),
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
@@ -3371,6 +3385,9 @@ fn null_vs_empty_string() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
@@ -3398,6 +3415,9 @@ fn null_vs_empty_string() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
@@ -3439,6 +3459,9 @@ fn large_text_round_trip() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })
@@ -3481,6 +3504,9 @@ fn special_characters_in_strings() {
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: n,
                     updated_at: n,
                 })

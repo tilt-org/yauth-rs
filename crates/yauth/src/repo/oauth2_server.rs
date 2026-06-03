@@ -27,6 +27,35 @@ pub trait Oauth2ClientRepository: sealed::Sealed + Send + Sync {
     /// List clients currently banned, newest ban first. Used by the admin
     /// list endpoint; other read paths stay on `find_by_client_id`.
     fn list_banned(&self) -> RepoFuture<'_, Vec<domain::Oauth2Client>>;
+
+    /// Set the OIDC logout configuration for a client (RP-Initiated Logout +
+    /// Back-Channel Logout). The repo is a dumb writer — callers are
+    /// responsible for sanitizing/validating the URIs before persisting.
+    /// Returns `true` if the row was updated.
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool>;
+
+    /// Stamp the last successful token-endpoint use of a client. Called
+    /// best-effort on every token issuance (errors are ignored by callers) so
+    /// the stale-client sweep never reclaims an actively-used client. No-op
+    /// effect on the response — purely an activity marker.
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()>;
+
+    /// Purge dynamically-registered (RFC 7591) public clients whose last use
+    /// (or creation, if never used) predates `cutoff`. Admin-provisioned and
+    /// banned clients are never touched. Transactional: dependent consents,
+    /// authorization codes, and device codes (keyed by `client_id`, no FK
+    /// cascade) are deleted in the same transaction. Returns the swept
+    /// `client_id`s.
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>>;
 }
 
 /// Repository for authorization codes.
@@ -56,6 +85,10 @@ pub trait ConsentRepository: sealed::Sealed + Send + Sync {
     fn create(&self, input: domain::NewConsent) -> RepoFuture<'_, ()>;
 
     fn update_scopes(&self, id: Uuid, scopes: Option<serde_json::Value>) -> RepoFuture<'_, ()>;
+
+    /// List every consent the user has granted, used by Back-Channel Logout
+    /// fan-out to find the RPs that should be notified on offboarding.
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>>;
 }
 
 /// Repository for device authorization flow codes.

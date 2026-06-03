@@ -94,6 +94,7 @@ fn event_type_name(event: &AuthEvent) -> &'static str {
         AuthEvent::MfaDisabled { .. } => "mfa.disabled",
         AuthEvent::UserBanned { .. } => "user.banned",
         AuthEvent::UserUnbanned { .. } => "user.unbanned",
+        AuthEvent::UserSuspended { .. } => "user.suspended",
         AuthEvent::MagicLinkSent { .. } => "magic_link.sent",
         AuthEvent::MagicLinkVerified { .. } => "magic_link.verified",
         #[cfg(feature = "account-lockout")]

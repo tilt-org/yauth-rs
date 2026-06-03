@@ -26,6 +26,9 @@ pub struct YauthUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<jiff::Timestamp>,
+    pub suspended_at: Option<jiff::Timestamp>,
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<jiff::Timestamp>,
     pub created_at: jiff::Timestamp,
     pub updated_at: jiff::Timestamp,
     #[has_many]
@@ -151,6 +154,12 @@ pub struct YauthOauth2Client {
     pub jwks_uri: Option<String>,
     pub banned_at: Option<jiff::Timestamp>,
     pub banned_reason: Option<String>,
+    #[serialize(json)]
+    pub post_logout_redirect_uris: Option<serde_json::Value>,
+    pub backchannel_logout_uri: Option<String>,
+    pub backchannel_logout_session_required: bool,
+    pub dynamically_registered: bool,
+    pub last_used_at: Option<jiff::Timestamp>,
 }
 
 /// Toasty model for `yauth_webhooks`.

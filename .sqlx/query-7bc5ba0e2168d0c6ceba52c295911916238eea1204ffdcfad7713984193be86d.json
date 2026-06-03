@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM yauth_device_codes WHERE client_id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7bc5ba0e2168d0c6ceba52c295911916238eea1204ffdcfad7713984193be86d"
+}

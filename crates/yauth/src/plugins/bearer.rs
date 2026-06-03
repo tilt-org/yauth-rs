@@ -231,10 +231,23 @@ pub fn create_jwt(
     state: &YAuthState,
     scope: Option<&str>,
 ) -> Result<(String, String), ApiError> {
+    let ttl = state.bearer_config.access_token_ttl;
+    create_jwt_with_ttl(user, state, scope, ttl)
+}
+
+/// Like [`create_jwt`] but with an explicit access-token lifetime. The OAuth2
+/// token endpoint uses this so a configured `oauth2_server.access_ttl` controls
+/// the JWT `exp` (not just the advertised `expires_in`) for every grant type.
+pub fn create_jwt_with_ttl(
+    user: &JwtUser,
+    state: &YAuthState,
+    scope: Option<&str>,
+    ttl: std::time::Duration,
+) -> Result<(String, String), ApiError> {
     let config = &state.bearer_config;
     let now = Utc::now();
     let jti = Uuid::now_v7().to_string();
-    let exp = (now + config.access_token_ttl).timestamp() as usize;
+    let exp = (now + ttl).timestamp() as usize;
     let iat = now.timestamp() as usize;
 
     let claims = Claims {
@@ -766,8 +779,13 @@ pub async fn validate_jwt(token: &str, state: &YAuthState) -> Result<AuthUser, S
         .map_err(|e| format!("DB error during JWT validation: {}", e))?
         .ok_or_else(|| "User not found".to_string())?;
 
-    if user.banned {
-        return Err("Account suspended".to_string());
+    // Per-request access-token gate (mirrors yauth-go bearer resolver): a
+    // banned, globally suspended, or staged user cannot authenticate — even
+    // with an otherwise-valid, unexpired access token. Access tokens are not
+    // revoked by the lifecycle kill switch (only refresh tokens are), so this
+    // re-check on every request is the instant-termination path for bearer auth.
+    if !user.can_authenticate(chrono::Utc::now().naive_utc()) {
+        return Err("Account is not active".to_string());
     }
 
     // Issue #89: lift the active-org claims off the JWT into AuthUser. We

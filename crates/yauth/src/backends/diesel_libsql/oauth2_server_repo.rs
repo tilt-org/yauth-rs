@@ -30,6 +30,11 @@ pub(crate) struct LC {
     pub jwks_uri: Option<String>,
     pub banned_at: Option<String>,
     pub banned_reason: Option<String>,
+    pub post_logout_redirect_uris: Option<String>,
+    pub backchannel_logout_uri: Option<String>,
+    pub backchannel_logout_session_required: bool,
+    pub dynamically_registered: bool,
+    pub last_used_at: Option<String>,
 }
 impl LC {
     fn d(self) -> domain::Oauth2Client {
@@ -48,6 +53,11 @@ impl LC {
             jwks_uri: self.jwks_uri,
             banned_at: opt_str_to_dt(self.banned_at),
             banned_reason: self.banned_reason,
+            post_logout_redirect_uris: opt_str_to_json(self.post_logout_redirect_uris),
+            backchannel_logout_uri: self.backchannel_logout_uri,
+            backchannel_logout_session_required: self.backchannel_logout_session_required,
+            dynamically_registered: self.dynamically_registered,
+            last_used_at: opt_str_to_dt(self.last_used_at),
         }
     }
 }
@@ -168,7 +178,7 @@ impl Oauth2ClientRepository for LibsqlOauth2ClientRepo {
     fn create(&self, i: domain::NewOauth2Client) -> RepoFuture<'_, ()> {
         Box::pin(async move {
             let mut c = get_conn(&self.pool).await?;
-            let (id, cid, csh, ru, cn, gt, sc, ip, ca, team, pkp, ju) = (
+            let (id, cid, csh, ru, cn, gt, sc, ip, ca, team, pkp, ju, dr) = (
                 uuid_to_str(i.id),
                 i.client_id,
                 i.client_secret_hash,
@@ -181,14 +191,16 @@ impl Oauth2ClientRepository for LibsqlOauth2ClientRepo {
                 i.token_endpoint_auth_method,
                 i.public_key_pem,
                 i.jwks_uri,
+                i.dynamically_registered,
             );
-            diesel::sql_query("INSERT INTO yauth_oauth2_clients (id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            diesel::sql_query("INSERT INTO yauth_oauth2_clients (id, client_id, client_secret_hash, redirect_uris, client_name, grant_types, scopes, is_public, created_at, token_endpoint_auth_method, public_key_pem, jwks_uri, dynamically_registered) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind::<diesel::sql_types::Text, _>(&id).bind::<diesel::sql_types::Text, _>(&cid).bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&csh)
             .bind::<diesel::sql_types::Text, _>(&ru).bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&cn).bind::<diesel::sql_types::Text, _>(&gt)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&sc).bind::<diesel::sql_types::Bool, _>(ip).bind::<diesel::sql_types::Text, _>(&ca)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&team)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&pkp)
             .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&ju)
+            .bind::<diesel::sql_types::Bool, _>(dr)
             .execute(&mut *c).await.map_err(diesel_err)?;
             Ok(())
         })
@@ -250,6 +262,105 @@ impl Oauth2ClientRepository for LibsqlOauth2ClientRepo {
                 .await
                 .map_err(diesel_err)?;
             Ok(rows.into_iter().map(|r| r.d()).collect())
+        })
+    }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            let updated = diesel::update(
+                yauth_oauth2_clients::table.filter(yauth_oauth2_clients::client_id.eq(&client_id)),
+            )
+            .set((
+                yauth_oauth2_clients::post_logout_redirect_uris
+                    .eq(opt_json_to_str(post_logout_redirect_uris)),
+                yauth_oauth2_clients::backchannel_logout_uri.eq(backchannel_logout_uri),
+                yauth_oauth2_clients::backchannel_logout_session_required
+                    .eq(backchannel_logout_session_required),
+            ))
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            Ok(updated > 0)
+        })
+    }
+
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            let at_str = dt_to_str(at);
+            diesel::update(
+                yauth_oauth2_clients::table.filter(yauth_oauth2_clients::client_id.eq(&client_id)),
+            )
+            .set(yauth_oauth2_clients::last_used_at.eq(at_str))
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            Ok(())
+        })
+    }
+
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            let candidates: Vec<LC> = yauth_oauth2_clients::table
+                .filter(yauth_oauth2_clients::dynamically_registered.eq(true))
+                .filter(yauth_oauth2_clients::is_public.eq(true))
+                .filter(yauth_oauth2_clients::banned_at.is_null())
+                .select(LC::as_select())
+                .load(&mut *c)
+                .await
+                .map_err(diesel_err)?;
+            let ids: Vec<String> = candidates
+                .into_iter()
+                .filter(|m| {
+                    let last = m
+                        .last_used_at
+                        .as_deref()
+                        .map(str_to_dt)
+                        .unwrap_or_else(|| str_to_dt(&m.created_at));
+                    last < cutoff
+                })
+                .map(|m| m.client_id)
+                .collect();
+            if ids.is_empty() {
+                return Ok(ids);
+            }
+            diesel::delete(yauth_consents::table.filter(yauth_consents::client_id.eq_any(&ids)))
+                .execute(&mut *c)
+                .await
+                .map_err(diesel_err)?;
+            diesel::delete(
+                yauth_authorization_codes::table
+                    .filter(yauth_authorization_codes::client_id.eq_any(&ids)),
+            )
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            diesel::delete(
+                yauth_device_codes::table.filter(yauth_device_codes::client_id.eq_any(&ids)),
+            )
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            diesel::delete(
+                yauth_oauth2_clients::table.filter(yauth_oauth2_clients::client_id.eq_any(&ids)),
+            )
+            .execute(&mut *c)
+            .await
+            .map_err(diesel_err)?;
+            Ok(ids)
         })
     }
 }
@@ -382,6 +493,19 @@ impl ConsentRepository for LibsqlConsentRepo {
                 .await
                 .map_err(diesel_err)?;
             Ok(())
+        })
+    }
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let mut c = get_conn(&self.pool).await?;
+            let u = uuid_to_str(user_id);
+            let rows = yauth_consents::table
+                .filter(yauth_consents::user_id.eq(&u))
+                .select(LCo::as_select())
+                .load(&mut *c)
+                .await
+                .map_err(diesel_err)?;
+            Ok(rows.into_iter().map(|r| r.d()).collect())
         })
     }
 }

@@ -61,6 +61,9 @@ pub(crate) struct SqliteUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<String>,
+    pub suspended_at: Option<String>,
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -76,6 +79,9 @@ impl SqliteUser {
             banned: self.banned,
             banned_reason: self.banned_reason,
             banned_until: opt_str_to_dt(self.banned_until),
+            suspended_at: opt_str_to_dt(self.suspended_at),
+            suspended_reason: self.suspended_reason,
+            activates_at: opt_str_to_dt(self.activates_at),
             created_at: str_to_dt(&self.created_at),
             updated_at: str_to_dt(&self.updated_at),
         }
@@ -101,6 +107,12 @@ pub(crate) struct SqliteUserByName {
     pub banned_reason: Option<String>,
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
     pub banned_until: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub suspended_at: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub suspended_reason: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub activates_at: Option<String>,
     #[diesel(sql_type = diesel::sql_types::Text)]
     pub created_at: String,
     #[diesel(sql_type = diesel::sql_types::Text)]
@@ -118,6 +130,9 @@ impl SqliteUserByName {
             banned: self.banned,
             banned_reason: self.banned_reason,
             banned_until: opt_str_to_dt(self.banned_until),
+            suspended_at: opt_str_to_dt(self.suspended_at),
+            suspended_reason: self.suspended_reason,
+            activates_at: opt_str_to_dt(self.activates_at),
             created_at: str_to_dt(&self.created_at),
             updated_at: str_to_dt(&self.updated_at),
         }
@@ -135,6 +150,9 @@ pub(crate) struct SqliteNewUser {
     pub banned: bool,
     pub banned_reason: Option<String>,
     pub banned_until: Option<String>,
+    pub suspended_at: Option<String>,
+    pub suspended_reason: Option<String>,
+    pub activates_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -150,6 +168,9 @@ impl SqliteNewUser {
             banned: input.banned,
             banned_reason: input.banned_reason,
             banned_until: opt_dt_to_str(input.banned_until),
+            suspended_at: opt_dt_to_str(input.suspended_at),
+            suspended_reason: input.suspended_reason,
+            activates_at: opt_dt_to_str(input.activates_at),
             created_at: dt_to_str(input.created_at),
             updated_at: dt_to_str(input.updated_at),
         }
@@ -166,6 +187,9 @@ pub(crate) struct SqliteUpdateUser {
     pub banned: Option<bool>,
     pub banned_reason: Option<Option<String>>,
     pub banned_until: Option<Option<String>>,
+    pub suspended_at: Option<Option<String>>,
+    pub suspended_reason: Option<Option<String>>,
+    pub activates_at: Option<Option<String>>,
     pub updated_at: Option<String>,
 }
 
@@ -179,6 +203,9 @@ impl SqliteUpdateUser {
             banned: input.banned,
             banned_reason: input.banned_reason,
             banned_until: input.banned_until.map(|opt| opt.map(dt_to_str)),
+            suspended_at: input.suspended_at.map(|opt| opt.map(dt_to_str)),
+            suspended_reason: input.suspended_reason,
+            activates_at: input.activates_at.map(|opt| opt.map(dt_to_str)),
             updated_at: input.updated_at.map(dt_to_str),
         }
     }

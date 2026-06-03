@@ -21,6 +21,9 @@ diesel::table! {
         banned -> Bool,
         banned_reason -> Nullable<Text>,
         banned_until -> Nullable<Datetime>,
+        suspended_at -> Nullable<Datetime>,
+        suspended_reason -> Nullable<Text>,
+        activates_at -> Nullable<Datetime>,
         created_at -> Datetime,
         updated_at -> Datetime,
     }
@@ -231,6 +234,11 @@ diesel::table! {
         jwks_uri -> Nullable<Text>,
         banned_at -> Nullable<Datetime>,
         banned_reason -> Nullable<Text>,
+        post_logout_redirect_uris -> Nullable<Text>,
+        backchannel_logout_uri -> Nullable<Text>,
+        backchannel_logout_session_required -> Bool,
+        dynamically_registered -> Bool,
+        last_used_at -> Nullable<Datetime>,
     }
 }
 

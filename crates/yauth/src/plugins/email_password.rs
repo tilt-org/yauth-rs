@@ -253,6 +253,9 @@ async fn register(
         banned: false,
         banned_reason: None,
         banned_until: None,
+        suspended_at: None,
+        suspended_reason: None,
+        activates_at: None,
         created_at: now,
         updated_at: now,
     };
@@ -412,6 +415,14 @@ async fn login(
         display_name: Option<String>,
         email_verified: bool,
         banned: bool,
+        suspended_at: Option<chrono::NaiveDateTime>,
+        activates_at: Option<chrono::NaiveDateTime>,
+    }
+
+    impl LoginUser {
+        fn staged(&self, now: chrono::NaiveDateTime) -> bool {
+            self.activates_at.is_some_and(|at| now < at)
+        }
     }
 
     let (user_opt, hash) = {
@@ -441,6 +452,8 @@ async fn login(
                         display_name: u.display_name,
                         email_verified: u.email_verified,
                         banned: u.banned,
+                        suspended_at: u.suspended_at,
+                        activates_at: u.activates_at,
                     }),
                     h,
                 )
@@ -464,6 +477,30 @@ async fn login(
                     vec![],
                 );
                 return Err(api_err(StatusCode::FORBIDDEN, "Account suspended"));
+            }
+
+            // Globally suspended (offboarded) — distinct from ban.
+            if u.suspended_at.is_some() {
+                crate::otel::add_event(
+                    "login_suspended_user",
+                    #[cfg(feature = "telemetry")]
+                    vec![opentelemetry::KeyValue::new("user.email", u.email.clone())],
+                    #[cfg(not(feature = "telemetry"))]
+                    vec![],
+                );
+                return Err(api_err(StatusCode::FORBIDDEN, "Account is deactivated"));
+            }
+
+            // Staged — scheduled start has not yet been reached.
+            if u.staged(chrono::Utc::now().naive_utc()) {
+                crate::otel::add_event(
+                    "login_staged_user",
+                    #[cfg(feature = "telemetry")]
+                    vec![opentelemetry::KeyValue::new("user.email", u.email.clone())],
+                    #[cfg(not(feature = "telemetry"))]
+                    vec![],
+                );
+                return Err(api_err(StatusCode::FORBIDDEN, "Account is not active yet"));
             }
 
             if state.email_password_config.require_email_verification && !u.email_verified {

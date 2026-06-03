@@ -399,6 +399,9 @@ impl SsoConnectionRepository for StubSsoConnectionRepo {
             ))
         })
     }
+    fn list_all(&self) -> RepoFuture<'_, Vec<domain::SsoConnection>> {
+        Box::pin(async move { Err(pending(self.backend, "SsoConnectionRepository", "list_all")) })
+    }
     fn find_active_oidc_for_org(
         &self,
         _organization_id: Uuid,

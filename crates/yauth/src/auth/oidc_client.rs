@@ -914,6 +914,101 @@ pub fn id_token_kid(raw_token: &str) -> Result<String, IdTokenError> {
     h.kid.ok_or(IdTokenError::MissingKid)
 }
 
+/// Verify an OIDC Back-Channel Logout 1.0 `logout_token`'s signature against the
+/// IdP's JWKS key, then check `iss`/`aud`. Returns the raw claims as JSON.
+///
+/// A sibling of [`validate_id_token`], but deliberately different in three ways
+/// the BCL spec requires:
+///   - **No nonce** is accepted (BCL §2.4 forbids `nonce` in a logout_token);
+///     the structural nonce-rejection check is the caller's job.
+///   - **Expiry-tolerant**: a logout_token has no `exp` at all, so time-bounds
+///     are not enforced here.
+///   - **Asymmetric only** (RS*): an IdP-signed token MUST be asymmetric;
+///     symmetric `alg`s are rejected to prevent key-confusion.
+///
+/// The BCL-specific structural checks (the `events` backchannel-logout key,
+/// `jti`, `sub`, nonce-absence) are applied by the caller against the returned
+/// claims.
+pub fn verify_logout_token(
+    raw_token: &str,
+    jwk: &RemoteJwk,
+    expected_issuer: &str,
+    expected_audience: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, IdTokenError> {
+    use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
+
+    let header = decode_header(raw_token)
+        .map_err(|e| IdTokenError::Malformed(format!("header parse: {e}")))?;
+
+    // Asymmetric RSA only — reject HS*/symmetric to block key-confusion.
+    let alg = match header.alg {
+        Algorithm::RS256 => Algorithm::RS256,
+        Algorithm::RS384 => Algorithm::RS384,
+        Algorithm::RS512 => Algorithm::RS512,
+        other => return Err(IdTokenError::UnsupportedAlg(format!("{other:?}"))),
+    };
+
+    if !jwk.kty.eq_ignore_ascii_case("RSA") {
+        return Err(IdTokenError::UnsupportedAlg(format!("kty={}", jwk.kty)));
+    }
+    let n = jwk
+        .n
+        .as_deref()
+        .ok_or_else(|| IdTokenError::JwksLookup("RSA key missing `n`".into()))?;
+    let e = jwk
+        .e
+        .as_deref()
+        .ok_or_else(|| IdTokenError::JwksLookup("RSA key missing `e`".into()))?;
+    let decoding_key = DecodingKey::from_rsa_components(n, e)
+        .map_err(|e| IdTokenError::JwksLookup(format!("rsa key parse: {e}")))?;
+
+    // Signature verification only — we control iss/aud checks below, and a
+    // logout_token has no exp/nbf to validate. `required_spec_claims` is cleared
+    // so the absent `exp` does not trip jsonwebtoken's default `{"exp"}` gate.
+    let mut validation = Validation::new(alg);
+    validation.validate_exp = false;
+    validation.validate_nbf = false;
+    validation.validate_aud = false;
+    validation.required_spec_claims.clear();
+    let data =
+        decode::<serde_json::Map<String, serde_json::Value>>(raw_token, &decoding_key, &validation)
+            .map_err(|_| IdTokenError::BadSignature)?;
+    let claims = data.claims;
+
+    // Issuer pinning.
+    let iss = claims
+        .get("iss")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    if iss != expected_issuer {
+        return Err(IdTokenError::IssuerMismatch {
+            actual: iss.to_string(),
+            expected: expected_issuer.to_string(),
+        });
+    }
+
+    // Audience check — aud may be a single string or an array of strings.
+    if !logout_token_audience_matches(claims.get("aud"), expected_audience) {
+        return Err(IdTokenError::AudienceMismatch {
+            expected: expected_audience.to_string(),
+        });
+    }
+
+    Ok(claims)
+}
+
+/// Whether `want` appears in a JWT `aud` claim, which may be a single string or
+/// an array of strings.
+pub fn logout_token_audience_matches(aud: Option<&serde_json::Value>, want: &str) -> bool {
+    match aud {
+        Some(serde_json::Value::String(s)) => s == want,
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .any(|v| v.as_str().map(|s| s == want).unwrap_or(false)),
+        _ => false,
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Token exchange
 // ─────────────────────────────────────────────────────────────────

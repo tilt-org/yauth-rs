@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM yauth_oauth2_clients WHERE client_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "b4c2e13f470529db6ef01f07a1c5f18c4e8b1da87b93d85755a94a67fd83c7bc"
+}

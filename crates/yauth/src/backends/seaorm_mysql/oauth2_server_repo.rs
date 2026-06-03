@@ -56,6 +56,11 @@ impl Oauth2ClientRepository for SeaOrmOauth2ClientRepo {
                 jwks_uri: Set(input.jwks_uri),
                 banned_at: Set(None),
                 banned_reason: Set(None),
+                post_logout_redirect_uris: Set(None),
+                backchannel_logout_uri: Set(None),
+                backchannel_logout_session_required: Set(false),
+                dynamically_registered: Set(input.dynamically_registered),
+                last_used_at: Set(None),
             };
             model.insert(&self.db).await.map_err(sea_err)?;
             Ok(())
@@ -116,6 +121,103 @@ impl Oauth2ClientRepository for SeaOrmOauth2ClientRepo {
                 .await
                 .map_err(sea_err)?;
             Ok(rows.into_iter().map(|m| m.into_domain()).collect())
+        })
+    }
+
+    fn set_logout_config(
+        &self,
+        client_id: &str,
+        post_logout_redirect_uris: Option<serde_json::Value>,
+        backchannel_logout_uri: Option<String>,
+        backchannel_logout_session_required: bool,
+    ) -> RepoFuture<'_, bool> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            let result = oauth2_clients::Entity::update_many()
+                .col_expr(
+                    oauth2_clients::Column::PostLogoutRedirectUris,
+                    Expr::value(post_logout_redirect_uris),
+                )
+                .col_expr(
+                    oauth2_clients::Column::BackchannelLogoutUri,
+                    Expr::value(backchannel_logout_uri),
+                )
+                .col_expr(
+                    oauth2_clients::Column::BackchannelLogoutSessionRequired,
+                    Expr::value(backchannel_logout_session_required),
+                )
+                .filter(oauth2_clients::Column::ClientId.eq(&client_id))
+                .exec(&self.db)
+                .await
+                .map_err(sea_err)?;
+            Ok(result.rows_affected > 0)
+        })
+    }
+
+    fn touch_last_used(&self, client_id: &str, at: chrono::NaiveDateTime) -> RepoFuture<'_, ()> {
+        let client_id = client_id.to_string();
+        Box::pin(async move {
+            oauth2_clients::Entity::update_many()
+                .col_expr(
+                    oauth2_clients::Column::LastUsedAt,
+                    Expr::value(super::to_tz(at)),
+                )
+                .filter(oauth2_clients::Column::ClientId.eq(&client_id))
+                .exec(&self.db)
+                .await
+                .map_err(sea_err)?;
+            Ok(())
+        })
+    }
+
+    fn purge_stale_dynamic_clients(
+        &self,
+        cutoff: chrono::NaiveDateTime,
+    ) -> RepoFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            use sea_orm::TransactionTrait;
+            let txn = self.db.begin().await.map_err(sea_err)?;
+            let candidates = oauth2_clients::Entity::find()
+                .filter(oauth2_clients::Column::DynamicallyRegistered.eq(true))
+                .filter(oauth2_clients::Column::IsPublic.eq(true))
+                .filter(oauth2_clients::Column::BannedAt.is_null())
+                .all(&txn)
+                .await
+                .map_err(sea_err)?;
+            let ids: Vec<String> = candidates
+                .into_iter()
+                .filter(|m| {
+                    let last = m.last_used_at.unwrap_or(m.created_at).naive_utc();
+                    last < cutoff
+                })
+                .map(|m| m.client_id)
+                .collect();
+            if ids.is_empty() {
+                txn.commit().await.map_err(sea_err)?;
+                return Ok(ids);
+            }
+            consents::Entity::delete_many()
+                .filter(consents::Column::ClientId.is_in(ids.clone()))
+                .exec(&txn)
+                .await
+                .map_err(sea_err)?;
+            authorization_codes::Entity::delete_many()
+                .filter(authorization_codes::Column::ClientId.is_in(ids.clone()))
+                .exec(&txn)
+                .await
+                .map_err(sea_err)?;
+            device_codes::Entity::delete_many()
+                .filter(device_codes::Column::ClientId.is_in(ids.clone()))
+                .exec(&txn)
+                .await
+                .map_err(sea_err)?;
+            oauth2_clients::Entity::delete_many()
+                .filter(oauth2_clients::Column::ClientId.is_in(ids.clone()))
+                .exec(&txn)
+                .await
+                .map_err(sea_err)?;
+            txn.commit().await.map_err(sea_err)?;
+            Ok(ids)
         })
     }
 }
@@ -242,6 +344,17 @@ impl ConsentRepository for SeaOrmConsentRepo {
                 .await
                 .map_err(sea_err)?;
             Ok(())
+        })
+    }
+
+    fn list_by_user_id(&self, user_id: Uuid) -> RepoFuture<'_, Vec<domain::Consent>> {
+        Box::pin(async move {
+            let rows = consents::Entity::find()
+                .filter(consents::Column::UserId.eq(user_id.to_string()))
+                .all(&self.db)
+                .await
+                .map_err(sea_err)?;
+            Ok(rows.into_iter().map(|m| m.into_domain()).collect())
         })
     }
 }

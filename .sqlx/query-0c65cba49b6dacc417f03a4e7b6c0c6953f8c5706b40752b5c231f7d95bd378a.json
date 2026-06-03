@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE yauth_oauth2_clients SET last_used_at = $2 WHERE client_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0c65cba49b6dacc417f03a4e7b6c0c6953f8c5706b40752b5c231f7d95bd378a"
+}

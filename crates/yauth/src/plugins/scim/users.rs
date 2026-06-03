@@ -191,6 +191,93 @@ async fn audit_scim(state: &YAuthState, principal: &ScimPrincipal, event: &str, 
 }
 
 // ──────────────────────────────────────────────
+// SCIM active → global lifecycle
+// ──────────────────────────────────────────────
+
+/// Marks a suspension as SCIM-originated. Only suspensions carrying this exact
+/// reason are auto-cleared by a subsequent SCIM `active:true`, so a manual admin
+/// offboard survives routine IdP profile-sync PUTs (which default `active:true`).
+pub(super) const SCIM_SUSPEND_REASON: &str = "SCIM deprovisioned";
+
+/// Maps the SCIM `active` attribute onto the user's **global** lifecycle, not
+/// just their membership in one org. SCIM is the workforce system of record:
+/// `active:false` suspends the account globally (sets `suspended_at`) and trips
+/// the kill switch — terminating every session and revoking every refresh token,
+/// for an instant lockout everywhere. `active:true` reverses it, but ONLY for
+/// SCIM-originated suspensions (reason == [`SCIM_SUSPEND_REASON`]) so a routine
+/// sync never silently undoes an admin's manual offboard.
+///
+/// Idempotent. Kill-switch errors are best-effort (ignored); only the
+/// `update` write is surfaced. Mirrors yauth-go's `applyScimActiveLifecycle`.
+pub(super) async fn apply_scim_active_lifecycle(
+    state: &YAuthState,
+    user: &yauth_entity::User,
+    active: bool,
+    now: chrono::NaiveDateTime,
+) -> Result<(), ScimResponseError> {
+    if !active {
+        if user.suspended_at.is_none() {
+            state
+                .repos
+                .users
+                .update(
+                    user.id,
+                    UpdateUser {
+                        suspended_at: Some(Some(now)),
+                        suspended_reason: Some(Some(SCIM_SUSPEND_REASON.to_string())),
+                        updated_at: Some(now),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+        }
+        // Always (re-)assert the kill switch on active:false so a repeated
+        // de-provision flushes any sessions/tokens minted in between.
+        scim_kill_switch(state, user.id).await;
+        // Offboarding event → OIDC Back-Channel Logout fan-out to the user's RPs.
+        let _ = state.emit_event(&crate::plugin::AuthEvent::UserSuspended { user_id: user.id });
+        return Ok(());
+    }
+
+    // active:true → reactivate, but never silently override an admin offboard.
+    if user.suspended_at.is_none() {
+        return Ok(());
+    }
+    if user.suspended_reason.as_deref() != Some(SCIM_SUSPEND_REASON) {
+        // Manually-suspended (or unknown-origin): leave it locked. An operator
+        // must reactivate via the admin API on purpose.
+        return Ok(());
+    }
+    state
+        .repos
+        .users
+        .update(
+            user.id,
+            UpdateUser {
+                suspended_at: Some(None),
+                suspended_reason: Some(None),
+                updated_at: Some(now),
+                ..Default::default()
+            },
+        )
+        .await?;
+    Ok(())
+}
+
+/// Best-effort kill switch: terminate sessions + revoke refresh tokens.
+pub(super) async fn scim_kill_switch(state: &YAuthState, user_id: Uuid) {
+    let _ = crate::auth::session::delete_all_user_sessions(state, user_id).await;
+    #[cfg(feature = "bearer")]
+    {
+        let _ = state
+            .repos
+            .refresh_tokens
+            .revoke_all_user_refresh_tokens(user_id)
+            .await;
+    }
+}
+
+// ──────────────────────────────────────────────
 // POST /Users
 // ──────────────────────────────────────────────
 
@@ -310,6 +397,9 @@ async fn create_user_inner(
                     banned: false,
                     banned_reason: None,
                     banned_until: None,
+                    suspended_at: None,
+                    suspended_reason: None,
+                    activates_at: None,
                     created_at: now,
                     updated_at: now,
                 })
@@ -409,6 +499,18 @@ async fn create_user_inner(
         .find_by_id(user.id)
         .await?
         .ok_or_else(ScimResponseError::internal)?;
+
+    // SCIM `active` maps to the global lifecycle (instant lockout on
+    // de-provision), not only the org membership status above.
+    let active = payload.active.unwrap_or(true);
+    apply_scim_active_lifecycle(state, &fresh, active, now).await?;
+    let fresh = state
+        .repos
+        .users
+        .find_by_id(user.id)
+        .await?
+        .ok_or_else(ScimResponseError::internal)?;
+
     let scim_user = project_user(state, org_id, &fresh, ext.as_ref(), desired_status, vec![]);
     audit_scim(
         state,
@@ -690,6 +792,18 @@ async fn put_user_inner(
         )
         .await?;
 
+    // SCIM `active` maps to the global lifecycle. PUT is a full replace, so an
+    // absent `active` defaults to true (RFC 7644) — which, per the sentinel
+    // rule, only clears SCIM-originated suspensions.
+    let fresh = state
+        .repos
+        .users
+        .find_by_id(user.id)
+        .await?
+        .ok_or_else(ScimResponseError::internal)?;
+    let active = payload.active.unwrap_or(true);
+    apply_scim_active_lifecycle(state, &fresh, active, now).await?;
+
     let fresh = state
         .repos
         .users
@@ -853,6 +967,16 @@ async fn patch_user_inner(
                 },
             )
             .await?;
+
+        // SCIM `active` maps to the global lifecycle. PATCH is partial, so we
+        // only touch lifecycle when `active` was explicitly present.
+        let current = state
+            .repos
+            .users
+            .find_by_id(user.id)
+            .await?
+            .ok_or_else(ScimResponseError::internal)?;
+        apply_scim_active_lifecycle(state, &current, b, now).await?;
     }
 
     let fresh = state
@@ -915,6 +1039,11 @@ async fn delete_user_inner(
     if let Some(ext) = external_id_for(state, org_id, user_id).await? {
         let _ = state.repos.external_identities.delete(ext.id).await;
     }
+
+    // Deprovision is a removal: trip the kill switch so any live access is
+    // revoked immediately. We deliberately do NOT set suspended_at here (unlike
+    // active:false) so a later re-POST provisions a clean, usable account.
+    scim_kill_switch(state, user_id).await;
 
     audit_scim(state, &principal, "scim_user_deleted", &user_id.to_string()).await;
 

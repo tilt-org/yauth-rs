@@ -85,6 +85,12 @@ export interface AdminSessionInfo {
  * User info returned by admin list endpoint.
  */
 export interface AdminUserInfo {
+  /**
+     * Scheduled start; while in the future the user is "staged" and cannot
+  authenticate yet.
+     * @nullable
+     */
+  activates_at?: string | null;
   banned: boolean;
   /** @nullable */
   banned_reason?: string | null;
@@ -97,6 +103,13 @@ export interface AdminUserInfo {
   email_verified: boolean;
   id: string;
   role: string;
+  /** Whether the account is globally suspended (offboarded). Distinct from
+  `banned` (security incidents). */
+  suspended: boolean;
+  /** @nullable */
+  suspended_at?: string | null;
+  /** @nullable */
+  suspended_reason?: string | null;
   updated_at: string;
 }
 
@@ -597,6 +610,13 @@ export interface DeleteUserSessionsResponse {
   deleted: number;
 }
 
+/**
+ * Wrapper for `GET /organizations/{id}/domains` — matches yauth-go's `{"domains":[…]}`.
+ */
+export interface DomainListResponse {
+  domains: DomainResponse[];
+}
+
 export interface ForgotPasswordRequest {
   email: string;
 }
@@ -873,6 +893,13 @@ export interface MembershipResponse {
   user_id: string;
 }
 
+/**
+ * Wrapper for `GET /organizations/{id}/members` — matches yauth-go's `{"members":[…]}`.
+ */
+export interface MembershipListResponse {
+  members: MembershipResponse[];
+}
+
 export interface MessageResponse {
   message: string;
 }
@@ -910,6 +937,12 @@ export interface Oauth2AuthorizeRedirect {
 `Oauth2ClientJSON`.
  */
 export interface Oauth2ClientView {
+  backchannel_logout_session_required: boolean;
+  /**
+     * OIDC Back-Channel Logout 1.0: the client's back-channel logout endpoint.
+     * @nullable
+     */
+  backchannel_logout_uri?: string | null;
   banned: boolean;
   /** @nullable */
   banned_reason?: string | null;
@@ -927,6 +960,9 @@ export interface Oauth2ClientView {
      * @nullable
      */
   name?: string | null;
+  /** OIDC RP-Initiated Logout 1.0: registered post-logout redirect URIs.
+  Always emitted (empty list when none) to match yauth-go's wire shape. */
+  post_logout_redirect_uris: string[];
   redirect_uris: string[];
   /** @nullable */
   scopes?: string[] | null;
@@ -1003,9 +1039,19 @@ leaves it unchanged.
  */
 export interface Oauth2PatchClientRequest {
   /** @nullable */
+  backchannel_logout_session_required?: boolean | null;
+  /** @nullable */
+  backchannel_logout_uri?: string | null;
+  /** @nullable */
   banned?: boolean | null;
   /** @nullable */
   banned_reason?: string | null;
+  /**
+     * OIDC logout config. Any present field triggers a logout-config update,
+  merged with the client's current values for the fields left absent.
+     * @nullable
+     */
+  post_logout_redirect_uris?: string[] | null;
   /** @nullable */
   public_key_pem?: string | null;
 }
@@ -1039,6 +1085,13 @@ export interface OrganizationResponse {
   name: string;
   slug: string;
   updated_at: string;
+}
+
+/**
+ * Wrapper for `GET /organizations` — matches yauth-go's `{"organizations":[…]}`.
+ */
+export interface OrganizationListResponse {
+  organizations: OrganizationResponse[];
 }
 
 export interface OutboxEntryResponse {
@@ -1228,6 +1281,17 @@ export interface SamlConfigResponse {
 }
 
 /**
+ * Request body for `POST /admin/users/{id}/schedule-start` (staged onboarding).
+ */
+export interface ScheduleStartRequest {
+  /**
+     * Scheduled start (RFC 3339). Null/absent clears it (active now).
+     * @nullable
+     */
+  activates_at?: string | null;
+}
+
+/**
  * Envelope returned by `GET /session` — wraps the authenticated user and
 surfaces session expiry. Matches the yauth-go `EmailPasswordSessionResponse`
 shape so a single TypeScript client serves both backends.
@@ -1281,6 +1345,17 @@ export interface SsoConnectionTestResponse {
 export interface StatusResponse {
   plugins: string[];
   version: string;
+}
+
+/**
+ * Request body for `POST /admin/users/{id}/suspend` (global offboarding).
+ */
+export interface SuspendRequest {
+  /**
+     * Operator-facing context for the suspension.
+     * @nullable
+     */
+  reason?: string | null;
 }
 
 export interface TokenRequest {
@@ -1841,6 +1916,29 @@ export const adminImpersonate = async (id: string, options?: RequestInit): Promi
 
 
 
+export const getAdminScheduleStartUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/schedule-start`
+}
+
+export const adminScheduleStart = async (id: string,
+    scheduleStartRequest: ScheduleStartRequest, options?: RequestInit): Promise<AdminUserInfo> => {
+
+  return customFetch<AdminUserInfo>(getAdminScheduleStartUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      scheduleStartRequest,)
+  }
+);}
+
+
+
 export const getAdminDeleteUserSessionsUrl = (id: string,) => {
 
 
@@ -1857,6 +1955,29 @@ export const adminDeleteUserSessions = async (id: string, options?: RequestInit)
     method: 'DELETE'
 
 
+  }
+);}
+
+
+
+export const getAdminSuspendUserUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/suspend`
+}
+
+export const adminSuspendUser = async (id: string,
+    suspendRequest: SuspendRequest, options?: RequestInit): Promise<AdminUserInfo> => {
+
+  return customFetch<AdminUserInfo>(getAdminSuspendUserUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      suspendRequest,)
   }
 );}
 
@@ -1894,6 +2015,27 @@ export const getAccountLockoutAdminUnlockUrl = (id: string,) => {
 export const accountLockoutAdminUnlock = async (id: string, options?: RequestInit): Promise<AccountLockoutMessageResponse> => {
 
   return customFetch<AccountLockoutMessageResponse>(getAccountLockoutAdminUnlockUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAdminUnsuspendUserUrl = (id: string,) => {
+
+
+
+
+  return `/admin/users/${id}/unsuspend`
+}
+
+export const adminUnsuspendUser = async (id: string, options?: RequestInit): Promise<AdminUserInfo> => {
+
+  return customFetch<AdminUserInfo>(getAdminUnsuspendUserUrl(id),
   {
     ...options,
     method: 'POST'
@@ -2959,9 +3101,9 @@ export const getOrganizationsListUrl = () => {
   return `/organizations`
 }
 
-export const organizationsList = async ( options?: RequestInit): Promise<OrganizationResponse[]> => {
+export const organizationsList = async ( options?: RequestInit): Promise<OrganizationListResponse> => {
 
-  return customFetch<OrganizationResponse[]>(getOrganizationsListUrl(),
+  return customFetch<OrganizationListResponse>(getOrganizationsListUrl(),
   {
     ...options,
     method: 'GET'
@@ -3067,9 +3209,9 @@ export const getOrganizationsListDomainsUrl = (id: string,) => {
   return `/organizations/${id}/domains`
 }
 
-export const organizationsListDomains = async (id: string, options?: RequestInit): Promise<DomainResponse[]> => {
+export const organizationsListDomains = async (id: string, options?: RequestInit): Promise<DomainListResponse> => {
 
-  return customFetch<DomainResponse[]>(getOrganizationsListDomainsUrl(id),
+  return customFetch<DomainListResponse>(getOrganizationsListDomainsUrl(id),
   {
     ...options,
     method: 'GET'
@@ -3205,9 +3347,9 @@ export const getOrganizationsListMembersUrl = (id: string,) => {
   return `/organizations/${id}/members`
 }
 
-export const organizationsListMembers = async (id: string, options?: RequestInit): Promise<MembershipResponse[]> => {
+export const organizationsListMembers = async (id: string, options?: RequestInit): Promise<MembershipListResponse> => {
 
-  return customFetch<MembershipResponse[]>(getOrganizationsListMembersUrl(id),
+  return customFetch<MembershipListResponse>(getOrganizationsListMembersUrl(id),
   {
     ...options,
     method: 'GET'
@@ -4082,21 +4224,27 @@ export const getAdminListAuditResponseMock = (overrideResponse: Partial<Extract<
 
 export const getAdminListSessionsResponseMock = (overrideResponse: Partial<Extract<PaginatedSessionsResponse, object>> = {}): PaginatedSessionsResponse => ({page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), sessions: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.alpha({length: {min: 10, max: 20}}), ip_address: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), user_agent: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), user_id: faker.string.alpha({length: {min: 10, max: 20}})})), total: faker.number.int({min: 0}), ...overrideResponse})
 
-export const getAdminListUsersResponseMock = (overrideResponse: Partial<Extract<PaginatedUsersResponse, object>> = {}): PaginatedUsersResponse => ({page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), users: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
+export const getAdminListUsersResponseMock = (overrideResponse: Partial<Extract<PaginatedUsersResponse, object>> = {}): PaginatedUsersResponse => ({page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), users: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({activates_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), suspended: faker.datatype.boolean(), suspended_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), suspended_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), updated_at: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
 
-export const getAdminGetUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getAdminGetUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({activates_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), suspended: faker.datatype.boolean(), suspended_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), suspended_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getAdminUpdateUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getAdminUpdateUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({activates_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), suspended: faker.datatype.boolean(), suspended_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), suspended_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getAdminPatchUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getAdminPatchUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({activates_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), suspended: faker.datatype.boolean(), suspended_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), suspended_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getAdminBanUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getAdminBanUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({activates_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), suspended: faker.datatype.boolean(), suspended_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), suspended_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getAdminScheduleStartResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({activates_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), suspended: faker.datatype.boolean(), suspended_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), suspended_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getAdminDeleteUserSessionsResponseMock = (overrideResponse: Partial<Extract<DeleteUserSessionsResponse, object>> = {}): DeleteUserSessionsResponse => ({deleted: faker.number.int({min: 0}), ...overrideResponse})
 
-export const getAdminUnbanUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getAdminSuspendUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({activates_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), suspended: faker.datatype.boolean(), suspended_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), suspended_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getAdminUnbanUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({activates_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), suspended: faker.datatype.boolean(), suspended_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), suspended_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getAccountLockoutAdminUnlockResponseMock = (overrideResponse: Partial<Extract<AccountLockoutMessageResponse, object>> = {}): AccountLockoutMessageResponse => ({message: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getAdminUnsuspendUserResponseMock = (overrideResponse: Partial<Extract<AdminUserInfo, object>> = {}): AdminUserInfo => ({activates_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned_until: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), email: faker.string.alpha({length: {min: 10, max: 20}}), email_verified: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), role: faker.string.alpha({length: {min: 10, max: 20}}), suspended: faker.datatype.boolean(), suspended_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), suspended_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), updated_at: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getApiKeysListResponseMock = (overrideResponse: Partial<Extract<ListApiKeysResponse, object>> = {}): ListApiKeysResponse => ({items: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', expires_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), id: faker.string.uuid(), last_used_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), name: faker.string.alpha({length: {min: 10, max: 20}}), prefix: faker.string.alpha({length: {min: 10, max: 20}}), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined])})), page: faker.number.int({min: 0}), per_page: faker.number.int({min: 0}), total: faker.number.int({min: 0}), ...overrideResponse})
 
@@ -4150,17 +4298,17 @@ export const getOauthCallbackResponseMock = (overrideResponse: Partial<Extract<O
 
 export const getOauthLinkResponseMock = (overrideResponse: Partial<Extract<AuthorizeResponse, object>> = {}): AuthorizeResponse => ({auth_url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getOauth2AdminListClientsResponseMock = (overrideResponse: Partial<Extract<Oauth2BannedClientsResponse, object>> = {}): Oauth2BannedClientsResponse => ({banned: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])})), ...overrideResponse})
+export const getOauth2AdminListClientsResponseMock = (overrideResponse: Partial<Extract<Oauth2BannedClientsResponse, object>> = {}): Oauth2BannedClientsResponse => ({banned: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({backchannel_logout_session_required: faker.datatype.boolean(), backchannel_logout_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), post_logout_redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])})), ...overrideResponse})
 
-export const getOauth2AdminCreateClientResponseMock = (overrideResponse: Partial<Extract<Oauth2CreateClientResponse, object>> = {}): Oauth2CreateClientResponse => ({client: {banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, client_secret: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
+export const getOauth2AdminCreateClientResponseMock = (overrideResponse: Partial<Extract<Oauth2CreateClientResponse, object>> = {}): Oauth2CreateClientResponse => ({client: {backchannel_logout_session_required: faker.datatype.boolean(), backchannel_logout_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), post_logout_redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined])}, client_secret: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
 
-export const getOauth2AdminGetClientResponseMock = (overrideResponse: Partial<Extract<Oauth2ClientView, object>> = {}): Oauth2ClientView => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
+export const getOauth2AdminGetClientResponseMock = (overrideResponse: Partial<Extract<Oauth2ClientView, object>> = {}): Oauth2ClientView => ({backchannel_logout_session_required: faker.datatype.boolean(), backchannel_logout_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), post_logout_redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
 
-export const getOauth2AdminPatchClientResponseMock = (overrideResponse: Partial<Extract<Oauth2ClientView, object>> = {}): Oauth2ClientView => ({banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
+export const getOauth2AdminPatchClientResponseMock = (overrideResponse: Partial<Extract<Oauth2ClientView, object>> = {}): Oauth2ClientView => ({backchannel_logout_session_required: faker.datatype.boolean(), backchannel_logout_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), banned: faker.datatype.boolean(), banned_reason: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), client_id: faker.string.alpha({length: {min: 10, max: 20}}), created_at: faker.string.alpha({length: {min: 10, max: 20}}), grant_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), has_public_key: faker.datatype.boolean(), id: faker.string.alpha({length: {min: 10, max: 20}}), is_public: faker.datatype.boolean(), jwks_uri: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), post_logout_redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), redirect_uris: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), scopes: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), token_endpoint_auth_method: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), ...overrideResponse})
 
 export const getOauth2ServerConsentResponseMock = (overrideResponse: Partial<Extract<Oauth2AuthorizeRedirect, object>> = {}): Oauth2AuthorizeRedirect => ({redirect_url: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getOrganizationsListResponseMock = (): OrganizationResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+export const getOrganizationsListResponseMock = (overrideResponse: Partial<Extract<OrganizationListResponse, object>> = {}): OrganizationListResponse => ({organizations: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})), ...overrideResponse})
 
 export const getOrganizationsCreateResponseMock = (overrideResponse: Partial<Extract<OrganizationResponse, object>> = {}): OrganizationResponse => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
@@ -4168,7 +4316,7 @@ export const getOrganizationsGetResponseMock = (overrideResponse: Partial<Extrac
 
 export const getOrganizationsUpdateResponseMock = (overrideResponse: Partial<Extract<OrganizationResponse, object>> = {}): OrganizationResponse => ({avatar_url: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', display_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}), null]), undefined]), id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), slug: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getOrganizationsListDomainsResponseMock = (): DomainResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({auto_join_on_signup: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_auto_join: faker.string.alpha({length: {min: 10, max: 20}}), domain: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), last_checked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), require_email_verified: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', verified_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined])})))
+export const getOrganizationsListDomainsResponseMock = (overrideResponse: Partial<Extract<DomainListResponse, object>> = {}): DomainListResponse => ({domains: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({auto_join_on_signup: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_auto_join: faker.string.alpha({length: {min: 10, max: 20}}), domain: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), last_checked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), require_email_verified: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', verified_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined])})), ...overrideResponse})
 
 export const getOrganizationsCreateDomainResponseMock = (overrideResponse: Partial<Extract<CreateDomainResponse, object>> = {}): CreateDomainResponse => ({dns_record_name: faker.string.alpha({length: {min: 10, max: 20}}), domain: {auto_join_on_signup: faker.datatype.boolean(), created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', default_role_on_auto_join: faker.string.alpha({length: {min: 10, max: 20}}), domain: faker.string.alpha({length: {min: 10, max: 20}}), id: faker.string.uuid(), last_checked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), require_email_verified: faker.datatype.boolean(), status: faker.string.alpha({length: {min: 10, max: 20}}), updated_at: faker.date.past().toISOString().slice(0, 19) + 'Z', verified_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined])}, verification_token: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -4178,7 +4326,7 @@ export const getOrganizationsVerifyDomainResponseMock = (overrideResponse: Parti
 
 export const getOrganizationsCreateInvitationResponseMock = (overrideResponse: Partial<Extract<CreateInvitationResponse, object>> = {}): CreateInvitationResponse => ({invitation: {created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', email: faker.string.alpha({length: {min: 10, max: 20}}), expires_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}})}, token: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getOrganizationsListMembersResponseMock = (): MembershipResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid()})))
+export const getOrganizationsListMembersResponseMock = (overrideResponse: Partial<Extract<MembershipListResponse, object>> = {}): MembershipListResponse => ({members: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid()})), ...overrideResponse})
 
 export const getOrganizationsChangeRoleResponseMock = (overrideResponse: Partial<Extract<MembershipResponse, object>> = {}): MembershipResponse => ({created_at: faker.date.past().toISOString().slice(0, 19) + 'Z', id: faker.string.uuid(), joined_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z', null]), undefined]), organization_id: faker.string.uuid(), role: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), user_id: faker.string.uuid(), ...overrideResponse})
 
@@ -4427,6 +4575,18 @@ export const getAdminImpersonateMockHandler = (overrideResponse?: void | ((info:
   }, options)
 }
 
+export const getAdminScheduleStartMockHandler = (overrideResponse?: AdminUserInfo | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AdminUserInfo> | AdminUserInfo), options?: RequestHandlerOptions) => {
+  return http.post('*/admin/users/:id/schedule-start', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getAdminScheduleStartResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getAdminDeleteUserSessionsMockHandler = (overrideResponse?: DeleteUserSessionsResponse | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<DeleteUserSessionsResponse> | DeleteUserSessionsResponse), options?: RequestHandlerOptions) => {
   return http.delete('*/admin/users/:id/sessions', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
 
@@ -4434,6 +4594,18 @@ export const getAdminDeleteUserSessionsMockHandler = (overrideResponse?: DeleteU
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getAdminDeleteUserSessionsResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getAdminSuspendUserMockHandler = (overrideResponse?: AdminUserInfo | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AdminUserInfo> | AdminUserInfo), options?: RequestHandlerOptions) => {
+  return http.post('*/admin/users/:id/suspend', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getAdminSuspendUserResponseMock(),
       { status: 200
       })
   }, options)
@@ -4458,6 +4630,18 @@ export const getAccountLockoutAdminUnlockMockHandler = (overrideResponse?: Accou
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getAccountLockoutAdminUnlockResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getAdminUnsuspendUserMockHandler = (overrideResponse?: AdminUserInfo | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<AdminUserInfo> | AdminUserInfo), options?: RequestHandlerOptions) => {
+  return http.post('*/admin/users/:id/unsuspend', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getAdminUnsuspendUserResponseMock(),
       { status: 200
       })
   }, options)
@@ -4995,7 +5179,7 @@ export const getOauth2ServerConsentMockHandler = (overrideResponse?: Oauth2Autho
   }, options)
 }
 
-export const getOrganizationsListMockHandler = (overrideResponse?: OrganizationResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<OrganizationResponse[]> | OrganizationResponse[]), options?: RequestHandlerOptions) => {
+export const getOrganizationsListMockHandler = (overrideResponse?: OrganizationListResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<OrganizationListResponse> | OrganizationListResponse), options?: RequestHandlerOptions) => {
   return http.get('*/organizations', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -5053,7 +5237,7 @@ export const getOrganizationsUpdateMockHandler = (overrideResponse?: Organizatio
   }, options)
 }
 
-export const getOrganizationsListDomainsMockHandler = (overrideResponse?: DomainResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DomainResponse[]> | DomainResponse[]), options?: RequestHandlerOptions) => {
+export const getOrganizationsListDomainsMockHandler = (overrideResponse?: DomainListResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DomainListResponse> | DomainListResponse), options?: RequestHandlerOptions) => {
   return http.get('*/organizations/:id/domains', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -5123,7 +5307,7 @@ export const getOrganizationsCreateInvitationMockHandler = (overrideResponse?: C
   }, options)
 }
 
-export const getOrganizationsListMembersMockHandler = (overrideResponse?: MembershipResponse[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MembershipResponse[]> | MembershipResponse[]), options?: RequestHandlerOptions) => {
+export const getOrganizationsListMembersMockHandler = (overrideResponse?: MembershipListResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MembershipListResponse> | MembershipListResponse), options?: RequestHandlerOptions) => {
   return http.get('*/organizations/:id/members', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -5584,9 +5768,12 @@ export const getYauthMock = () => [
   getAdminPatchUserMockHandler(),
   getAdminBanUserMockHandler(),
   getAdminImpersonateMockHandler(),
+  getAdminScheduleStartMockHandler(),
   getAdminDeleteUserSessionsMockHandler(),
+  getAdminSuspendUserMockHandler(),
   getAdminUnbanUserMockHandler(),
   getAccountLockoutAdminUnlockMockHandler(),
+  getAdminUnsuspendUserMockHandler(),
   getApiKeysListMockHandler(),
   getApiKeysCreateMockHandler(),
   getApiKeysDeleteMockHandler(),

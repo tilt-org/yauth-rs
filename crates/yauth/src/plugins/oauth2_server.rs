@@ -25,6 +25,18 @@ use crate::state::YAuthState;
 /// Maximum request body size for OAuth endpoints (16 KB).
 const MAX_OAUTH_BODY: usize = 16 * 1024;
 
+/// Effective access-token lifetime for tokens minted at the OAuth2 token
+/// endpoint: `oauth2_server.access_ttl` when set, otherwise the
+/// `bearer.access_token_ttl` fallback. Used for both the advertised
+/// `expires_in` and the JWT `exp`, so they never disagree.
+fn effective_access_ttl(state: &YAuthState) -> std::time::Duration {
+    state
+        .oauth2_server_config
+        .access_ttl
+        .map(|d| d.0)
+        .unwrap_or(state.bearer_config.access_token_ttl)
+}
+
 /// Parse a request body as JSON or form-urlencoded based on Content-Type.
 /// Returns `Err(message)` on unsupported content type or parse failure.
 fn parse_json_or_form<T: serde::de::DeserializeOwned>(
@@ -67,6 +79,75 @@ impl OAuth2ServerPlugin {
     }
 }
 
+/// Run a single stale-DCR-client sweep: purge dynamically-registered public
+/// clients unused past `ttl`, emitting an `oauth2.client.swept` audit event +
+/// log whenever anything is reclaimed. Never silent on a non-empty sweep.
+/// Returns the swept client_ids (used directly by tests).
+pub(crate) async fn run_stale_dcr_sweep(
+    state: &YAuthState,
+    ttl: std::time::Duration,
+) -> Vec<String> {
+    let cutoff = chrono::Utc::now().naive_utc()
+        - chrono::Duration::from_std(ttl).unwrap_or_else(|_| chrono::Duration::days(1));
+    let swept = match state
+        .repos
+        .oauth2_clients
+        .purge_stale_dynamic_clients(cutoff)
+        .await
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            crate::otel::record_error("oauth2_stale_dcr_sweep_failed", &e);
+            return Vec::new();
+        }
+    };
+    if swept.is_empty() {
+        return swept;
+    }
+    log::info!(
+        "oauth2: swept {} stale DCR client(s) (ttl {:?})",
+        swept.len(),
+        ttl
+    );
+    state
+        .write_audit_log(
+            None,
+            "oauth2.client.swept",
+            Some(serde_json::json!({
+                "count": swept.len(),
+                "client_ids": swept,
+            })),
+            None,
+        )
+        .await;
+    swept
+}
+
+/// Spawn the opt-in background sweep ticker. Gated by the caller on
+/// `dcr_stale_client_ttl > 0`; `interval` defaults to 24h when unset/zero.
+/// Mirrors the webhooks / audit-export worker pattern (tokio::spawn +
+/// interval). Best-effort: errors are logged, never propagated.
+pub(crate) fn spawn_stale_dcr_sweep(
+    state: YAuthState,
+    ttl: std::time::Duration,
+    interval: std::time::Duration,
+) {
+    let interval = if interval.is_zero() {
+        std::time::Duration::from_secs(24 * 60 * 60)
+    } else {
+        interval
+    };
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        // Skip the immediate first tick so the sweep does not fire at startup.
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            run_stale_dcr_sweep(&state, ttl).await;
+        }
+    });
+}
+
 impl YAuthPlugin for OAuth2ServerPlugin {
     fn name(&self) -> &'static str {
         "oauth2-server"
@@ -86,6 +167,14 @@ impl YAuthPlugin for OAuth2ServerPlugin {
                 .route(
                     "/oauth/device",
                     get(device_verify_get).post(device_verify_post),
+                )
+                // OIDC RP-Initiated Logout 1.0. Public: must work whether or
+                // not a session is still active; browser-facing (GET) and
+                // form-POST per the spec.
+                .route(
+                    "/oauth/end_session",
+                    get(super::end_session::end_session_get)
+                        .post(super::end_session::end_session_post),
                 ),
         )
     }
@@ -1029,16 +1118,20 @@ async fn handle_authorization_code_grant(
                 .with_active_org_for(state)
                 .await;
 
-        let (access_token, _jti) =
-            crate::plugins::bearer::create_jwt(&jwt_user, state, scope_str.as_deref()).map_err(
-                |_| {
-                    oauth2_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "server_error",
-                        "Failed to create token",
-                    )
-                },
-            )?;
+        let access_ttl = effective_access_ttl(state);
+        let (access_token, _jti) = crate::plugins::bearer::create_jwt_with_ttl(
+            &jwt_user,
+            state,
+            scope_str.as_deref(),
+            access_ttl,
+        )
+        .map_err(|_| {
+            oauth2_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "server_error",
+                "Failed to create token",
+            )
+        })?;
 
         let family_id = Uuid::now_v7();
         let refresh_token = create_refresh_token_for_oauth2(
@@ -1056,7 +1149,7 @@ async fn handle_authorization_code_grant(
             )
         })?;
 
-        let expires_in = bearer_config.access_token_ttl.as_secs();
+        let expires_in = access_ttl.as_secs();
 
         crate::otel::add_event(
             "oauth2_token_issued_auth_code",
@@ -1079,6 +1172,14 @@ async fn handle_authorization_code_grant(
                 })),
                 None,
             )
+            .await;
+
+        // Best-effort activity stamp so the stale-DCR-client sweep never
+        // reclaims a client in active use. Errors are intentionally ignored.
+        let _ = state
+            .repos
+            .oauth2_clients
+            .touch_last_used(client_id, chrono::Utc::now().naive_utc())
             .await;
 
         // Generate OIDC id_token when openid scope is present
@@ -1244,6 +1345,7 @@ async fn handle_oauth2_refresh_token(
         }
 
         let bearer_config = &state.bearer_config;
+        let access_ttl = effective_access_ttl(state);
 
         let (access_token, _jti) = {
             let jwt_user = crate::plugins::bearer::JwtUser::new(
@@ -1253,13 +1355,14 @@ async fn handle_oauth2_refresh_token(
             )
             .with_active_org_for(state)
             .await;
-            crate::plugins::bearer::create_jwt(&jwt_user, state, None).map_err(|_| {
-                oauth2_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "server_error",
-                    "Failed to create token",
-                )
-            })?
+            crate::plugins::bearer::create_jwt_with_ttl(&jwt_user, state, None, access_ttl)
+                .map_err(|_| {
+                    oauth2_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "server_error",
+                        "Failed to create token",
+                    )
+                })?
         };
 
         let new_refresh = create_refresh_token_for_oauth2(
@@ -1277,7 +1380,17 @@ async fn handle_oauth2_refresh_token(
             )
         })?;
 
-        let expires_in = bearer_config.access_token_ttl.as_secs();
+        let expires_in = access_ttl.as_secs();
+
+        // Best-effort activity stamp for the stale-DCR-client sweep (public
+        // clients send client_id on refresh). Errors are intentionally ignored.
+        if let Some(cid) = input.client_id.as_deref() {
+            let _ = state
+                .repos
+                .oauth2_clients
+                .touch_last_used(cid, chrono::Utc::now().naive_utc())
+                .await;
+        }
 
         return Ok(Json(OAuth2TokenResponse {
             access_token,
@@ -1509,6 +1622,9 @@ async fn dynamic_client_registration(
         token_endpoint_auth_method: Some(auth_method.to_string()),
         public_key_pem,
         jwks_uri,
+        // Mark as DCR-created so the stale-client sweep may reclaim it; never
+        // touches admin-provisioned clients.
+        dynamically_registered: true,
     };
 
     state
@@ -1534,6 +1650,29 @@ async fn dynamic_client_registration(
         #[cfg(not(feature = "telemetry"))]
         vec![],
     );
+
+    // Durable audit record of the registration, independent of the client row
+    // (which the stale-client sweep may later reclaim). Mirrors yauth-go's
+    // `oauth2.client.registered` event.
+    let audit_ip = if client_ip == "unknown" {
+        None
+    } else {
+        Some(client_ip.to_string())
+    };
+    state
+        .write_audit_log(
+            None,
+            "oauth2.client.registered",
+            Some(serde_json::json!({
+                "client_id": client_id,
+                "client_name": input.client_name,
+                "is_public": is_public,
+                "redirect_uris": input.redirect_uris,
+                "source": "dcr",
+            })),
+            audit_ip,
+        )
+        .await;
 
     let issuer = config.issuer.trim_end_matches('/');
     let registration_client_uri = format!("{}/oauth/register/{}", issuer, client_id);
@@ -2079,16 +2218,20 @@ async fn handle_device_code_grant(
                 .with_active_org_for(state)
                 .await;
 
-        let (access_token, _jti) =
-            crate::plugins::bearer::create_jwt(&jwt_user, state, scope_str.as_deref()).map_err(
-                |_| {
-                    oauth2_error(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "server_error",
-                        "Failed to create token",
-                    )
-                },
-            )?;
+        let access_ttl = effective_access_ttl(state);
+        let (access_token, _jti) = crate::plugins::bearer::create_jwt_with_ttl(
+            &jwt_user,
+            state,
+            scope_str.as_deref(),
+            access_ttl,
+        )
+        .map_err(|_| {
+            oauth2_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "server_error",
+                "Failed to create token",
+            )
+        })?;
 
         let family_id = Uuid::now_v7();
         let refresh_token = create_refresh_token_for_oauth2(
@@ -2106,7 +2249,7 @@ async fn handle_device_code_grant(
             )
         })?;
 
-        let expires_in = bearer_config.access_token_ttl.as_secs();
+        let expires_in = access_ttl.as_secs();
 
         crate::otel::add_event(
             "oauth2_token_issued_device_code",
@@ -2129,6 +2272,13 @@ async fn handle_device_code_grant(
                 })),
                 None,
             )
+            .await;
+
+        // Best-effort activity stamp for the stale-DCR-client sweep.
+        let _ = state
+            .repos
+            .oauth2_clients
+            .touch_last_used(client_id, chrono::Utc::now().naive_utc())
             .await;
 
         return Ok(Json(OAuth2TokenResponse {
@@ -2207,9 +2357,15 @@ async fn introspect_endpoint(
                         &validation,
                     ) {
                         let claims = &token_data.claims;
+                        let sub = claims.get("sub").and_then(|v| v.as_str()).map(String::from);
+                        // Lifecycle-aware introspection: a banned/suspended/staged
+                        // subject makes the token inactive (fail-open on lookup error).
+                        if !user_active_for_introspect(&state.repos.users, sub.as_deref()).await {
+                            return Json(IntrospectResponse::inactive()).into_response();
+                        }
                         return Json(IntrospectResponse {
                             active: true,
-                            sub: claims.get("sub").and_then(|v| v.as_str()).map(String::from),
+                            sub,
                             client_id: claims.get("aud").and_then(|v| v.as_str()).map(String::from),
                             scope: claims
                                 .get("scope")
@@ -2238,6 +2394,15 @@ async fn introspect_endpoint(
                     && !stored.revoked
                     && stored.expires_at > Utc::now().naive_utc()
                 {
+                    // Lifecycle-aware introspection (fail-open on lookup error).
+                    if !user_active_for_introspect(
+                        &state.repos.users,
+                        Some(&stored.user_id.to_string()),
+                    )
+                    .await
+                    {
+                        return Json(IntrospectResponse::inactive()).into_response();
+                    }
                     return Json(IntrospectResponse {
                         active: true,
                         sub: Some(stored.user_id.to_string()),
@@ -2255,6 +2420,31 @@ async fn introspect_endpoint(
     }
 
     Json(IntrospectResponse::inactive()).into_response()
+}
+
+/// Reports whether an introspected token's subject may still be considered
+/// active (lifecycle-aware introspection, RFC 7662). A banned, globally
+/// suspended, or staged user makes the token inactive — making per-request
+/// introspection an instant-termination path for resource servers.
+///
+/// Tokens whose subject is not a user (e.g. `client_credentials`, where `sub`
+/// is a client id that does not parse as a user UUID) are not gated. Lookup
+/// errors and `NotFound` **fail open** (return `true`) so a transient DB blip
+/// does not break introspection. Mirrors yauth-go's `userActiveForIntrospect`.
+async fn user_active_for_introspect(
+    users: &std::sync::Arc<dyn crate::repo::UserRepository>,
+    sub: Option<&str>,
+) -> bool {
+    let Some(sub) = sub else { return true };
+    let Ok(user_id) = sub.parse::<Uuid>() else {
+        // Non-user subject (e.g. machine/client_credentials) — not gated.
+        return true;
+    };
+    match users.find_by_id(user_id).await {
+        Ok(Some(user)) => user.can_authenticate(Utc::now().naive_utc()),
+        // NotFound or DB error: fail open.
+        _ => true,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2477,8 +2667,9 @@ async fn handle_client_credentials_grant(
     #[cfg(feature = "bearer")]
     {
         let bearer_config = &state.bearer_config;
+        let access_ttl = effective_access_ttl(state);
         let now = Utc::now();
-        let exp = (now + bearer_config.access_token_ttl).timestamp() as usize;
+        let exp = (now + access_ttl).timestamp() as usize;
         let iat = now.timestamp() as usize;
         let jti = Uuid::now_v7().to_string();
 
@@ -2516,7 +2707,7 @@ async fn handle_client_credentials_grant(
             )
         })?;
 
-        let expires_in = bearer_config.access_token_ttl.as_secs();
+        let expires_in = access_ttl.as_secs();
 
         crate::otel::add_event(
             "oauth2_token_issued_client_credentials",
@@ -2540,6 +2731,13 @@ async fn handle_client_credentials_grant(
                 })),
                 None,
             )
+            .await;
+
+        // Best-effort activity stamp for the stale-DCR-client sweep.
+        let _ = state
+            .repos
+            .oauth2_clients
+            .touch_last_used(client_id, chrono::Utc::now().naive_utc())
             .await;
 
         return Ok(Json(OAuth2ClientCredentialsTokenResponse {
@@ -2976,7 +3174,10 @@ async fn authenticate_user(
             crate::auth::session::validate_session(state, token, None, None).await
         {
             if let Ok(Some(user)) = state.repos.users.find_by_id(session_user.user_id).await {
-                if !user.banned {
+                // Gate the full lifecycle verdict so suspended/staged users
+                // cannot drive the /authorize flow (mirrors yauth-go's session
+                // middleware, which gates every RequireAuth route incl. authorize).
+                if user.can_authenticate(chrono::Utc::now().naive_utc()) {
                     return Ok(AuthUser {
                         id: user.id,
                         email: user.email,
@@ -3222,6 +3423,67 @@ mod tests {
 
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json, serde_json::json!({"active": false}));
+    }
+
+    // Lifecycle-aware introspection (RFC 7662). Exercises both branches of the
+    // subject gate, including the security-critical FAIL-OPEN path.
+    #[cfg(feature = "memory-backend")]
+    #[tokio::test]
+    async fn introspect_user_active_gate() {
+        use crate::backends::memory::InMemoryBackend;
+        use crate::repo::DatabaseBackend;
+
+        let repos = InMemoryBackend::new().repositories();
+        let users = &repos.users;
+        let now = chrono::Utc::now().naive_utc();
+
+        let new_user = |suspended: bool, activates: Option<chrono::NaiveDateTime>| {
+            let id = Uuid::now_v7();
+            (
+                id,
+                crate::domain::NewUser {
+                    id,
+                    email: format!("{id}@example.com"),
+                    display_name: None,
+                    email_verified: true,
+                    role: "user".into(),
+                    banned: false,
+                    banned_reason: None,
+                    banned_until: None,
+                    suspended_at: suspended.then_some(now),
+                    suspended_reason: None,
+                    activates_at: activates,
+                    created_at: now,
+                    updated_at: now,
+                },
+            )
+        };
+
+        // Clean user → active (true).
+        let (clean_id, clean) = new_user(false, None);
+        users.create(clean).await.unwrap();
+        assert!(user_active_for_introspect(users, Some(&clean_id.to_string())).await);
+
+        // Suspended user → inactive (false).
+        let (susp_id, susp) = new_user(true, None);
+        users.create(susp).await.unwrap();
+        assert!(!user_active_for_introspect(users, Some(&susp_id.to_string())).await);
+
+        // Staged user (future start) → inactive (false).
+        let (staged_id, staged) = new_user(false, Some(now + chrono::Duration::hours(1)));
+        users.create(staged).await.unwrap();
+        assert!(!user_active_for_introspect(users, Some(&staged_id.to_string())).await);
+
+        // FAIL OPEN: an unknown user id (NotFound) must NOT make the token
+        // inactive — a missing subject is not a lifecycle signal.
+        assert!(user_active_for_introspect(users, Some(&Uuid::now_v7().to_string())).await);
+
+        // Non-user subject (e.g. a client_credentials client_id that is not a
+        // UUID) is not gated → active.
+        assert!(user_active_for_introspect(users, Some("some-client-id")).await);
+
+        // Absent subject → not gated.
+        assert!(user_active_for_introspect(users, None).await);
     }
 
     #[test]

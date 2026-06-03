@@ -54,6 +54,9 @@ impl UserRepository for SeaOrmUserRepo {
                 banned: Set(input.banned),
                 banned_reason: Set(input.banned_reason),
                 banned_until: Set(super::opt_to_tz(input.banned_until)),
+                suspended_at: Set(super::opt_to_tz(input.suspended_at)),
+                suspended_reason: Set(input.suspended_reason),
+                activates_at: Set(super::opt_to_tz(input.activates_at)),
                 created_at: Set(super::to_tz(input.created_at)),
                 updated_at: Set(super::to_tz(input.updated_at)),
             };
@@ -92,6 +95,15 @@ impl UserRepository for SeaOrmUserRepo {
             }
             if let Some(banned_until) = changes.banned_until {
                 model.banned_until = Set(super::opt_to_tz(banned_until));
+            }
+            if let Some(suspended_at) = changes.suspended_at {
+                model.suspended_at = Set(super::opt_to_tz(suspended_at));
+            }
+            if let Some(suspended_reason) = changes.suspended_reason {
+                model.suspended_reason = Set(suspended_reason);
+            }
+            if let Some(activates_at) = changes.activates_at {
+                model.activates_at = Set(super::opt_to_tz(activates_at));
             }
             if let Some(updated_at) = changes.updated_at {
                 model.updated_at = Set(super::to_tz(updated_at));

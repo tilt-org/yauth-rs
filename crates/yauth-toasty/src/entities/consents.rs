@@ -15,6 +15,9 @@ pub struct YauthConsent {
     #[belongs_to(key = user_id, references = id)]
     pub yauth_user: toasty::BelongsTo<YauthUser>,
 
+    // Indexed so `filter_by_client_id` is generated for the DCR stale-client
+    // cascade delete (no FK cascade in toasty). Not unique — many per client.
+    #[index]
     pub client_id: String,
 
     #[serialize(json, nullable)]
