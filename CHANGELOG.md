@@ -1,3 +1,9 @@
+## 0.14.1 (2026-06-03)
+
+### Features
+
+- satisfies-contract gate + RFC 9457 problem+json normalizer (#129)
+
 ## 0.14.0 (2026-06-03)
 
 ### Breaking Changes
