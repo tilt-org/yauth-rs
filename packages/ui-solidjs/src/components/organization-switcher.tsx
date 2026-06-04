@@ -1,7 +1,6 @@
-import type { ActiveOrgEntry } from "@yackey-labs/yauth-client";
 import { type Component, createSignal, For, onCleanup } from "solid-js";
 import { Show } from "solid-js/web";
-import { createActiveOrg } from "../hooks/create-active-org";
+import { type ActiveOrgEntry, createActiveOrg } from "../hooks/create-active-org";
 
 export interface OrganizationSwitcherProps {
   /**
@@ -76,7 +75,7 @@ export const OrganizationSwitcher: Component<OrganizationSwitcherProps> = (props
         on:click={toggle}
       >
         <span class="truncate">
-          {activeOrg()?.display_name ||
+          {activeOrg()?.name ||
             activeOrg()?.slug ||
             (loading() ? "Loading…" : "Select organization")}
         </span>
@@ -108,7 +107,7 @@ export const OrganizationSwitcher: Component<OrganizationSwitcherProps> = (props
               >
                 <div class="min-w-0 flex-1">
                   <div class="truncate font-medium">
-                    {org.display_name || org.slug || org.organization_id}
+                    {org.name || org.slug || org.organization_id}
                   </div>
                   <Show when={org.slug}>
                     <div class="truncate font-mono text-xs text-muted-foreground">@{org.slug}</div>

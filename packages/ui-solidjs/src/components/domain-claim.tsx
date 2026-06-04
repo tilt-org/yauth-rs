@@ -1,4 +1,4 @@
-import type { CreateDomainResponse } from "@yackey-labs/yauth-client";
+import type { OrganizationDomainJSON as CreateDomainResponse } from "@yackey-labs/yauth-client";
 import { type Component, createSignal, Show } from "solid-js";
 import { createDomains } from "../hooks/create-organizations";
 
@@ -105,7 +105,7 @@ export const DomainClaim: Component<DomainClaimProps> = (props) => {
             </p>
             <div>
               <span class="text-xs font-medium">Record</span>
-              <code class="mt-1 block break-all font-mono text-xs">{result().dns_record_name}</code>
+              <code class="mt-1 block break-all font-mono text-xs">{result().verification_record}</code>
             </div>
             <div>
               <span class="text-xs font-medium">Value</span>

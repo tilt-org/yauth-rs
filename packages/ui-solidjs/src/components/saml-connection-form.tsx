@@ -1,9 +1,20 @@
 import type {
-  CreateSsoConnectionRequest,
-  SsoConnectionResponse,
+  ConnectionJSON as SsoConnectionResponse,
+  CreateConnectionRequest,
 } from "@yackey-labs/yauth-client";
 import { For, Show, createMemo, createSignal } from "solid-js";
-import { createSsoConnections } from "../hooks/create-sso-connections";
+import {
+  createSsoConnections,
+  type SamlConnectionRow,
+} from "../hooks/create-sso-connections";
+
+// The huma-derived `CreateConnectionRequest` only models the OIDC `oidc`
+// config. SAML connections are created through the same org SSO-connection
+// endpoint with a `kind: "saml_sp"` discriminator and a `saml` payload, so we
+// widen the request type locally (the server validates the SAML body).
+type CreateSsoConnectionRequest = CreateConnectionRequest & {
+  saml?: SamlConnectionRow;
+};
 
 /**
  * SAML 2.0 SP connection creation form (issue #94, Phase B).

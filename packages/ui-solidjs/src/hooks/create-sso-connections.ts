@@ -1,11 +1,41 @@
 import type {
-  CreateSsoConnectionRequest,
-  SsoConnectionResponse,
-  SsoConnectionTestResponse,
-  UpdateSsoConnectionRequest,
+  ConnectionJSON,
+  CreateConnectionRequest,
+  TestConnectionResponse,
+  UpdateConnectionRequest,
 } from "@yackey-labs/yauth-client";
 import { type Accessor, createEffect, createSignal } from "solid-js";
 import { useYAuth } from "../provider";
+
+// The huma-derived spec renamed/split the SSO connection types. Keep the old
+// ergonomic names as local aliases; widen with the optional `saml` payload the
+// unified connection list/forms read (the server validates the SAML body).
+export interface SamlConnectionRow {
+  idp_entity_id?: string;
+  idp_sso_url?: string;
+  idp_slo_url?: string | null;
+  idp_x509_cert?: string;
+  sp_entity_id?: string;
+  sp_acs_url?: string;
+  sp_private_key?: string | null;
+  idp_initiated_sso_allowed?: boolean;
+  assertion_signed_required?: boolean;
+  response_signed_required?: boolean;
+  want_encrypted_assertions?: boolean;
+  attribute_mappings?: {
+    email?: string;
+    display_name?: string | null;
+    external_id?: string;
+    groups?: string | null;
+    group_to_role?: Record<string, string>;
+  };
+}
+type SsoConnectionResponse = ConnectionJSON & { saml?: SamlConnectionRow | null };
+type CreateSsoConnectionRequest = CreateConnectionRequest & {
+  saml?: SamlConnectionRow;
+};
+type UpdateSsoConnectionRequest = UpdateConnectionRequest;
+type SsoConnectionTestResponse = TestConnectionResponse;
 
 /**
  * Headless hook for SSO OIDC connection management (issue #93, Phase B).
@@ -29,8 +59,8 @@ export function createSsoConnections(orgId: Accessor<string | null | undefined>)
     setLoading(true);
     setError(null);
     try {
-      const rows = await client.organizations.listSsoConnections(id);
-      setConnections(rows);
+      const resp = await client.organizations.listSsoConnections(id);
+      setConnections(resp.sso_connections ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to load connections");
       setConnections([]);

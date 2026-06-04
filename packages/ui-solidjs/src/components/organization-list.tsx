@@ -1,4 +1,4 @@
-import type { OrganizationResponse } from "@yackey-labs/yauth-client";
+import type { OrganizationJSON as OrganizationResponse } from "@yackey-labs/yauth-client";
 import { type Component, For } from "solid-js";
 import { Show } from "solid-js/web";
 import { createOrganizations } from "../hooks/create-organizations";

@@ -70,7 +70,7 @@ function fmtDate(s: string | null | undefined): string {
             <span
               class="rounded-full bg-muted px-2 py-0.5 text-xs uppercase text-muted-foreground"
             >
-              {{ d.kind_tag }}
+              {{ d.kind }}
             </span>
             <span
               :class="[
@@ -85,7 +85,7 @@ function fmtDate(s: string | null | undefined): string {
           </div>
           <pre
             class="overflow-x-auto rounded-md bg-muted/50 p-2 text-xs leading-snug"
-          >{{ JSON.stringify(d.kind, null, 2) }}</pre>
+          >{{ JSON.stringify(d.config, null, 2) }}</pre>
           <p class="text-xs text-muted-foreground">
             Last success: {{ fmtDate(d.last_success_at) }} · Last failure:
             {{ fmtDate(d.last_failure_at) }}

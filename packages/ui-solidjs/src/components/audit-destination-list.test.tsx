@@ -74,13 +74,15 @@ describe("createAuditDestinations", () => {
 		});
 	});
 
-	it("includes scope query string based on the org accessor", async () => {
+	it("scopes the request to the org path when the accessor returns an id", async () => {
+		// The huma-derived spec moved org scoping from an `organization_id`
+		// query param to a path segment (`/organizations/{id}/audit/destinations`).
 		const fetchSpy = mockFetch([]);
 		await createRoot(async (dispose) => {
 			createAuditDestinations(() => "org-uuid-123");
 			await new Promise((r) => setTimeout(r, 5));
 			const callUrl = (fetchSpy.mock.calls[0]?.[0] as string) ?? "";
-			expect(callUrl).toContain("organization_id=org-uuid-123");
+			expect(callUrl).toContain("/organizations/org-uuid-123/audit/destinations");
 			dispose();
 		});
 	});

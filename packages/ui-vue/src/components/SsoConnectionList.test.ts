@@ -47,7 +47,9 @@ function createMockContext(): YAuthContext {
 				),
 			},
 			organizations: {
-				listSsoConnections: vi.fn().mockResolvedValue([samlConnection]),
+				listSsoConnections: vi
+					.fn()
+					.mockResolvedValue({ sso_connections: [samlConnection] }),
 				updateSsoConnection: vi.fn(),
 				deleteSsoConnection: vi.fn(),
 				testSsoConnection: vi.fn(),

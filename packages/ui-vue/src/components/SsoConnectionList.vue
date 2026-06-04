@@ -26,7 +26,9 @@ const yauth = useYAuth();
 
 const handleTest = async (id: string) => {
 	const r = await test(id);
-	if (r) props.onTest?.(id, r.ok, r.detail);
+	// The huma-derived `TestConnectionResponse` dropped the free-form `detail`
+	// string; surface the discovered issuer (or empty) as the detail instead.
+	if (r) props.onTest?.(id, r.ok, r.issuer ?? "");
 };
 
 const samlMetadataUrl = (id: string) => yauth.client.sso.samlMetadataUrl(id);

@@ -1,4 +1,4 @@
-import type { MembershipResponse } from "@yackey-labs/yauth-client";
+import type { MembershipJSON as MembershipResponse } from "@yackey-labs/yauth-client";
 import { type Component, createSignal } from "solid-js";
 import { Show } from "solid-js/web";
 import { createInvitation } from "../hooks/create-organizations";

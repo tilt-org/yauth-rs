@@ -7,18 +7,26 @@
 // `customFetch` mutator.
 
 import type {
+	AuditCreateDestinationRequest,
 	AuditDestinationResponse,
-	CreateAuditDestinationRequest,
-	UpdateAuditDestinationRequest,
+	AuditUpdateDestinationRequest,
 } from "@yackey-labs/yauth-client";
 import {
 	auditExportCreateDestination,
 	auditExportDeleteDestination,
 	auditExportListDestinationOutbox,
 	auditExportListDestinations,
-	auditExportUpdateDestination,
+	auditExportOrgCreateDestination,
+	auditExportOrgDeleteDestination,
+	auditExportOrgListDestinations,
+	auditExportOrgPatchDestination,
+	auditExportPatchDestination,
 } from "@yackey-labs/yauth-client";
 import { type Accessor, createEffect, createSignal } from "solid-js";
+
+// The huma-derived spec renamed these request types; keep local aliases.
+type CreateAuditDestinationRequest = AuditCreateDestinationRequest;
+type UpdateAuditDestinationRequest = AuditUpdateDestinationRequest;
 
 export type AuditDestinationKindTag =
 	| "webhook"
@@ -42,7 +50,7 @@ export interface OutboxEntry {
 
 export type CreateDestinationInput = Omit<
 	CreateAuditDestinationRequest,
-	"kind"
+	"kind" | "config"
 > & {
 	kind:
 		| {
@@ -101,11 +109,14 @@ export function createAuditDestinations(
 		setError(null);
 		try {
 			const org = orgScope?.();
-			const params = org
-				? { organization_id: org }
-				: { scope: "deployment" };
-			const rows = await auditExportListDestinations(params);
-			setDestinations(rows);
+			// The huma-derived spec splits destination listing into a
+			// deployment-scoped route (no params) and an org-scoped route
+			// (org id as a path segment). The old `scope`/`organization_id`
+			// query params are gone.
+			const rows = org
+				? await auditExportOrgListDestinations(org)
+				: await auditExportListDestinations();
+			setDestinations(rows ?? []);
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "failed to load destinations");
 			setDestinations([]);
@@ -120,9 +131,11 @@ export function createAuditDestinations(
 		setSubmitting(true);
 		setError(null);
 		try {
-			const created = await auditExportCreateDestination(
-				input as unknown as CreateAuditDestinationRequest,
-			);
+			const org = orgScope?.();
+			const body = input as unknown as CreateAuditDestinationRequest;
+			const created = org
+				? await auditExportOrgCreateDestination(org, body)
+				: await auditExportCreateDestination(body);
 			await refresh();
 			return created;
 		} catch (e) {
@@ -136,9 +149,13 @@ export function createAuditDestinations(
 	const disable = async (id: string): Promise<void> => {
 		setSubmitting(true);
 		try {
-			await auditExportUpdateDestination(id, {
-				status: "disabled",
-			} as UpdateAuditDestinationRequest);
+			const org = orgScope?.();
+			const patch = { status: "disabled" } as UpdateAuditDestinationRequest;
+			if (org) {
+				await auditExportOrgPatchDestination(org, id, patch);
+			} else {
+				await auditExportPatchDestination(id, patch);
+			}
 			await refresh();
 		} finally {
 			setSubmitting(false);
@@ -148,17 +165,24 @@ export function createAuditDestinations(
 	const remove = async (id: string): Promise<void> => {
 		setSubmitting(true);
 		try {
-			await auditExportDeleteDestination(id);
+			const org = orgScope?.();
+			if (org) {
+				await auditExportOrgDeleteDestination(org, id);
+			} else {
+				await auditExportDeleteDestination(id);
+			}
 			await refresh();
 		} finally {
 			setSubmitting(false);
 		}
 	};
 
-	const outbox = async (id: string, limit = 50): Promise<OutboxEntry[]> =>
-		(await auditExportListDestinationOutbox(id, {
-			limit: String(limit),
-		})) as unknown as OutboxEntry[];
+	// NOTE: the huma-derived spec dropped the outbox `limit` query param, so
+	// pagination is no longer expressible here (server returns its default
+	// page). The `limit` argument is retained for source compatibility.
+	const outbox = async (id: string, _limit = 50): Promise<OutboxEntry[]> =>
+		((await auditExportListDestinationOutbox(id)) ??
+			[]) as unknown as OutboxEntry[];
 
 	createEffect(() => {
 		void orgScope?.();

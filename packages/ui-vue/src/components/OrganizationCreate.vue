@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { OrganizationResponse } from "@yackey-labs/yauth-client";
+import type { OrganizationJSON as OrganizationResponse } from "@yackey-labs/yauth-client";
 import { computed, ref, watch } from "vue";
 import { slugify, useOrganizations } from "../composables/useOrganizations";
 

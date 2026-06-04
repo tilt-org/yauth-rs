@@ -34,7 +34,13 @@ const fetchPasskeys = async () => {
 	}
 	passkeysLoading.value = true;
 	try {
-		passkeys.value = (await client.passkey.list()).items;
+		// The huma-derived spec doesn't model the passkey-list response body
+		// (typed `void`), but the endpoint returns `{ items: [...] }` at
+		// runtime. Cast through the known wire shape.
+		const resp = (await client.passkey.list()) as unknown as {
+			items?: Array<{ id: string; name: string | null; created_at: string }> | null;
+		};
+		passkeys.value = resp.items ?? [];
 	} catch {
 		passkeys.value = [];
 	} finally {
@@ -49,7 +55,7 @@ const fetchOAuthAccounts = async () => {
 	}
 	oauthLoading.value = true;
 	try {
-		oauthAccounts.value = (await client.oauth.accounts()).items;
+		oauthAccounts.value = (await client.oauth.accounts()).items ?? [];
 	} catch {
 		oauthAccounts.value = [];
 	} finally {
@@ -106,7 +112,7 @@ const handleMfaBegin = async () => {
 		const result = await client.mfa.setup();
 		mfaUri.value = result.otpauth_url;
 		mfaSecret.value = result.secret;
-		mfaBackupCodes.value = result.backup_codes;
+		mfaBackupCodes.value = result.backup_codes ?? [];
 		mfaStep.value = "confirm";
 	} catch (err) {
 		const e = err instanceof Error ? err : new Error(String(err));

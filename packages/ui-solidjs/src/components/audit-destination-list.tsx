@@ -82,7 +82,7 @@ export function AuditDestinationList(props: AuditDestinationListProps) {
 									<div class="flex flex-wrap items-center gap-2">
 										<span class="font-medium">{d.name}</span>
 										<span class="rounded-full bg-muted px-2 py-0.5 text-xs uppercase text-muted-foreground">
-											{d.kind_tag}
+											{d.kind}
 										</span>
 										<span
 											classList={{
@@ -97,7 +97,7 @@ export function AuditDestinationList(props: AuditDestinationListProps) {
 										</span>
 									</div>
 									<pre class="overflow-x-auto rounded-md bg-muted/50 p-2 text-xs leading-snug">
-										{JSON.stringify(d.kind, null, 2)}
+										{JSON.stringify(d.config, null, 2)}
 									</pre>
 									<p class="text-xs text-muted-foreground">
 										Last success: {fmtDate(d.last_success_at)} · Last failure:{" "}

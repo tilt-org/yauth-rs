@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CreateDomainResponse } from "@yackey-labs/yauth-client";
+import type { OrganizationDomainJSON as CreateDomainResponse } from "@yackey-labs/yauth-client";
 import { computed, ref } from "vue";
 import { useDomains } from "../composables/useOrganizations";
 
@@ -90,7 +90,7 @@ const handleSubmit = async () => {
       <div>
         <span class="text-xs font-medium">Record</span>
         <code class="mt-1 block break-all font-mono text-xs">
-          {{ lastCreated.dns_record_name }}
+          {{ lastCreated.verification_record }}
         </code>
       </div>
       <div>

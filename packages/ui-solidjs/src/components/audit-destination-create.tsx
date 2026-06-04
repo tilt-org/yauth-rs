@@ -109,7 +109,7 @@ export function AuditDestinationCreate(props: AuditDestinationCreateProps) {
 		}
 		const created = await create({
 			name: name().trim(),
-			organization_id: props.organizationId ?? null,
+			organization_id: props.organizationId ?? undefined,
 			kind,
 		});
 		if (created) {

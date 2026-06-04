@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import type { ActiveOrgEntry } from "@yackey-labs/yauth-client";
 import { computed, onBeforeUnmount, ref } from "vue";
-import { useActiveOrg } from "../composables/useActiveOrg";
+import { type ActiveOrgEntry, useActiveOrg } from "../composables/useActiveOrg";
 
 /**
  * Organization-switcher dropdown (issue #89).
@@ -74,7 +73,7 @@ onBeforeUnmount(() => {
     >
       <span class="truncate">
         {{
-          activeOrg?.display_name ||
+          activeOrg?.name ||
           activeOrg?.slug ||
           (loading ? "Loading…" : "Select organization")
         }}
@@ -107,7 +106,7 @@ onBeforeUnmount(() => {
       >
         <div class="min-w-0 flex-1">
           <div class="truncate font-medium">
-            {{ org.display_name || org.slug || org.organization_id }}
+            {{ org.name || org.slug || org.organization_id }}
           </div>
           <div v-if="org.slug" class="truncate font-mono text-xs text-muted-foreground">
             @{{ org.slug }}

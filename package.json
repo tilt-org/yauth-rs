@@ -11,8 +11,8 @@
     "test": "vp run -r test",
     "validate": "vp run lint:fix && vp run typecheck && vp run build",
     "validate:ci": "vp run lint && vp run typecheck && vp run build && vp run generate:check",
-    "generate": "SQLX_OFFLINE=true cargo test --features full,memory-backend -p yauth --test generate_client -- generate_openapi_spec --exact --nocapture --include-ignored && vp exec orval",
-    "generate:check": "SQLX_OFFLINE=true cargo test --features full,memory-backend -p yauth --test generate_client -- check_openapi_spec_up_to_date --exact --nocapture && vp exec orval && git diff --exit-code packages/client/src/generated.ts packages/client/src/generated.msw.ts",
+    "generate": "node scripts/prepare-spec.mjs && vp exec orval",
+    "generate:check": "node scripts/prepare-spec.mjs && vp exec orval && git diff --exit-code openapi.json packages/client/src/generated.ts",
     "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist"
   },
   "devDependencies": {

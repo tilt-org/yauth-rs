@@ -12,13 +12,46 @@
  */
 
 import type {
-	CreateSsoConnectionRequest,
-	SsoConnectionResponse,
-	SsoConnectionTestResponse,
-	UpdateSsoConnectionRequest,
+	ConnectionJSON,
+	CreateConnectionRequest,
+	TestConnectionResponse,
+	UpdateConnectionRequest,
 } from "@yackey-labs/yauth-client";
 import { onMounted, ref, watch } from "vue";
 import { useYAuth } from "../provider";
+
+// The huma-derived spec split SSO connections into OIDC (`ConnectionJSON`,
+// oidc-only) and SAML (`SamlConnectionJSON`) shapes returned from separate
+// endpoints. The admin UI still presents a single unified connection list
+// (OIDC + SAML rows from the same org SSO-connection endpoint, discriminated
+// by `kind`), so we widen the OIDC connection type locally with the optional
+// `saml` payload the list/forms read. The server validates the SAML body.
+export interface SamlConnectionRow {
+	idp_entity_id?: string;
+	idp_sso_url?: string;
+	idp_slo_url?: string | null;
+	idp_x509_cert?: string;
+	sp_entity_id?: string;
+	sp_acs_url?: string;
+	sp_private_key?: string | null;
+	idp_initiated_sso_allowed?: boolean;
+	assertion_signed_required?: boolean;
+	response_signed_required?: boolean;
+	want_encrypted_assertions?: boolean;
+	attribute_mappings?: {
+		email?: string;
+		display_name?: string | null;
+		external_id?: string;
+		groups?: string | null;
+		group_to_role?: Record<string, string>;
+	};
+}
+type SsoConnectionResponse = ConnectionJSON & { saml?: SamlConnectionRow | null };
+type CreateSsoConnectionRequest = CreateConnectionRequest & {
+	saml?: SamlConnectionRow;
+};
+type UpdateSsoConnectionRequest = UpdateConnectionRequest;
+type SsoConnectionTestResponse = TestConnectionResponse;
 
 /**
  * Headless composable for SSO connection management.
@@ -42,7 +75,8 @@ export function useSsoConnections(orgId: () => string | null | undefined) {
 		loading.value = true;
 		error.value = null;
 		try {
-			connections.value = await yauth.client.organizations.listSsoConnections(id);
+			const resp = await yauth.client.organizations.listSsoConnections(id);
+			connections.value = resp.sso_connections ?? [];
 		} catch (e) {
 			error.value = e instanceof Error ? e.message : "failed to load connections";
 			connections.value = [];

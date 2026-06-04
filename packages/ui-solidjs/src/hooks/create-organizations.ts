@@ -1,21 +1,29 @@
 import type {
   ChangeRoleRequest,
   CreateDomainRequest,
-  CreateDomainResponse,
   CreateInvitationRequest,
   CreateInvitationResponse,
   CreateOrgRequest,
-  DomainResponse,
-  MembershipResponse,
-  OrganizationResponse,
-  PermissionsResponse,
+  ListPermissionsResponse,
+  MembershipJSON,
+  OrganizationDomainJSON,
+  OrganizationJSON,
+  PatchDomainRequest,
   TransferOwnershipRequest,
-  UpdateDomainRequest,
   UpdateOrgRequest,
-  VerifyDomainResponse,
 } from "@yackey-labs/yauth-client";
 import { type Accessor, createEffect, createSignal } from "solid-js";
 import { useYAuth } from "../provider";
+
+// The huma-derived spec renamed several response/request types. Keep the old
+// ergonomic names as local aliases so the hook body + callers are unchanged.
+type OrganizationResponse = OrganizationJSON;
+type MembershipResponse = MembershipJSON;
+type DomainResponse = OrganizationDomainJSON;
+type CreateDomainResponse = OrganizationDomainJSON;
+type VerifyDomainResponse = OrganizationDomainJSON;
+type PermissionsResponse = ListPermissionsResponse;
+type UpdateDomainRequest = PatchDomainRequest;
 
 /**
  * Generate a URL-safe slug from a free-form name.
@@ -54,7 +62,7 @@ export function createOrganizations() {
     setLoading(true);
     setError(null);
     try {
-      setOrganizations((await client.organizations.list()).organizations);
+      setOrganizations((await client.organizations.list()).organizations ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -171,7 +179,7 @@ export function createMembers(orgId: Accessor<string | null | undefined>) {
     setLoading(true);
     setError(null);
     try {
-      setMembers((await client.organizations.listMembers(current)).members);
+      setMembers((await client.organizations.listMembers(current)).members ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -281,7 +289,7 @@ export function createOrgPermissions(orgId: Accessor<string | null | undefined>)
   };
 
   const hasPermission = (perm: string): boolean =>
-    permissions()?.permissions.includes(perm) ?? false;
+    permissions()?.permissions?.includes(perm) ?? false;
 
   const isRole = (role: string): boolean => permissions()?.role === role;
 
@@ -397,7 +405,7 @@ export function createDomains(orgId: Accessor<string | null>) {
     setLoading(true);
     setError(null);
     try {
-      setDomains((await client.organizations.listDomains(current)).domains);
+      setDomains((await client.organizations.listDomains(current)).domains ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

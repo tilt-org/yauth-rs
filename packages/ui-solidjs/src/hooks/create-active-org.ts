@@ -11,12 +11,16 @@
  *   adopting it (e.g. via the YAuth client mutator).
  */
 import type {
-  ActiveOrgEntry,
   ActiveOrgResponse,
+  OrgMembershipSummary,
   SetActiveOrgRequest,
 } from "@yackey-labs/yauth-client";
 import { createSignal } from "solid-js";
 import { useYAuth } from "../provider";
+
+// The huma-derived spec renamed the per-org membership entry. Keep the old
+// ergonomic name as a local alias for callers (e.g. organization-switcher).
+export type ActiveOrgEntry = OrgMembershipSummary;
 
 export function createActiveOrg() {
   const { client } = useYAuth();
@@ -27,7 +31,7 @@ export function createActiveOrg() {
 
   const apply = (resp: ActiveOrgResponse) => {
     setActiveOrgId(resp.active_org_id ?? null);
-    setOrgs(resp.orgs);
+    setOrgs(resp.orgs ?? []);
   };
 
   const refetch = async () => {
@@ -64,7 +68,8 @@ export function createActiveOrg() {
       const body: SetActiveOrgRequest = { organization_id: orgId };
       const resp = await client.organizations.setActiveOrg(body);
       apply(resp);
-      return resp.bearer_access_token ?? null;
+      // The huma-derived spec no longer mints a bearer token on org switch.
+      return null;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return null;
@@ -83,7 +88,8 @@ export function createActiveOrg() {
     try {
       const resp = await client.organizations.clearActiveOrg();
       apply(resp);
-      return resp.bearer_access_token ?? null;
+      // See note in switchTo: no bearer token is returned by the new spec.
+      return null;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return null;

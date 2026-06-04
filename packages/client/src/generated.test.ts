@@ -67,7 +67,7 @@ describe("createYAuthClient", () => {
     await client.emailPassword.register({
       email: "new@example.com",
       password: "secureP@ss1",
-      display_name: null,
+      display_name: "New User",
     });
 
     const [url, opts] = firstCall(fetchFn);
@@ -76,7 +76,7 @@ describe("createYAuthClient", () => {
     expect(JSON.parse(opts.body as string)).toEqual({
       email: "new@example.com",
       password: "secureP@ss1",
-      display_name: null,
+      display_name: "New User",
     });
   });
 
@@ -87,7 +87,7 @@ describe("createYAuthClient", () => {
     await client.emailPassword.login({
       email: "user@example.com",
       password: "pass123",
-      remember_me: null,
+      remember_me: true,
     });
 
     const [, opts] = firstCall(fetchFn);
@@ -95,7 +95,7 @@ describe("createYAuthClient", () => {
     expect(JSON.parse(opts.body as string)).toEqual({
       email: "user@example.com",
       password: "pass123",
-      remember_me: null,
+      remember_me: true,
     });
   });
 
@@ -242,7 +242,6 @@ describe("client API groups", () => {
     await client.apiKeys.create({
       name: "My Key",
       scopes: null,
-      expires_in_days: null,
     });
     const [url, opts] = firstCall(fetchFn);
     expect(url).toBe("http://localhost:3000/auth/api-keys");
@@ -250,7 +249,6 @@ describe("client API groups", () => {
     expect(JSON.parse(opts.body as string)).toEqual({
       name: "My Key",
       scopes: null,
-      expires_in_days: null,
     });
   });
 
@@ -271,7 +269,7 @@ describe("client API groups", () => {
     await client.webhooks.create({
       url: "https://example.com/hook",
       events: ["user.registered"],
-      secret: null,
+      secret: "s3cr3t",
     });
     const [url, opts] = firstCall(fetchFn);
     expect(url).toBe("http://localhost:3000/auth/webhooks");
@@ -297,7 +295,6 @@ describe("client API groups", () => {
     await client.bearer.getToken({
       email: "a@b.com",
       password: "pass",
-      scope: null,
     });
     const [url, opts] = firstCall(fetchFn);
     expect(url).toBe("http://localhost:3000/auth/token");

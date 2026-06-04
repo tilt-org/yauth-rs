@@ -28,7 +28,7 @@ export const MfaSetup: Component<MfaSetupProps> = (props) => {
 			const result = await mfa.setup();
 			setUri(result.otpauth_url);
 			setSecret(result.secret);
-			setBackupCodes(result.backup_codes);
+			setBackupCodes(result.backup_codes ?? []);
 			setStep("confirm");
 		} catch (err) {
 			const error = err instanceof Error ? err : new Error(String(err));

@@ -1,6 +1,6 @@
 import type {
-  CreateSsoConnectionRequest,
-  SsoConnectionResponse,
+  ConnectionJSON as SsoConnectionResponse,
+  CreateConnectionRequest as CreateSsoConnectionRequest,
 } from "@yackey-labs/yauth-client";
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { createSsoConnections } from "../hooks/create-sso-connections";
@@ -73,8 +73,8 @@ export function SsoConnectionForm(props: SsoConnectionFormProps) {
         claim_mappings: {
           external_id: externalIdClaim().trim() || "sub",
           email: emailClaim().trim() || "email",
-          display_name: displayNameClaim().trim() || null,
-          groups: groupsClaim().trim() || null,
+          display_name: displayNameClaim().trim() || undefined,
+          groups: groupsClaim().trim() || undefined,
           group_to_role: groupMap,
         },
       },

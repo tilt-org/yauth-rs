@@ -8,17 +8,26 @@
 
 import { computed, ref, watch } from "vue";
 import type {
+	AuditCreateDestinationRequest,
 	AuditDestinationResponse,
-	CreateAuditDestinationRequest,
-	UpdateAuditDestinationRequest,
+	AuditUpdateDestinationRequest,
 } from "@yackey-labs/yauth-client";
 import {
 	auditExportCreateDestination,
 	auditExportDeleteDestination,
 	auditExportListDestinationOutbox,
 	auditExportListDestinations,
-	auditExportUpdateDestination,
+	auditExportOrgCreateDestination,
+	auditExportOrgDeleteDestination,
+	auditExportOrgListDestinations,
+	auditExportOrgPatchDestination,
+	auditExportPatchDestination,
 } from "@yackey-labs/yauth-client";
+
+// The huma-derived spec renamed these request types; keep the local aliases so
+// the rest of this module (and its callers) read naturally.
+type CreateAuditDestinationRequest = AuditCreateDestinationRequest;
+type UpdateAuditDestinationRequest = AuditUpdateDestinationRequest;
 
 export type AuditDestinationKindTag =
 	| "webhook"
@@ -49,7 +58,7 @@ export interface OutboxEntry {
  */
 export type CreateDestinationInput = Omit<
 	CreateAuditDestinationRequest,
-	"kind"
+	"kind" | "config"
 > & {
 	kind:
 		| {
@@ -101,10 +110,14 @@ export function useAuditDestinations(
 		error.value = null;
 		try {
 			const org = orgScope?.();
-			const params = org
-				? { organization_id: org }
-				: { scope: "deployment" };
-			destinations.value = await auditExportListDestinations(params);
+			// The huma-derived spec splits destination listing into a
+			// deployment-scoped route (no params) and an org-scoped route
+			// (org id as a path segment). The old single `scope`/`organization_id`
+			// query params are gone.
+			const list = org
+				? await auditExportOrgListDestinations(org)
+				: await auditExportListDestinations();
+			destinations.value = list ?? [];
 		} catch (e) {
 			error.value = (e as Error).message;
 		} finally {
@@ -120,9 +133,11 @@ export function useAuditDestinations(
 		try {
 			// The generated wire type widens `kind` to `unknown`; the typed
 			// CreateDestinationInput above narrows it for callers.
-			const created = await auditExportCreateDestination(
-				input as unknown as CreateAuditDestinationRequest,
-			);
+			const org = orgScope?.();
+			const body = input as unknown as CreateAuditDestinationRequest;
+			const created = org
+				? await auditExportOrgCreateDestination(org, body)
+				: await auditExportCreateDestination(body);
 			await refresh();
 			return created;
 		} catch (e) {
@@ -136,9 +151,13 @@ export function useAuditDestinations(
 	async function disable(id: string) {
 		submitting.value = true;
 		try {
-			await auditExportUpdateDestination(id, {
-				status: "disabled",
-			} as UpdateAuditDestinationRequest);
+			const org = orgScope?.();
+			const patch = { status: "disabled" } as UpdateAuditDestinationRequest;
+			if (org) {
+				await auditExportOrgPatchDestination(org, id, patch);
+			} else {
+				await auditExportPatchDestination(id, patch);
+			}
 			await refresh();
 		} finally {
 			submitting.value = false;
@@ -148,20 +167,27 @@ export function useAuditDestinations(
 	async function remove(id: string) {
 		submitting.value = true;
 		try {
-			await auditExportDeleteDestination(id);
+			const org = orgScope?.();
+			if (org) {
+				await auditExportOrgDeleteDestination(org, id);
+			} else {
+				await auditExportDeleteDestination(id);
+			}
 			await refresh();
 		} finally {
 			submitting.value = false;
 		}
 	}
 
-	async function outbox(id: string, limit = 50): Promise<OutboxEntry[]> {
+	// NOTE: the huma-derived spec dropped the outbox `limit` query param, so
+	// pagination is no longer expressible here (server returns its default
+	// page). The `limit` argument is retained for source compatibility but is
+	// now ignored.
+	async function outbox(id: string, _limit = 50): Promise<OutboxEntry[]> {
 		// The generated response type is an array of objects matching the
 		// `OutboxEntryResponse` shape; cast to the local convenience type.
-		// `limit` is serialized to a string by the orval-generated wrapper.
-		return (await auditExportListDestinationOutbox(id, {
-			limit: String(limit),
-		})) as unknown as OutboxEntry[];
+		const entries = await auditExportListDestinationOutbox(id);
+		return (entries ?? []) as unknown as OutboxEntry[];
 	}
 
 	watch(

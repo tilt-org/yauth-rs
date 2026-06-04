@@ -1,6 +1,15 @@
-import type { CreateDomainResponse, VerifyDomainResponse } from "@yackey-labs/yauth-client";
+import type { OrganizationDomainJSON } from "@yackey-labs/yauth-client";
 import { type Component, createSignal, Show } from "solid-js";
 import { createDomains } from "../hooks/create-organizations";
+
+// The huma-derived spec flattened the domain claim/verify responses into a
+// single `OrganizationDomainJSON` (previously wrapped under `.domain`), and
+// replaced the boolean `verified` with a `status` field.
+type CreateDomainResponse = OrganizationDomainJSON;
+type VerifyDomainResponse = OrganizationDomainJSON;
+
+const isVerified = (d: OrganizationDomainJSON | null): boolean =>
+  d?.status === "verified" || d?.verified_at != null;
 
 export interface DomainVerifyStepProps {
   organizationId: string;
@@ -19,10 +28,10 @@ export const DomainVerifyStep: Component<DomainVerifyStepProps> = (props) => {
   const [lastResult, setLastResult] = createSignal<VerifyDomainResponse | null>(null);
 
   const handleVerify = async () => {
-    const result = await verify(props.claim.domain.id);
+    const result = await verify(props.claim.id);
     setLastResult(result);
-    if (result?.verified) {
-      props.onVerified?.(result);
+    if (isVerified(result)) {
+      props.onVerified?.(result as VerifyDomainResponse);
     }
   };
 
@@ -35,7 +44,7 @@ export const DomainVerifyStep: Component<DomainVerifyStepProps> = (props) => {
         </p>
         <div>
           <span class="text-xs font-medium">Record</span>
-          <code class="mt-1 block break-all font-mono text-xs">{props.claim.dns_record_name}</code>
+          <code class="mt-1 block break-all font-mono text-xs">{props.claim.verification_record}</code>
         </div>
         <div>
           <span class="text-xs font-medium">Value</span>
@@ -55,14 +64,14 @@ export const DomainVerifyStep: Component<DomainVerifyStepProps> = (props) => {
         </div>
       </Show>
 
-      <Show when={lastResult() && !lastResult()?.verified}>
+      <Show when={lastResult() && !isVerified(lastResult())}>
         <div class="rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-700">
           Verification did not find the expected DNS TXT record. Double-check the record name +
           value, then retry.
         </div>
       </Show>
 
-      <Show when={lastResult()?.verified}>
+      <Show when={isVerified(lastResult())}>
         <div class="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
           Domain verified. JIT auto-join is now active for matching users.
         </div>

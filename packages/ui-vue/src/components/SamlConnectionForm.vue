@@ -28,11 +28,37 @@
  *   create on the response object.
  */
 import type {
-	CreateSsoConnectionRequest,
-	SsoConnectionResponse,
+	ConnectionJSON as SsoConnectionResponse,
+	CreateConnectionRequest,
 } from "@yackey-labs/yauth-client";
 import { computed, ref, toRef } from "vue";
 import { useSsoConnections } from "../composables/useSsoConnections";
+
+// The huma-derived `CreateConnectionRequest` only models the OIDC `oidc`
+// config. SAML connections are created through the same org SSO-connection
+// endpoint with a `kind: "saml_sp"` discriminator and a `saml` payload, so we
+// widen the request type locally for this form (the server validates the SAML
+// body). Keeps the legacy behaviour the SamlConnectionForm tests assert.
+type CreateSsoConnectionRequest = CreateConnectionRequest & {
+	saml?: {
+		idp_entity_id: string;
+		idp_sso_url: string;
+		idp_slo_url: string | null;
+		idp_x509_cert: string;
+		sp_private_key: string | null;
+		idp_initiated_sso_allowed: boolean;
+		assertion_signed_required: boolean;
+		response_signed_required: boolean;
+		want_encrypted_assertions: boolean;
+		attribute_mappings: {
+			email: string;
+			display_name: string | null;
+			external_id: string;
+			groups: string | null;
+			group_to_role: Record<string, string>;
+		};
+	};
+};
 
 const props = defineProps<{
 	organizationId: string;
@@ -119,7 +145,7 @@ const handleSubmit = async (e: Event) => {
 		jit_provisioning_enabled: jitEnabled.value,
 		default_role_on_jit: defaultRole.value,
 	};
-	const result = await create(req);
+	const result = await create(req as CreateConnectionRequest);
 	submitting.value = false;
 	if (result) {
 		props.onSuccess?.(result);

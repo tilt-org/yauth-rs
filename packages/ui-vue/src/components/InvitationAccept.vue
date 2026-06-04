@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { MembershipResponse } from "@yackey-labs/yauth-client";
+import type { MembershipJSON as MembershipResponse } from "@yackey-labs/yauth-client";
 import { ref } from "vue";
 import { useInvitation } from "../composables/useOrganizations";
 

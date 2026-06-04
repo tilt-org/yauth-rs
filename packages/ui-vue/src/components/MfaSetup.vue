@@ -30,7 +30,7 @@ const handleBegin = async () => {
 		const result = await client.mfa.setup();
 		uri.value = result.otpauth_url;
 		secret.value = result.secret;
-		backupCodes.value = result.backup_codes;
+		backupCodes.value = result.backup_codes ?? [];
 		step.value = "confirm";
 	} catch (err) {
 		const e = err instanceof Error ? err : new Error(String(err));

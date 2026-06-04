@@ -1,6 +1,8 @@
-import type { SamlConfigResponse } from "@yackey-labs/yauth-client";
 import { For, Show } from "solid-js";
-import { createSsoConnections } from "../hooks/create-sso-connections";
+import {
+  createSsoConnections,
+  type SamlConnectionRow,
+} from "../hooks/create-sso-connections";
 import { useYAuth } from "../provider";
 
 /**
@@ -16,7 +18,7 @@ export interface SsoConnectionListProps {
   onTest?: (id: string, ok: boolean, detail: string) => void;
 }
 
-const signingSummary = (saml: SamlConfigResponse) => {
+const signingSummary = (saml: SamlConnectionRow) => {
   const parts: string[] = [];
   if (saml.assertion_signed_required) parts.push("assertion signed");
   if (saml.response_signed_required) parts.push("response signed");
@@ -32,7 +34,9 @@ export function SsoConnectionList(props: SsoConnectionListProps) {
 
   const handleTest = async (id: string) => {
     const r = await test(id);
-    if (r) props.onTest?.(id, r.ok, r.detail);
+    // The huma-derived `TestConnectionResponse` dropped the free-form `detail`
+    // string; surface the discovered issuer (or empty) as the detail instead.
+    if (r) props.onTest?.(id, r.ok, r.issuer ?? "");
   };
 
   const samlMetadataUrl = (id: string) => yauth.client.sso.samlMetadataUrl(id);

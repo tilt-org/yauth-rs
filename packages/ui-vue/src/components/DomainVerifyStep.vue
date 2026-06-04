@@ -1,7 +1,16 @@
 <script setup lang="ts">
-import type { CreateDomainResponse, VerifyDomainResponse } from "@yackey-labs/yauth-client";
+import type { OrganizationDomainJSON } from "@yackey-labs/yauth-client";
 import { computed, ref } from "vue";
 import { useDomains } from "../composables/useOrganizations";
+
+// The huma-derived spec flattened the domain claim/verify responses into a
+// single `OrganizationDomainJSON` (previously wrapped under `.domain`), and
+// replaced the boolean `verified` with a `status` field.
+type CreateDomainResponse = OrganizationDomainJSON;
+type VerifyDomainResponse = OrganizationDomainJSON;
+
+const isVerified = (d: OrganizationDomainJSON | null): boolean =>
+  d?.status === "verified" || d?.verified_at != null;
 
 const props = defineProps<{
   organizationId: string;
@@ -15,12 +24,13 @@ const emit = defineEmits<{
 const orgId = computed(() => props.organizationId);
 const { verify, error, submitting } = useDomains(() => orgId.value);
 const lastResult = ref<VerifyDomainResponse | null>(null);
+const lastVerified = computed(() => isVerified(lastResult.value));
 
 const handleVerify = async () => {
-  const result = await verify(props.claim.domain.id);
+  const result = await verify(props.claim.id);
   lastResult.value = result;
-  if (result?.verified) {
-    emit("verified", result);
+  if (isVerified(result)) {
+    emit("verified", result as VerifyDomainResponse);
   }
 };
 </script>
@@ -35,7 +45,7 @@ const handleVerify = async () => {
       <div>
         <span class="text-xs font-medium">Record</span>
         <code class="mt-1 block break-all font-mono text-xs">
-          {{ claim.dns_record_name }}
+          {{ claim.verification_record }}
         </code>
       </div>
       <div>
@@ -56,7 +66,7 @@ const handleVerify = async () => {
     </div>
 
     <div
-      v-if="lastResult && !lastResult.verified"
+      v-if="lastResult && !lastVerified"
       class="rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-700"
     >
       Verification did not find the expected DNS TXT record. Double-check the record name + value,
@@ -64,7 +74,7 @@ const handleVerify = async () => {
     </div>
 
     <div
-      v-if="lastResult?.verified"
+      v-if="lastVerified"
       class="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700"
     >
       Domain verified. JIT auto-join is now active for matching users.

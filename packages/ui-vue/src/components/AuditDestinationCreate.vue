@@ -84,7 +84,7 @@ async function onSubmit() {
   try {
     await create({
       name: name.value.trim(),
-      organization_id: props.organizationId ?? null,
+      organization_id: props.organizationId ?? undefined,
       kind,
     });
     emit("created");

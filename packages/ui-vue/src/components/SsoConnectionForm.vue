@@ -16,8 +16,8 @@
  * - default_role_on_jit
  */
 import type {
-	CreateSsoConnectionRequest,
-	SsoConnectionResponse,
+	ConnectionJSON as SsoConnectionResponse,
+	CreateConnectionRequest as CreateSsoConnectionRequest,
 } from "@yackey-labs/yauth-client";
 import { computed, ref, toRef } from "vue";
 import { useSsoConnections } from "../composables/useSsoConnections";
@@ -88,8 +88,8 @@ const handleSubmit = async (e: Event) => {
 			claim_mappings: {
 				external_id: externalIdClaim.value.trim() || "sub",
 				email: emailClaim.value.trim() || "email",
-				display_name: displayNameClaim.value.trim() || null,
-				groups: groupsClaim.value.trim() || null,
+				display_name: displayNameClaim.value.trim() || undefined,
+				groups: groupsClaim.value.trim() || undefined,
 				group_to_role: groupMap,
 			},
 		},

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { OrganizationResponse } from "@yackey-labs/yauth-client";
+import type { OrganizationJSON as OrganizationResponse } from "@yackey-labs/yauth-client";
 import { useOrganizations } from "../composables/useOrganizations";
 import OrganizationCard from "./OrganizationCard.vue";
 

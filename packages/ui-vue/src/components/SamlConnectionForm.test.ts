@@ -13,7 +13,7 @@ function createMockContext(
 	return {
 		client: {
 			organizations: {
-				listSsoConnections: vi.fn().mockResolvedValue([]),
+				listSsoConnections: vi.fn().mockResolvedValue({ sso_connections: [] }),
 				createSsoConnection: vi.fn().mockResolvedValue({
 					id: "conn-1",
 					organization_id: "org-1",
@@ -131,7 +131,7 @@ describe("SamlConnectionForm", () => {
 		const ctx = createMockContext({
 			client: {
 				organizations: {
-					listSsoConnections: vi.fn().mockResolvedValue([]),
+					listSsoConnections: vi.fn().mockResolvedValue({ sso_connections: [] }),
 					createSsoConnection: createMock,
 				},
 			} as never,
@@ -171,7 +171,7 @@ describe("SamlConnectionForm", () => {
 		const ctx = createMockContext({
 			client: {
 				organizations: {
-					listSsoConnections: vi.fn().mockResolvedValue([]),
+					listSsoConnections: vi.fn().mockResolvedValue({ sso_connections: [] }),
 					createSsoConnection: createMock,
 				},
 			} as never,

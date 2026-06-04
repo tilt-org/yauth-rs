@@ -1,21 +1,30 @@
 import type {
   ChangeRoleRequest,
   CreateDomainRequest,
-  CreateDomainResponse,
   CreateInvitationRequest,
   CreateInvitationResponse,
   CreateOrgRequest,
-  DomainResponse,
-  MembershipResponse,
-  OrganizationResponse,
-  PermissionsResponse,
+  ListPermissionsResponse,
+  MembershipJSON,
+  OrganizationDomainJSON,
+  OrganizationJSON,
+  PatchDomainRequest,
   TransferOwnershipRequest,
-  UpdateDomainRequest,
   UpdateOrgRequest,
-  VerifyDomainResponse,
 } from "@yackey-labs/yauth-client";
 import { onMounted, ref, watch } from "vue";
 import { useYAuth } from "../provider";
+
+// The huma-derived spec renamed several response/request types. Keep the old
+// ergonomic names as local aliases so the composable body + callers read
+// naturally and the public composable surface is unchanged.
+type OrganizationResponse = OrganizationJSON;
+type MembershipResponse = MembershipJSON;
+type DomainResponse = OrganizationDomainJSON;
+type CreateDomainResponse = OrganizationDomainJSON;
+type VerifyDomainResponse = OrganizationDomainJSON;
+type PermissionsResponse = ListPermissionsResponse;
+type UpdateDomainRequest = PatchDomainRequest;
 
 /**
  * Generate a URL-safe slug from a free-form name.
@@ -54,7 +63,7 @@ export function useOrganizations() {
     loading.value = true;
     error.value = null;
     try {
-      organizations.value = (await client.organizations.list()).organizations;
+      organizations.value = (await client.organizations.list()).organizations ?? [];
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {
@@ -180,7 +189,7 @@ export function useMembers(orgId: () => string | null | undefined) {
     loading.value = true;
     error.value = null;
     try {
-      members.value = (await client.organizations.listMembers(current)).members;
+      members.value = (await client.organizations.listMembers(current)).members ?? [];
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {
@@ -295,7 +304,7 @@ export function useOrgPermissions(orgId: () => string | null | undefined) {
   };
 
   const hasPermission = (perm: string): boolean =>
-    permissions.value?.permissions.includes(perm) ?? false;
+    permissions.value?.permissions?.includes(perm) ?? false;
 
   const isRole = (role: string): boolean => permissions.value?.role === role;
 
@@ -404,7 +413,7 @@ export function useDomains(orgId: () => string | null) {
     loading.value = true;
     error.value = null;
     try {
-      domains.value = (await client.organizations.listDomains(current)).domains;
+      domains.value = (await client.organizations.listDomains(current)).domains ?? [];
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {

@@ -16,7 +16,13 @@ export const ProfileSettings: Component = () => {
 	const [passkeys, { refetch: refetchPasskeys }] = createResource(async () => {
 		if (!passkeyClient) return [];
 		try {
-			return (await passkeyClient.list()).items;
+			// The huma-derived spec doesn't model the passkey-list response body
+			// (typed `void`), but the endpoint returns `{ items: [...] }` at
+			// runtime. Cast through the known wire shape.
+			const resp = (await passkeyClient.list()) as unknown as {
+				items?: Array<{ id: string; name: string | null; created_at: string }> | null;
+			};
+			return resp.items ?? [];
 		} catch {
 			return [];
 		}
@@ -31,7 +37,7 @@ export const ProfileSettings: Component = () => {
 		async () => {
 			if (!oauthClient) return [];
 			try {
-				return (await oauthClient.accounts()).items;
+				return (await oauthClient.accounts()).items ?? [];
 			} catch {
 				return [];
 			}
@@ -89,7 +95,7 @@ export const ProfileSettings: Component = () => {
 			const result = await mfaClient!.setup();
 			setMfaUri(result.otpauth_url);
 			setMfaSecret(result.secret);
-			setMfaBackupCodes(result.backup_codes);
+			setMfaBackupCodes(result.backup_codes ?? []);
 			setMfaStep("confirm");
 		} catch (err) {
 			const error = err instanceof Error ? err : new Error(String(err));

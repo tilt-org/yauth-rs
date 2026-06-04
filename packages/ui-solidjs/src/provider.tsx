@@ -55,7 +55,14 @@ export const YAuthProvider: ParentComponent<YAuthProviderProps> = (props) => {
 		if (!c) return null;
 		try {
 			const result = await c.getSession();
-			return result.user;
+			// The huma-derived `SessionUserBody` widens `auth_method` to a bare
+			// string; narrow it back to the shared `AuthUser` shape at this
+			// API boundary.
+			const authUser: AuthUser = {
+				...result.user,
+				auth_method: result.user.auth_method as AuthUser["auth_method"],
+			};
+			return authUser;
 		} catch {
 			return null;
 		}

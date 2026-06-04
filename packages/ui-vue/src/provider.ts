@@ -46,8 +46,15 @@ export const YAuthPlugin = {
 			loading.value = true;
 			try {
 				const result = await clientRef.value.getSession();
-				user.value = result.user;
-				return result.user;
+				// The huma-derived `SessionUserBody` widens `auth_method` to a bare
+				// string; narrow it back to the shared `AuthMethod` union at this
+				// API boundary.
+				const authUser: AuthUser = {
+					...result.user,
+					auth_method: result.user.auth_method as AuthUser["auth_method"],
+				};
+				user.value = authUser;
+				return authUser;
 			} catch {
 				user.value = null;
 				return null;
