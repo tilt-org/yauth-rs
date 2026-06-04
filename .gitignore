@@ -14,3 +14,4 @@ crates/yauth-toasty/example.db
 crates/yauth-toasty/example.db-*
 example.db
 example.db-*
+/tmp/
