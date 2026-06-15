@@ -209,6 +209,16 @@ pub struct SmtpConfig {
     pub port: u16,
     /// Sender email address for all outgoing emails (e.g., `"auth@example.com"`).
     pub from: String,
+    /// SMTP auth username. `None` (default) ⇒ unauthenticated plaintext relay
+    /// (e.g. the docker-compose mailpit). `Some` together with [`Self::password`]
+    /// ⇒ STARTTLS relay with credentials, for an authenticated relay such as
+    /// the AWS SES SMTP endpoint (in-house R1 patch — see
+    /// `auth::email::EmailService::send`).
+    #[serde(default)]
+    pub username: Option<String>,
+    /// SMTP auth password; paired with [`Self::username`]. See its docs.
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 /// Per-operation rate limit configuration.

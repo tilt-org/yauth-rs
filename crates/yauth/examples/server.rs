@@ -87,7 +87,13 @@ async fn main() {
             .and_then(|p| p.parse().ok())
             .unwrap_or(587);
         let from = env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@localhost".into());
-        yauth::config::SmtpConfig { host, port, from }
+        yauth::config::SmtpConfig {
+            host,
+            port,
+            from,
+            username: env::var("SMTP_USERNAME").ok(),
+            password: env::var("SMTP_PASSWORD").ok(),
+        }
     });
 
     // Passkey / WebAuthn

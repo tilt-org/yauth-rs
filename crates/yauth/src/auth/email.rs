@@ -1,4 +1,5 @@
 use lettre::message::header::ContentType;
+use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::Tls;
 use lettre::{Message, SmtpTransport, Transport};
 
@@ -8,15 +9,29 @@ pub struct EmailService {
     smtp_port: u16,
     from_address: String,
     app_url: String,
+    /// SMTP auth username; `Some` with [`Self::password`] selects the
+    /// authenticated STARTTLS path (R1 patch — see [`Self::send`]).
+    username: Option<String>,
+    /// SMTP auth password; paired with [`Self::username`].
+    password: Option<String>,
 }
 
 impl EmailService {
-    pub fn new(smtp_host: String, smtp_port: u16, from_address: String, app_url: String) -> Self {
+    pub fn new(
+        smtp_host: String,
+        smtp_port: u16,
+        from_address: String,
+        app_url: String,
+        username: Option<String>,
+        password: Option<String>,
+    ) -> Self {
         Self {
             smtp_host,
             smtp_port,
             from_address,
             app_url,
+            username,
+            password,
         }
     }
 
@@ -35,10 +50,21 @@ impl EmailService {
             .body(body)
             .map_err(|e| format!("Failed to build email: {}", e))?;
 
-        let transport = SmtpTransport::builder_dangerous(&self.smtp_host)
-            .port(self.smtp_port)
-            .tls(Tls::None)
-            .build();
+        // R1 patch: with credentials, use an authenticated STARTTLS relay (the
+        // AWS SES SMTP endpoint and any real relay require this). Without them,
+        // keep the original unauthenticated plaintext path (docker-compose
+        // mailpit), so dev wiring is untouched.
+        let transport = match (self.username.as_ref(), self.password.as_ref()) {
+            (Some(username), Some(password)) => SmtpTransport::starttls_relay(&self.smtp_host)
+                .map_err(|e| format!("Failed to build SMTP relay: {}", e))?
+                .port(self.smtp_port)
+                .credentials(Credentials::new(username.clone(), password.clone()))
+                .build(),
+            _ => SmtpTransport::builder_dangerous(&self.smtp_host)
+                .port(self.smtp_port)
+                .tls(Tls::None)
+                .build(),
+        };
 
         transport
             .send(&email)

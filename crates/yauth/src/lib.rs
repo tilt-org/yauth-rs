@@ -363,6 +363,8 @@ impl YAuthBuilder {
                 smtp.port,
                 smtp.from.clone(),
                 self.config.base_url.clone(),
+                smtp.username.clone(),
+                smtp.password.clone(),
             )
         });
 
