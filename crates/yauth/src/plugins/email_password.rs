@@ -314,7 +314,7 @@ async fn register(
             })?;
 
         if let Some(ref email_service) = state.email_service
-            && let Err(e) = email_service.send_verification_email(&email, &token)
+            && let Err(e) = email_service.send_verification_email(&email, &token).await
         {
             crate::otel::record_error("send_verification_email_failed", &e);
         }
@@ -812,7 +812,7 @@ async fn resend_verification(
         })?;
 
     if let Some(ref email_service) = state.email_service
-        && let Err(e) = email_service.send_verification_email(&email, &token)
+        && let Err(e) = email_service.send_verification_email(&email, &token).await
     {
         crate::otel::record_error("send_verification_email_failed", &e);
     }
@@ -898,7 +898,7 @@ async fn forgot_password(
         })?;
 
     if let Some(ref email_service) = state.email_service
-        && let Err(e) = email_service.send_password_reset_email(&user_email, &token)
+        && let Err(e) = email_service.send_password_reset_email(&user_email, &token).await
     {
         crate::otel::record_error("send_password_reset_email_failed", &e);
     }

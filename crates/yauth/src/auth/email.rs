@@ -1,7 +1,7 @@
 use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::Tls;
-use lettre::{Message, SmtpTransport, Transport};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
 #[derive(Clone)]
 pub struct EmailService {
@@ -35,7 +35,7 @@ impl EmailService {
         }
     }
 
-    fn send(&self, to: &str, subject: &str, body: String) -> Result<(), String> {
+    async fn send(&self, to: &str, subject: &str, body: String) -> Result<(), String> {
         let email = Message::builder()
             .from(
                 self.from_address
@@ -53,27 +53,31 @@ impl EmailService {
         // R1 patch: with credentials, use an authenticated STARTTLS relay (the
         // AWS SES SMTP endpoint and any real relay require this). Without them,
         // keep the original unauthenticated plaintext path (docker-compose
-        // mailpit), so dev wiring is untouched.
+        // mailpit), so dev wiring is untouched. F3: the transport is now the
+        // async lettre client so this never blocks the tokio worker.
         let transport = match (self.username.as_ref(), self.password.as_ref()) {
-            (Some(username), Some(password)) => SmtpTransport::starttls_relay(&self.smtp_host)
-                .map_err(|e| format!("Failed to build SMTP relay: {}", e))?
-                .port(self.smtp_port)
-                .credentials(Credentials::new(username.clone(), password.clone()))
-                .build(),
-            _ => SmtpTransport::builder_dangerous(&self.smtp_host)
+            (Some(username), Some(password)) => {
+                AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&self.smtp_host)
+                    .map_err(|e| format!("Failed to build SMTP relay: {}", e))?
+                    .port(self.smtp_port)
+                    .credentials(Credentials::new(username.clone(), password.clone()))
+                    .build()
+            }
+            _ => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&self.smtp_host)
                 .port(self.smtp_port)
                 .tls(Tls::None)
                 .build(),
         };
 
         transport
-            .send(&email)
+            .send(email)
+            .await
             .map_err(|e| format!("Failed to send email: {}", e))?;
 
         Ok(())
     }
 
-    pub fn send_verification_email(&self, to: &str, token: &str) -> Result<(), String> {
+    pub async fn send_verification_email(&self, to: &str, token: &str) -> Result<(), String> {
         let verify_url = format!("{}/verify-email?token={}", self.app_url, token);
 
         let body = format!(
@@ -100,7 +104,7 @@ impl EmailService {
 </html>"#
         );
 
-        self.send(to, "Verify your email address", body)?;
+        self.send(to, "Verify your email address", body).await?;
 
         crate::otel::add_event(
             "verification_email_sent",
@@ -112,7 +116,7 @@ impl EmailService {
         Ok(())
     }
 
-    pub fn send_magic_link_email(&self, to: &str, token: &str) -> Result<(), String> {
+    pub async fn send_magic_link_email(&self, to: &str, token: &str) -> Result<(), String> {
         let magic_url = format!("{}/auth/magic-link/verify?token={}", self.app_url, token);
 
         let body = format!(
@@ -139,7 +143,7 @@ impl EmailService {
 </html>"#
         );
 
-        self.send(to, "Sign in to your account", body)?;
+        self.send(to, "Sign in to your account", body).await?;
 
         crate::otel::add_event(
             "magic_link_email_sent",
@@ -151,7 +155,7 @@ impl EmailService {
         Ok(())
     }
 
-    pub fn send_password_reset_email(&self, to: &str, token: &str) -> Result<(), String> {
+    pub async fn send_password_reset_email(&self, to: &str, token: &str) -> Result<(), String> {
         let reset_url = format!("{}/reset-password?token={}", self.app_url, token);
 
         let body = format!(
@@ -178,7 +182,7 @@ impl EmailService {
 </html>"#
         );
 
-        self.send(to, "Reset your password", body)?;
+        self.send(to, "Reset your password", body).await?;
 
         crate::otel::add_event(
             "password_reset_email_sent",
@@ -190,7 +194,7 @@ impl EmailService {
         Ok(())
     }
 
-    pub fn send_unlock_email(&self, to: &str, unlock_url: &str) -> Result<(), String> {
+    pub async fn send_unlock_email(&self, to: &str, unlock_url: &str) -> Result<(), String> {
         let body = format!(
             r#"<!DOCTYPE html>
 <html>
@@ -216,7 +220,7 @@ impl EmailService {
 </html>"#
         );
 
-        self.send(to, "Unlock your account", body)?;
+        self.send(to, "Unlock your account", body).await?;
         Ok(())
     }
 }

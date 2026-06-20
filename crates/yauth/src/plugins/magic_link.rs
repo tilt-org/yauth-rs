@@ -162,7 +162,7 @@ async fn send_magic_link(
         })?;
 
     if let Some(ref email_service) = state.email_service
-        && let Err(e) = email_service.send_magic_link_email(&email, &token)
+        && let Err(e) = email_service.send_magic_link_email(&email, &token).await
     {
         crate::otel::record_error("send_magic_link_email_failed", &e);
     }
