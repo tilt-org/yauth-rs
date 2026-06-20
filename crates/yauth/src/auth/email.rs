@@ -5,18 +5,20 @@ use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
 #[derive(Clone)]
 pub struct EmailService {
-    smtp_host: String,
-    smtp_port: u16,
+    /// The built async SMTP client. `AsyncSmtpTransport<Tokio1Executor>` is
+    /// cheaply [`Clone`] (it shares one underlying connection pool), so the
+    /// host may build the transport once at boot and hand a clone in via
+    /// [`Self::with_transport`] — every consumer then shares one pool (F4).
+    transport: AsyncSmtpTransport<Tokio1Executor>,
     from_address: String,
     app_url: String,
-    /// SMTP auth username; `Some` with [`Self::password`] selects the
-    /// authenticated STARTTLS path (R1 patch — see [`Self::send`]).
-    username: Option<String>,
-    /// SMTP auth password; paired with [`Self::username`].
-    password: Option<String>,
 }
 
 impl EmailService {
+    /// Build the service from raw SMTP settings — the config-driven path
+    /// `YAuthBuilder::build()` takes when no transport is injected. The
+    /// credentials-vs-plaintext transport is built **once here** (it used to
+    /// be rebuilt on every [`Self::send`]) and stored.
     pub fn new(
         smtp_host: String,
         smtp_port: u16,
@@ -25,13 +27,60 @@ impl EmailService {
         username: Option<String>,
         password: Option<String>,
     ) -> Self {
+        let transport = Self::build_transport(&smtp_host, smtp_port, username, password);
         Self {
-            smtp_host,
-            smtp_port,
+            transport,
             from_address,
             app_url,
-            username,
-            password,
+        }
+    }
+
+    /// Build the service from an already-constructed transport — the F4
+    /// shared-pool path. The host builds one
+    /// `AsyncSmtpTransport<Tokio1Executor>` at boot and clones it into both
+    /// this service and any other consumer (the casino admin mailer), so all
+    /// of them share a single connection pool.
+    pub fn with_transport(
+        transport: AsyncSmtpTransport<Tokio1Executor>,
+        from_address: String,
+        app_url: String,
+    ) -> Self {
+        Self {
+            transport,
+            from_address,
+            app_url,
+        }
+    }
+
+    /// The credentials-vs-plaintext transport selection (unchanged from the
+    /// branching that used to live inline in [`Self::send`]).
+    ///
+    /// R1 patch: with credentials, use an authenticated STARTTLS relay (the
+    /// AWS SES SMTP endpoint and any real relay require this). Without them,
+    /// keep the original unauthenticated plaintext path (docker-compose
+    /// mailpit), so dev wiring is untouched. F3: the transport is the async
+    /// lettre client so sends never block the tokio worker.
+    fn build_transport(
+        smtp_host: &str,
+        smtp_port: u16,
+        username: Option<String>,
+        password: Option<String>,
+    ) -> AsyncSmtpTransport<Tokio1Executor> {
+        match (username, password) {
+            (Some(username), Some(password)) => {
+                // `starttls_relay` only fails when the platform has no TLS
+                // backend compiled in; mirror the previous behaviour by
+                // surfacing that as a panic at build time rather than per send.
+                AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(smtp_host)
+                    .expect("Failed to build SMTP relay")
+                    .port(smtp_port)
+                    .credentials(Credentials::new(username, password))
+                    .build()
+            }
+            _ => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(smtp_host)
+                .port(smtp_port)
+                .tls(Tls::None)
+                .build(),
         }
     }
 
@@ -50,26 +99,7 @@ impl EmailService {
             .body(body)
             .map_err(|e| format!("Failed to build email: {}", e))?;
 
-        // R1 patch: with credentials, use an authenticated STARTTLS relay (the
-        // AWS SES SMTP endpoint and any real relay require this). Without them,
-        // keep the original unauthenticated plaintext path (docker-compose
-        // mailpit), so dev wiring is untouched. F3: the transport is now the
-        // async lettre client so this never blocks the tokio worker.
-        let transport = match (self.username.as_ref(), self.password.as_ref()) {
-            (Some(username), Some(password)) => {
-                AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&self.smtp_host)
-                    .map_err(|e| format!("Failed to build SMTP relay: {}", e))?
-                    .port(self.smtp_port)
-                    .credentials(Credentials::new(username.clone(), password.clone()))
-                    .build()
-            }
-            _ => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&self.smtp_host)
-                .port(self.smtp_port)
-                .tls(Tls::None)
-                .build(),
-        };
-
-        transport
+        self.transport
             .send(email)
             .await
             .map_err(|e| format!("Failed to send email: {}", e))?;

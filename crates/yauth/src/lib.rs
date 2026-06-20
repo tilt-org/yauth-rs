@@ -139,6 +139,14 @@ pub struct YAuthBuilder {
     admin_config: Option<config::AdminConfig>,
     #[cfg(feature = "redis")]
     redis: Option<(redis::aio::ConnectionManager, String)>,
+    /// Optional pre-built SMTP transport (F4). When set **and** `config.smtp`
+    /// is `Some`, `build()` constructs the email service from this shared
+    /// transport instead of building its own from the config credentials, so
+    /// the host can build one `AsyncSmtpTransport<Tokio1Executor>` at boot and
+    /// share its connection pool across every consumer. `None` (the default)
+    /// keeps the original config-built path — the seam is purely additive.
+    injected_email_transport:
+        Option<lettre::AsyncSmtpTransport<lettre::Tokio1Executor>>,
 }
 
 impl YAuthBuilder {
@@ -173,7 +181,26 @@ impl YAuthBuilder {
             admin_config: None,
             #[cfg(feature = "redis")]
             redis: None,
+            // F4: no shared transport by default — `build()` keeps the
+            // config-built email service path until `with_email_transport`.
+            injected_email_transport: None,
         }
+    }
+
+    /// Inject a pre-built SMTP transport to back the email service (F4).
+    ///
+    /// `AsyncSmtpTransport<Tokio1Executor>` is cheaply [`Clone`] (it shares one
+    /// underlying connection pool); building it once at boot and cloning it
+    /// into both this instance and any other mailer means all of them share a
+    /// single pool. Additive and backward-compatible: this only takes effect
+    /// when `config.smtp` is also `Some`; otherwise (and when never called)
+    /// `build()` behaves exactly as before.
+    pub fn with_email_transport(
+        mut self,
+        transport: lettre::AsyncSmtpTransport<lettre::Tokio1Executor>,
+    ) -> Self {
+        self.injected_email_transport = Some(transport);
+        self
     }
 
     /// Enable Redis caching with the default `"yauth"` key prefix.
@@ -356,16 +383,28 @@ impl YAuthBuilder {
         let dummy_hash = auth::password::hash_password_sync("dummy-password-for-timing")
             .expect("Failed to generate dummy hash");
 
-        // Build email service
+        // Build email service. F4: when a shared transport was injected via
+        // `with_email_transport` AND `[smtp]` is configured, wrap that shared
+        // transport (one connection pool across every consumer). Otherwise
+        // keep the original config-built path unchanged — this is the
+        // backward-compatible default for any consumer that never injects one.
+        let injected_transport = self.injected_email_transport.take();
         let email_service = self.config.smtp.as_ref().map(|smtp| {
-            auth::email::EmailService::new(
-                smtp.host.clone(),
-                smtp.port,
-                smtp.from.clone(),
-                self.config.base_url.clone(),
-                smtp.username.clone(),
-                smtp.password.clone(),
-            )
+            match injected_transport {
+                Some(transport) => auth::email::EmailService::with_transport(
+                    transport,
+                    smtp.from.clone(),
+                    self.config.base_url.clone(),
+                ),
+                None => auth::email::EmailService::new(
+                    smtp.host.clone(),
+                    smtp.port,
+                    smtp.from.clone(),
+                    self.config.base_url.clone(),
+                    smtp.username.clone(),
+                    smtp.password.clone(),
+                ),
+            }
         });
 
         // Build the plugins list before constructing state.
