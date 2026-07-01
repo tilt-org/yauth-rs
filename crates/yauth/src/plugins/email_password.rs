@@ -898,7 +898,9 @@ async fn forgot_password(
         })?;
 
     if let Some(ref email_service) = state.email_service
-        && let Err(e) = email_service.send_password_reset_email(&user_email, &token).await
+        && let Err(e) = email_service
+            .send_password_reset_email(&user_email, &token)
+            .await
     {
         crate::otel::record_error("send_password_reset_email_failed", &e);
     }

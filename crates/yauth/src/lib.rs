@@ -145,8 +145,7 @@ pub struct YAuthBuilder {
     /// the host can build one `AsyncSmtpTransport<Tokio1Executor>` at boot and
     /// share its connection pool across every consumer. `None` (the default)
     /// keeps the original config-built path — the seam is purely additive.
-    injected_email_transport:
-        Option<lettre::AsyncSmtpTransport<lettre::Tokio1Executor>>,
+    injected_email_transport: Option<lettre::AsyncSmtpTransport<lettre::Tokio1Executor>>,
 }
 
 impl YAuthBuilder {
@@ -389,8 +388,11 @@ impl YAuthBuilder {
         // keep the original config-built path unchanged — this is the
         // backward-compatible default for any consumer that never injects one.
         let injected_transport = self.injected_email_transport.take();
-        let email_service = self.config.smtp.as_ref().map(|smtp| {
-            match injected_transport {
+        let email_service = self
+            .config
+            .smtp
+            .as_ref()
+            .map(|smtp| match injected_transport {
                 Some(transport) => auth::email::EmailService::with_transport(
                     transport,
                     smtp.from.clone(),
@@ -404,8 +406,7 @@ impl YAuthBuilder {
                     smtp.username.clone(),
                     smtp.password.clone(),
                 ),
-            }
-        });
+            });
 
         // Build the plugins list before constructing state.
         // Account lockout must be registered BEFORE email-password so it
