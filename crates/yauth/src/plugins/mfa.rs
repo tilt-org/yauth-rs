@@ -54,8 +54,9 @@ impl YAuthPlugin for MfaPlugin {
 
     fn on_event(&self, event: &AuthEvent, ctx: &PluginContext) -> EventResponse {
         match event {
-            AuthEvent::LoginSucceeded { user_id, .. } => {
+            AuthEvent::LoginSucceeded { user_id, method } => {
                 let user_id = *user_id;
+                let method = method.clone();
                 let repos = ctx.state.repos.clone();
 
                 // Run the async DB lookup synchronously within the current runtime.
@@ -69,7 +70,10 @@ impl YAuthPlugin for MfaPlugin {
                             Ok(None) => false,
                             Err(e) => {
                                 crate::otel::record_error("mfa_db_status_check_error", &e);
-                                return EventResponse::Continue;
+                                return EventResponse::Block {
+                                    status: 500,
+                                    message: "Internal error".to_string(),
+                                };
                             }
                         };
 
@@ -77,7 +81,10 @@ impl YAuthPlugin for MfaPlugin {
                             // User has MFA enabled — create a pending session
                             let pending_id = Uuid::now_v7();
                             let key = format!("mfa_pending:{}", pending_id);
-                            let value = serde_json::json!({ "user_id": user_id.to_string() });
+                            let value = serde_json::json!({
+                                "user_id": user_id.to_string(),
+                                "method": method,
+                            });
 
                             if let Err(e) = repos.challenges.set_challenge(&key, value, 300).await {
                                 crate::otel::record_error("mfa_pending_session_store_failed", &e);
@@ -169,6 +176,18 @@ pub struct BackupCodesResponse {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MfaAuthResponse {
     pub user: AuthUser,
+}
+
+fn login_success_audit_metadata(login_method: &str) -> serde_json::Value {
+    match login_method.strip_prefix("oauth:") {
+        Some(provider) => serde_json::json!({
+            "method": "oauth",
+            "provider": provider,
+        }),
+        None => serde_json::json!({
+            "method": login_method,
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -570,6 +589,10 @@ async fn verify_mfa(
             "Invalid pending session data",
         )
     })?;
+    // Pending challenges created before this field was introduced remain
+    // usable during a rolling deploy; their audit attribution is explicitly
+    // unknown rather than losing the completed-login event altogether.
+    let login_method = pending["method"].as_str().unwrap_or("unknown").to_string();
 
     // Load the user's verified TOTP secret
     let totp_record = state
@@ -706,6 +729,14 @@ async fn verify_mfa(
         )
         .await;
 
+    // LoginSucceeded is emitted before session creation so plugins can block
+    // or require MFA. For the pending branch, record the durable success only
+    // now that the factor passed and a real session exists.
+    let login_metadata = login_success_audit_metadata(&login_method);
+    state
+        .write_audit_log(Some(user_id), "login_succeeded", Some(login_metadata), None)
+        .await;
+
     Ok((
         [(
             SET_COOKIE,
@@ -752,6 +783,28 @@ async fn get_backup_code_count(
     Ok(Json(BackupCodeCountResponse {
         remaining: codes.len(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::login_success_audit_metadata;
+
+    #[test]
+    fn completed_oauth_mfa_audit_retains_provider_attribution() {
+        assert_eq!(
+            login_success_audit_metadata("oauth:okta"),
+            serde_json::json!({
+                "method": "oauth",
+                "provider": "okta",
+            })
+        );
+        assert_eq!(
+            login_success_audit_metadata("email-password"),
+            serde_json::json!({
+                "method": "email-password",
+            })
+        );
+    }
 }
 
 /// POST /mfa/backup-codes/regenerate (protected)

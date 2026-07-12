@@ -2,7 +2,7 @@ use axum::{
     Extension, Json, Router,
     extract::{Path, Query, State},
     http::{StatusCode, header::SET_COOKIE},
-    response::{IntoResponse, Redirect},
+    response::{IntoResponse, Redirect, Response},
     routing::{delete, get, post},
 };
 use oauth2::basic::BasicClient;
@@ -18,7 +18,7 @@ use crate::auth::{crypto, session};
 use crate::config::OAuthProviderConfig;
 use crate::error::{ApiError, api_err};
 use crate::middleware::AuthUser;
-use crate::plugin::{PluginContext, YAuthPlugin};
+use crate::plugin::{AuthEvent, EventResponse, PluginContext, YAuthPlugin};
 use crate::state::YAuthState;
 
 const STATE_EXPIRY_MINUTES: i64 = 10;
@@ -409,8 +409,84 @@ async fn fetch_primary_email(emails_url: &str, access_token: &str) -> Result<Str
 /// Core callback logic shared by GET and POST handlers.
 struct CallbackResult {
     user: crate::middleware::AuthUser,
-    token: String,
+    authentication: CallbackAuthentication,
     redirect_url: Option<String>,
+}
+
+enum CallbackAuthentication {
+    Session(String),
+    MfaRequired(Uuid),
+}
+
+/// Run the normal login event chain before handing out an OAuth session.
+/// OAuth used to mint the cookie directly, bypassing the MFA plugin (and any
+/// other `LoginSucceeded` blocker). Keep the resolved user in the response so
+/// response middleware such as the casino's admin JIT provisioner can still
+/// link the identity even when session creation is deferred to MFA verify.
+async fn finish_callback_login(
+    state: &YAuthState,
+    provider: &str,
+    user: crate::middleware::AuthUser,
+    redirect_url: Option<String>,
+) -> Result<CallbackResult, ApiError> {
+    let authentication = match state.emit_event(&AuthEvent::LoginSucceeded {
+        user_id: user.id,
+        method: format!("oauth:{provider}"),
+    }) {
+        EventResponse::RequireMfa {
+            pending_session_id, ..
+        } => {
+            crate::otel::add_event(
+                "oauth_login_mfa_required",
+                #[cfg(feature = "telemetry")]
+                vec![
+                    opentelemetry::KeyValue::new("user.id", user.id.to_string()),
+                    opentelemetry::KeyValue::new("oauth.provider", provider.to_string()),
+                ],
+                #[cfg(not(feature = "telemetry"))]
+                vec![],
+            );
+            CallbackAuthentication::MfaRequired(pending_session_id)
+        }
+        EventResponse::Block { status, message } => {
+            let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            return Err(api_err(status, &message));
+        }
+        EventResponse::Continue => {
+            let (token, _session_id) =
+                session::create_session(state, user.id, None, None, state.config.session_ttl)
+                    .await
+                    .map_err(|e| {
+                        crate::otel::record_error("session_create_failed", &e);
+                        api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+                    })?;
+            crate::otel::add_event(
+                "oauth_login_succeeded",
+                #[cfg(feature = "telemetry")]
+                vec![
+                    opentelemetry::KeyValue::new("user.id", user.id.to_string()),
+                    opentelemetry::KeyValue::new("oauth.provider", provider.to_string()),
+                ],
+                #[cfg(not(feature = "telemetry"))]
+                vec![],
+            );
+            state
+                .write_audit_log(
+                    Some(user.id),
+                    "login_succeeded",
+                    Some(serde_json::json!({ "method": "oauth", "provider": provider })),
+                    None,
+                )
+                .await;
+            CallbackAuthentication::Session(token)
+        }
+    };
+
+    Ok(CallbackResult {
+        user,
+        authentication,
+        redirect_url,
+    })
 }
 
 async fn handle_callback(
@@ -530,14 +606,6 @@ async fn handle_callback(
             })?
             .ok_or_else(|| api_err(StatusCode::INTERNAL_SERVER_ERROR, "User not found"))?;
 
-        let (token, _session_id) =
-            session::create_session(state, user.id, None, None, state.config.session_ttl)
-                .await
-                .map_err(|e| {
-                    crate::otel::record_error("session_create_failed", &e);
-                    api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
-                })?;
-
         crate::otel::add_event(
             "oauth_account_linked",
             #[cfg(feature = "telemetry")]
@@ -557,8 +625,10 @@ async fn handle_callback(
             )
             .await;
 
-        return Ok(CallbackResult {
-            user: crate::middleware::AuthUser {
+        return finish_callback_login(
+            state,
+            provider,
+            crate::middleware::AuthUser {
                 id: user.id,
                 email: user.email,
                 display_name: user.display_name,
@@ -571,9 +641,9 @@ async fn handle_callback(
                 org_role: None,
                 all_orgs: Vec::new(),
             },
-            token,
-            redirect_url: None,
-        });
+            None,
+        )
+        .await;
     }
 
     // 7. Look up existing OAuth account
@@ -653,25 +723,6 @@ async fn handle_callback(
             );
             return Err(api_err(StatusCode::FORBIDDEN, "Account is not active"));
         }
-
-        crate::otel::add_event(
-            "oauth_login_succeeded",
-            #[cfg(feature = "telemetry")]
-            vec![
-                opentelemetry::KeyValue::new("user.id", user.id.to_string()),
-                opentelemetry::KeyValue::new("oauth.provider", provider.to_string()),
-            ],
-            #[cfg(not(feature = "telemetry"))]
-            vec![],
-        );
-        state
-            .write_audit_log(
-                Some(user.id),
-                "login_succeeded",
-                Some(serde_json::json!({ "method": "oauth", "provider": provider })),
-                None,
-            )
-            .await;
 
         CallbackUserInfo {
             id: user.id,
@@ -797,17 +848,11 @@ async fn handle_callback(
         }
     };
 
-    // 8. Create session
-    let (token, _session_id) =
-        session::create_session(state, user_info.id, None, None, state.config.session_ttl)
-            .await
-            .map_err(|e| {
-                crate::otel::record_error("session_create_failed", &e);
-                api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
-            })?;
-
-    Ok(CallbackResult {
-        user: crate::middleware::AuthUser {
+    // 8. Run login policy (including optional MFA) before creating a session.
+    finish_callback_login(
+        state,
+        provider,
+        crate::middleware::AuthUser {
             id: user_info.id,
             email: user_info.email,
             display_name: user_info.display_name,
@@ -820,9 +865,9 @@ async fn handle_callback(
             org_role: None,
             all_orgs: Vec::new(),
         },
-        token,
-        redirect_url: stored_state.redirect_url,
-    })
+        stored_state.redirect_url,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -926,6 +971,13 @@ async fn callback_get(
 
     let result = handle_callback(&state, &provider, code, state_param).await?;
 
+    let token = match result.authentication {
+        CallbackAuthentication::Session(token) => token,
+        CallbackAuthentication::MfaRequired(pending_session_id) => {
+            return Ok(mfa_required_response(pending_session_id, result.user));
+        }
+    };
+
     if let Some(ref url) = result.redirect_url
         && !url.starts_with("link:")
     {
@@ -934,7 +986,7 @@ async fn callback_get(
         return Ok((
             [(
                 SET_COOKIE,
-                session_set_cookie(&state, &result.token, state.config.session_ttl),
+                session_set_cookie(&state, &token, state.config.session_ttl),
             )],
             Redirect::temporary(&redirect_with_session),
         )
@@ -944,7 +996,7 @@ async fn callback_get(
     Ok((
         [(
             SET_COOKIE,
-            session_set_cookie(&state, &result.token, state.config.session_ttl),
+            session_set_cookie(&state, &token, state.config.session_ttl),
         )],
         Json(OAuthAuthResponse { user: result.user }),
     )
@@ -957,14 +1009,30 @@ async fn callback_post(
     Json(body): Json<CallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = handle_callback(&state, &provider, &body.code, &body.state).await?;
+    match result.authentication {
+        CallbackAuthentication::Session(token) => Ok((
+            [(
+                SET_COOKIE,
+                session_set_cookie(&state, &token, state.config.session_ttl),
+            )],
+            Json(OAuthAuthResponse { user: result.user }),
+        )
+            .into_response()),
+        CallbackAuthentication::MfaRequired(pending_session_id) => {
+            Ok(mfa_required_response(pending_session_id, result.user))
+        }
+    }
+}
 
-    Ok((
-        [(
-            SET_COOKIE,
-            session_set_cookie(&state, &result.token, state.config.session_ttl),
-        )],
-        Json(OAuthAuthResponse { user: result.user }),
-    ))
+/// MFA-pending callbacks deliberately carry the resolved user for response
+/// layers such as admin JIT provisioning, but never a session cookie.
+fn mfa_required_response(pending_session_id: Uuid, user: AuthUser) -> Response {
+    Json(serde_json::json!({
+        "mfa_required": true,
+        "pending_session_id": pending_session_id,
+        "user": user,
+    }))
+    .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -1118,4 +1186,51 @@ async fn start_link(
     Ok(Json(AuthorizeResponse {
         auth_url: auth_url.to_string(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::middleware::AuthMethod;
+    use axum::body::to_bytes;
+
+    #[tokio::test]
+    async fn pending_mfa_response_has_jit_identity_without_session_cookie() {
+        let user_id = Uuid::now_v7();
+        let pending_session_id = Uuid::now_v7();
+        let response = mfa_required_response(
+            pending_session_id,
+            AuthUser {
+                id: user_id,
+                email: "admin@example.com".to_string(),
+                display_name: Some("Admin".to_string()),
+                email_verified: true,
+                role: "user".to_string(),
+                banned: false,
+                auth_method: AuthMethod::Session,
+                scopes: None,
+                active_org_id: None,
+                org_role: None,
+                all_orgs: Vec::new(),
+            },
+        );
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            response
+                .headers()
+                .get_all(SET_COOKIE)
+                .iter()
+                .next()
+                .is_none(),
+            "pending MFA response must not mint a session cookie"
+        );
+        let body = to_bytes(response.into_body(), 16 * 1024)
+            .await
+            .expect("read pending response");
+        let body: serde_json::Value = serde_json::from_slice(&body).expect("pending JSON");
+        assert_eq!(body["mfa_required"], true);
+        assert_eq!(body["pending_session_id"], pending_session_id.to_string());
+        assert_eq!(body["user"]["id"], user_id.to_string());
+    }
 }
