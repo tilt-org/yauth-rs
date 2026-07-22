@@ -185,7 +185,10 @@ async fn register(
 
     let violations = password_policy::validate(&pwd, &ep_config.password_policy);
     if !violations.is_empty() {
-        return Err(api_err(StatusCode::BAD_REQUEST, &violations.join("; ")));
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            &password_policy::compose_message(&violations),
+        ));
     }
 
     if ep_config.hibp_check
@@ -946,7 +949,10 @@ async fn reset_password(
 
     let violations = password_policy::validate(&reset_password, &ep_config.password_policy);
     if !violations.is_empty() {
-        return Err(api_err(StatusCode::BAD_REQUEST, &violations.join("; ")));
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            &password_policy::compose_message(&violations),
+        ));
     }
 
     if ep_config.hibp_check
@@ -1090,7 +1096,10 @@ async fn change_password(
 
     let violations = password_policy::validate(&new_password, &ep_config.password_policy);
     if !violations.is_empty() {
-        return Err(api_err(StatusCode::BAD_REQUEST, &violations.join("; ")));
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            &password_policy::compose_message(&violations),
+        ));
     }
 
     // Fetch current password hash

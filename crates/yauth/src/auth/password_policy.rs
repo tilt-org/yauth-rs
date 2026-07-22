@@ -105,35 +105,36 @@ const COMMON_PASSWORDS: &[&str] = &[
     "p@ssw0rd",
 ];
 
+/// Standalone copy for the common-password check; kept out of the composed
+/// "Password must …" sentence when it is the only violation.
+const COMMON_PASSWORD_VIOLATION: &str =
+    "This password is too common. Please choose a different one.";
+
 /// Validate a password against the configured policy. Returns a list of violations
-/// (empty = password is valid).
+/// (empty = password is valid). Each violation is a "must …" fragment shaped to
+/// slot into [`compose_message`]; the common-password check is the one
+/// standalone sentence ([`COMMON_PASSWORD_VIOLATION`]).
 pub fn validate(password: &str, config: &PasswordPolicyConfig) -> Vec<String> {
     let mut violations = Vec::new();
 
     if password.len() < config.min_length {
-        violations.push(format!(
-            "Password must be at least {} characters",
-            config.min_length
-        ));
+        violations.push(format!("be at least {} characters long", config.min_length));
     }
 
     if password.len() > config.max_length {
-        violations.push(format!(
-            "Password must be at most {} characters",
-            config.max_length
-        ));
+        violations.push(format!("be at most {} characters long", config.max_length));
     }
 
     if config.require_uppercase && !password.chars().any(|c| c.is_uppercase()) {
-        violations.push("Password must contain at least one uppercase letter".into());
+        violations.push("include an uppercase letter".into());
     }
 
     if config.require_lowercase && !password.chars().any(|c| c.is_lowercase()) {
-        violations.push("Password must contain at least one lowercase letter".into());
+        violations.push("include a lowercase letter".into());
     }
 
     if config.require_digit && !password.chars().any(|c| c.is_ascii_digit()) {
-        violations.push("Password must contain at least one digit".into());
+        violations.push("include a number".into());
     }
 
     if config.require_special
@@ -141,16 +142,60 @@ pub fn validate(password: &str, config: &PasswordPolicyConfig) -> Vec<String> {
             .chars()
             .any(|c| !c.is_alphanumeric() && c.is_ascii())
     {
-        violations.push("Password must contain at least one special character".into());
+        violations.push("include a special character".into());
     }
 
     if config.disallow_common_passwords
         && COMMON_PASSWORDS.contains(&password.to_lowercase().as_str())
     {
-        violations.push("This password is too common. Please choose a different one.".into());
+        violations.push(COMMON_PASSWORD_VIOLATION.into());
     }
 
     violations
+}
+
+/// Compose the violations from [`validate`] into one human-readable sentence,
+/// e.g. "Password must be at least 8 characters long and include an uppercase
+/// letter, a number and a special character."
+pub fn compose_message(violations: &[String]) -> String {
+    let common = violations.iter().any(|v| v == COMMON_PASSWORD_VIOLATION);
+    let mut fragments: Vec<String> = violations
+        .iter()
+        .filter(|v| *v != COMMON_PASSWORD_VIOLATION)
+        .cloned()
+        .collect();
+
+    if fragments.is_empty() {
+        return COMMON_PASSWORD_VIOLATION.to_string();
+    }
+
+    // Fold the "include X" fragments into a single clause so the sentence
+    // reads "… include an uppercase letter, a number and a special character"
+    // rather than repeating the verb.
+    let includes: Vec<String> = fragments
+        .iter()
+        .filter_map(|f| f.strip_prefix("include "))
+        .map(str::to_string)
+        .collect();
+    if includes.len() > 1 {
+        fragments.retain(|f| !f.starts_with("include "));
+        fragments.push(format!("include {}", join_natural(&includes)));
+    }
+
+    if common {
+        fragments.push("not be a commonly used password".into());
+    }
+
+    format!("Password must {}.", join_natural(&fragments))
+}
+
+/// Join items with commas and a final "and": `a, b and c`.
+fn join_natural(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [only] => only.clone(),
+        [head @ .., last] => format!("{} and {}", head.join(", "), last),
+    }
 }
 
 /// Check if a password matches any of the given historical password hashes.
@@ -201,7 +246,7 @@ mod tests {
     #[test]
     fn missing_digit() {
         let violations = validate("MyP@ssword!", &strict_policy());
-        assert!(violations.iter().any(|v| v.contains("digit")));
+        assert!(violations.iter().any(|v| v.contains("number")));
     }
 
     #[test]
@@ -235,6 +280,55 @@ mod tests {
         };
         let violations = validate("PASSWORD", &policy);
         assert!(violations.iter().any(|v| v.contains("common")));
+    }
+
+    #[test]
+    fn compose_single_violation() {
+        let violations = validate("myp@ssw0rd!", &strict_policy());
+        assert_eq!(
+            compose_message(&violations),
+            "Password must include an uppercase letter."
+        );
+    }
+
+    #[test]
+    fn compose_merges_includes_into_one_clause() {
+        // Missing uppercase, digit and special → one "include" clause.
+        let violations = validate("mypassword", &strict_policy());
+        assert_eq!(
+            compose_message(&violations),
+            "Password must include an uppercase letter, a number and a special character."
+        );
+    }
+
+    #[test]
+    fn compose_leads_with_length() {
+        let violations = validate("short", &strict_policy());
+        assert_eq!(
+            compose_message(&violations),
+            "Password must be at least 8 characters long and include an uppercase letter, \
+             a number and a special character."
+        );
+    }
+
+    #[test]
+    fn compose_common_password_only_keeps_standalone_copy() {
+        let policy = PasswordPolicyConfig {
+            disallow_common_passwords: true,
+            ..Default::default()
+        };
+        let violations = validate("password", &policy);
+        assert_eq!(compose_message(&violations), COMMON_PASSWORD_VIOLATION);
+    }
+
+    #[test]
+    fn compose_common_password_with_others_joins_in() {
+        let violations = validate("password", &strict_policy());
+        assert_eq!(
+            compose_message(&violations),
+            "Password must include an uppercase letter, a number and a special character \
+             and not be a commonly used password."
+        );
     }
 
     #[test]
