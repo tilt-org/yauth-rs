@@ -1137,6 +1137,16 @@ async fn reset_password(
         .await
         .ok();
 
+    // Same event, same payload, same position in the sequence as
+    // `change_password` below: the hash is stored and the sessions are gone
+    // before any subscriber runs. A completed reset IS a password change — the
+    // only difference is that the caller proved ownership with an emailed token
+    // instead of the old password — so a subscriber that alerts on one must see
+    // the other, or the reset flow is the silent way to take over an account.
+    state.emit_event(&AuthEvent::PasswordChanged {
+        user_id: reset.user_id,
+    });
+
     crate::otel::add_event(
         "password_reset_completed",
         #[cfg(feature = "telemetry")]
