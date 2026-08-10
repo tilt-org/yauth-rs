@@ -105,7 +105,10 @@ pub fn mfa_schema() -> Vec<TableDef> {
                     .nullable()
                     .references("yauth_users", "id", OnDelete::Cascade),
             )
-            .column(ColumnDef::new("code_hash", ColumnType::VarcharN(64)))
+            // Argon2id PHC string (~97 chars, salt embedded), not the 64-char
+            // hex SHA-256 this column held before 2026-08-10. Unbounded VARCHAR
+            // so a future parameter or algorithm change cannot overflow it.
+            .column(ColumnDef::new("code_hash", ColumnType::Varchar))
             .column(ColumnDef::new("used", ColumnType::Boolean).default("false"))
             .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()")),
     ]

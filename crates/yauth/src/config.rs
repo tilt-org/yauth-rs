@@ -354,14 +354,45 @@ pub struct PasskeyConfig {
     pub rp_name: String,
 }
 
-/// Configuration for the MFA (TOTP + backup codes) plugin.
+/// Re-exported so hosts can `use yauth::prelude::*` (or `yauth::config::…`) and
+/// implement the TOTP-secret cipher without reaching into `auth::`.
 #[cfg(feature = "mfa")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+pub use crate::auth::secret_cipher::{TotpCipherError, TotpSecretCipher};
+
+/// Configuration for the MFA (TOTP + backup codes) plugin.
+///
+/// `Debug` is hand-written (not derived) so the configured cipher — which owns
+/// key material — can never be printed by a `{:?}` of the config.
+#[cfg(feature = "mfa")]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MfaConfig {
     /// Issuer name shown in authenticator apps (e.g., `"My App"` → appears as `My App: user@example.com`).
     pub issuer: String,
     /// Number of one-time backup codes generated when MFA is enabled (default: 10).
     pub backup_code_count: usize,
+    /// Envelope cipher for the TOTP shared secret at rest (finding B11).
+    ///
+    /// `None` — the default — makes the MFA plugin **fail closed**: enrolment
+    /// (`POST /mfa/totp/setup`), backup-code regeneration and any read of a
+    /// stored secret return HTTP 503 rather than writing or trusting plaintext.
+    /// Set it to a host-provided [`TotpSecretCipher`] to enable MFA.
+    ///
+    /// Not serialisable (`#[serde(skip)]`): key custody lives in the host, so a
+    /// config file can never name, carry, or round-trip the cipher.
+    #[serde(skip, default)]
+    pub secret_cipher: Option<std::sync::Arc<dyn TotpSecretCipher>>,
+}
+
+#[cfg(feature = "mfa")]
+impl std::fmt::Debug for MfaConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MfaConfig")
+            .field("issuer", &self.issuer)
+            .field("backup_code_count", &self.backup_code_count)
+            // Presence only — never the cipher itself.
+            .field("secret_cipher", &self.secret_cipher.is_some())
+            .finish()
+    }
 }
 
 #[cfg(feature = "mfa")]
@@ -370,6 +401,7 @@ impl Default for MfaConfig {
         Self {
             issuer: "YAuth".into(),
             backup_code_count: 10,
+            secret_cipher: None,
         }
     }
 }

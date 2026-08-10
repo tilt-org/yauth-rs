@@ -62,6 +62,8 @@ async fn diesel_session_create_validate_delete() {
     // Build state for session operations (shared DB schema set up via raw DDL)
     let config = YAuthConfig::default();
     let backend = DieselPgBackend::from_pool(db.pool.clone());
+    // `mut` is only needed once an optional plugin feature is on.
+    #[allow(unused_mut)]
     let mut builder = YAuthBuilder::new(backend, config);
     #[cfg(feature = "bearer")]
     {
@@ -137,6 +139,8 @@ async fn diesel_pool_sharing() {
     // Build YAuth with the shared pool (already migrated)
     let config = YAuthConfig::default();
     let backend = DieselPgBackend::from_pool(db.pool.clone());
+    // `mut` is only needed once an optional plugin feature is on.
+    #[allow(unused_mut)]
     let mut builder = YAuthBuilder::new(backend, config);
     #[cfg(feature = "bearer")]
     {

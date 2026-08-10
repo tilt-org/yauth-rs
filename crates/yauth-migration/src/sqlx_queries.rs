@@ -635,7 +635,7 @@ fn mfa_queries(prefix: &str, d: Dialect) -> Vec<QueryFile> {
         query_file(
             "backup_code_create.sql",
             &format!(
-                "-- Create a backup code.\n-- Params: {p1} id ({ut}), {p2} user_id ({ut}), {p3} code_hash (VARCHAR(64))\n-- Returns: nothing\n-- Plugin: mfa"
+                "-- Create a backup code.\n-- Params: {p1} id ({ut}), {p2} user_id ({ut}), {p3} code_hash (VARCHAR, Argon2id PHC string)\n-- Returns: nothing\n-- Plugin: mfa"
             ),
             "mfa",
             &format!(

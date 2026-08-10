@@ -40,6 +40,18 @@ pub enum AuthEvent {
         user_id: Uuid,
         method: String,
     },
+    /// A second-factor check was rejected: wrong code, a code replayed inside
+    /// its validity window, an expired or attempt-exhausted challenge, or a
+    /// stored secret the configured cipher could not open.
+    ///
+    /// Additive and advisory — yauth itself takes no action on it. It exists so
+    /// the host can hang alerting, throttling or step-up policy off MFA failures
+    /// without scraping logs. `user_id` is `None` when the challenge itself was
+    /// unreadable, i.e. before any user could be resolved.
+    MfaVerificationFailed {
+        user_id: Option<Uuid>,
+        reason: String,
+    },
     UserBanned {
         user_id: Uuid,
     },
@@ -193,6 +205,15 @@ mod tests {
             AuthEvent::MfaDisabled {
                 user_id: Uuid::nil(),
                 method: "totp".into(),
+            },
+            AuthEvent::MfaVerificationFailed {
+                user_id: Some(Uuid::nil()),
+                reason: "code_invalid".into(),
+            },
+            // The challenge-unreadable case, where no user is resolved yet.
+            AuthEvent::MfaVerificationFailed {
+                user_id: None,
+                reason: "challenge_missing_or_expired".into(),
             },
             AuthEvent::UserBanned {
                 user_id: Uuid::nil(),

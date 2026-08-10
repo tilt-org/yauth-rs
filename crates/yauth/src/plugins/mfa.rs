@@ -5,16 +5,125 @@ use axum::{
     response::IntoResponse,
     routing::{delete, get, post},
 };
+use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use totp_rs::{Algorithm, Secret, TOTP};
 
-use crate::auth::{crypto, session};
+use crate::auth::secret_cipher::TotpSecretCipher;
+use crate::auth::{crypto, password, session};
 use crate::config::MfaConfig;
+use crate::error::{ApiError, api_err};
 use crate::middleware::AuthUser;
 use crate::plugin::{AuthEvent, EventResponse, PluginContext, YAuthPlugin};
 use crate::state::YAuthState;
+
+// ---------------------------------------------------------------------------
+// Hardening constants (issue #263 / findings B11, S2a-S2e)
+// ---------------------------------------------------------------------------
+
+/// Error body returned when MFA cannot operate because no
+/// [`TotpSecretCipher`] is configured. Paired with **HTTP 503**
+/// (`SERVICE_UNAVAILABLE`) — a deployment problem, not a caller problem.
+///
+/// Exported so the host can pin the exact contract in its own tests.
+pub const MFA_UNAVAILABLE_ERROR: &str = "MFA is temporarily unavailable";
+
+/// Lifetime of a pending MFA challenge, in seconds. Mirrored by the writer in
+/// [`MfaPlugin::on_event`] and by the attempt-counter re-store.
+const PENDING_CHALLENGE_TTL_SECS: u64 = 300;
+
+/// Failed `/mfa/verify` attempts tolerated per pending challenge before the
+/// challenge is destroyed (finding S2b). Sized to leave room for genuine
+/// clock-skew fumbles while closing the "unlimited guesses for the full 300s
+/// TTL" window.
+const MAX_CHALLENGE_ATTEMPTS: u64 = 5;
+
+/// How long a successfully used TOTP code stays burnt (finding S2a). The TOTP
+/// is built with a ±1 step tolerance over 30s steps, so a code stays checkable
+/// for ~90s; 120s covers that window with slop.
+const TOTP_REPLAY_TTL_SECS: u64 = 120;
+
+/// Challenge-repo key marking one TOTP code as already consumed by one user.
+fn totp_replay_key(user_id: Uuid, code: &str) -> String {
+    format!("mfa_totp_used:{}:{}", user_id, crypto::hash_token(code))
+}
+
+/// Resolve the configured TOTP-secret cipher, or refuse.
+///
+/// Fail-closed seam for finding B11: with no cipher there is no safe way to
+/// write a new secret or read an existing one, so every path that needs one
+/// answers 503 instead of falling back to plaintext.
+fn require_cipher(state: &YAuthState) -> Result<&Arc<dyn TotpSecretCipher>, ApiError> {
+    state.mfa_config.secret_cipher.as_ref().ok_or_else(|| {
+        tracing::error!(
+            target: "yauth::mfa",
+            "mfa_secret_cipher_unconfigured: MfaConfig.secret_cipher is None — refusing to read or write TOTP secrets"
+        );
+        api_err(StatusCode::SERVICE_UNAVAILABLE, MFA_UNAVAILABLE_ERROR)
+    })
+}
+
+fn user_field(user_id: Option<Uuid>) -> String {
+    user_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Publish a second-factor rejection: **exactly one** structured log line plus
+/// one bus event, for every rejection, whatever its cause (finding S2d).
+///
+/// Target and message are fixed (`yauth::mfa` / `mfa_verification_failed`) so an
+/// operator can alert on the count without parsing free text; `reason`
+/// discriminates the cases and `user_id` is present whenever it is known.
+///
+/// The bus event is additive and advisory (see
+/// [`AuthEvent::MfaVerificationFailed`]); yauth deliberately takes no action on
+/// it — account lockout is not wired to MFA here, because the caller-side rate
+/// limiter plus the per-challenge attempt bound already cover the guessing
+/// surface, and locking accounts on second-factor failures hands an attacker a
+/// denial-of-service primitive against any account whose email is known.
+fn report_mfa_failure(state: &YAuthState, user_id: Option<Uuid>, reason: &str) {
+    tracing::warn!(
+        target: "yauth::mfa",
+        user_id = user_field(user_id),
+        reason,
+        "mfa_verification_failed"
+    );
+    emit_mfa_failure(state, user_id, reason);
+}
+
+/// Same event at **error** level, carrying the underlying cause.
+///
+/// Used when the rejection is a server-side problem the caller cannot see or
+/// fix — a stored secret the cipher will not open — rather than a wrong code.
+/// Still one line, still the same message and fields, so alerting does not have
+/// to know the difference; the level and `error` field are what tell an operator
+/// this one needs a human.
+fn report_mfa_failure_cause(
+    state: &YAuthState,
+    user_id: Option<Uuid>,
+    reason: &str,
+    cause: &dyn std::fmt::Display,
+) {
+    tracing::error!(
+        target: "yauth::mfa",
+        user_id = user_field(user_id),
+        reason,
+        error = %cause,
+        "mfa_verification_failed"
+    );
+    emit_mfa_failure(state, user_id, reason);
+}
+
+fn emit_mfa_failure(state: &YAuthState, user_id: Option<Uuid>, reason: &str) {
+    let _ = state.emit_event(&AuthEvent::MfaVerificationFailed {
+        user_id,
+        reason: reason.to_string(),
+    });
+}
 
 // ---------------------------------------------------------------------------
 // Plugin struct
@@ -84,9 +193,21 @@ impl YAuthPlugin for MfaPlugin {
                             let value = serde_json::json!({
                                 "user_id": user_id.to_string(),
                                 "method": method,
+                                // Finding S2b: the challenge carries its own
+                                // bounded failure counter and its absolute
+                                // deadline, so a re-store after a failed
+                                // attempt can keep the ORIGINAL deadline
+                                // instead of silently renewing the window.
+                                "attempts": 0,
+                                "expires_at": chrono::Utc::now().timestamp()
+                                    + PENDING_CHALLENGE_TTL_SECS as i64,
                             });
 
-                            if let Err(e) = repos.challenges.set_challenge(&key, value, 300).await {
+                            if let Err(e) = repos
+                                .challenges
+                                .set_challenge(&key, value, PENDING_CHALLENGE_TTL_SECS)
+                                .await
+                            {
                                 crate::otel::record_error("mfa_pending_session_store_failed", &e);
                                 return EventResponse::Block {
                                     status: 500,
@@ -196,14 +317,46 @@ fn login_success_audit_metadata(login_method: &str) -> serde_json::Value {
 
 use crate::auth::session::session_set_cookie;
 
+/// Generate `count` one-time backup codes (finding S2c).
+///
+/// 12 hex chars = **48 bits** of CSPRNG entropy per code, formatted
+/// `xxxx-xxxx-xxxx`. The previous 8 hex chars were 32 bits — inside reach of an
+/// offline attacker holding the (then unsalted, single-SHA256) hash table, for
+/// credentials that never expire and bypass the TOTP factor outright.
 fn generate_backup_codes(count: usize) -> Vec<String> {
     (0..count)
         .map(|_| {
             let token = crypto::generate_token();
-            // Use first 8 hex chars, formatted as XXXX-XXXX
-            format!("{}-{}", &token[..4], &token[4..8])
+            format!("{}-{}-{}", &token[..4], &token[4..8], &token[8..12])
         })
         .collect()
+}
+
+/// Hash one backup code for storage (finding S2c).
+///
+/// Argon2id via the same primitives the fork uses for passwords, storing the
+/// full PHC string — which embeds a per-code random salt — in the existing
+/// `code_hash` column (no schema change beyond widening it). The old scheme was
+/// a bare unsalted SHA-256: identical codes across users produced identical
+/// rows, and a stolen table could be attacked once for every account at the
+/// speed of a hash-per-nanosecond GPU.
+///
+/// Cost: `Argon2::default()` (~35ms release) × `backup_code_count` (10) ≈ 0.35s
+/// on the two rare paths that touch every code — enrolment and verification —
+/// and it runs on a blocking thread, off the async executor.
+async fn hash_backup_code(code: &str) -> Result<String, password_hash::Error> {
+    password::hash_password(code).await
+}
+
+/// Check a candidate against one stored backup-code hash.
+///
+/// A stored value that is not a parseable PHC string — i.e. a legacy unsalted
+/// SHA-256 row — yields `false` rather than an error: legacy codes are dead by
+/// construction, exactly like legacy plaintext TOTP secrets.
+async fn verify_backup_code(candidate: &str, stored: &str) -> bool {
+    password::verify_password(candidate, stored)
+        .await
+        .unwrap_or(false)
 }
 
 /// Build a `TOTP` instance from the stored base32 secret and config.
@@ -248,7 +401,13 @@ async fn store_backup_codes(
     let codes = generate_backup_codes(count);
 
     for code in &codes {
-        let code_hash = crypto::hash_token(code);
+        let code_hash = hash_backup_code(code).await.map_err(|e| {
+            crate::otel::record_error("mfa_backup_code_hash_failed", &e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Internal error" })),
+            )
+        })?;
         let now = chrono::Utc::now().naive_utc();
         let new_code = crate::domain::NewBackupCode {
             id: Uuid::now_v7(),
@@ -287,6 +446,11 @@ async fn setup_totp(
     Extension(user): Extension<AuthUser>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let err = |status: StatusCode, msg: &str| (status, Json(serde_json::json!({ "error": msg })));
+
+    // Fail closed BEFORE touching any row: with no cipher there is no safe way
+    // to store a secret, and this handler deletes the user's abandoned
+    // unverified secret on its way through (finding B11).
+    let cipher = require_cipher(&state)?;
 
     // Check if user already has a verified TOTP secret
     let existing = state
@@ -333,12 +497,25 @@ async fn setup_totp(
     let otpauth_url = totp.get_url();
     let secret_base32 = secret.to_encoded().to_string();
 
+    // Seal before the write — the column stores ciphertext, never the base32
+    // secret the authenticator app holds (finding B11).
+    let sealed_secret = cipher.seal(user.id, &secret_base32).map_err(|e| {
+        tracing::error!(
+            target: "yauth::mfa",
+            user_id = %user.id,
+            error = %e,
+            "mfa_totp_secret_seal_failed"
+        );
+        crate::otel::record_error("totp_secret_seal_failed", &e);
+        err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+    })?;
+
     // Store unverified TOTP secret
     let now = chrono::Utc::now().naive_utc();
     let new_secret = crate::domain::NewTotpSecret {
         id: Uuid::now_v7(),
         user_id: user.id,
-        encrypted_secret: secret_base32.clone(),
+        encrypted_secret: sealed_secret,
         verified: false,
         created_at: now,
     };
@@ -394,9 +571,12 @@ fn render_qr_data_url(otpauth_url: &str) -> String {
 async fn confirm_totp(
     State(state): State<YAuthState>,
     Extension(user): Extension<AuthUser>,
+    jar: CookieJar,
     Json(input): Json<ConfirmTotpRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let err = |status: StatusCode, msg: &str| (status, Json(serde_json::json!({ "error": msg })));
+
+    let cipher = require_cipher(&state)?;
 
     // Find the unverified TOTP secret for this user
     let totp_record = state
@@ -415,14 +595,43 @@ async fn confirm_totp(
             )
         })?;
 
-    // Build TOTP from stored secret and verify the code
-    let totp = build_totp(
-        &totp_record.encrypted_secret,
-        &state.mfa_config.issuer,
-        &user.email,
-    )?;
+    // Open the sealed secret. A value this cipher did not produce — wrong key,
+    // tampered row, or a legacy plaintext base32 secret — is NEVER treated as a
+    // raw secret: it fails exactly like a wrong code, loudly in the log and
+    // opaquely on the wire (finding B11).
+    let secret_base32 = cipher
+        .open(user.id, &totp_record.encrypted_secret)
+        .map_err(|e| {
+            report_mfa_failure_cause(&state, Some(user.id), "secret_unsealable", &e);
+            err(
+                StatusCode::BAD_REQUEST,
+                "Invalid TOTP code. Please try again.",
+            )
+        })?;
 
-    let is_valid = totp.check_current(&input.code).unwrap_or(false);
+    // Replay closure, enrolment side (finding S2a): a code already consumed by a
+    // login `verify` is refused here too, so one observed over the user's
+    // shoulder cannot be spent at enrolment inside its window. Confirm only
+    // *reads* the marker — it never writes one. Enrolment is a one-time,
+    // already-authenticated ceremony with no replay value of its own, and
+    // burning the confirm code would lock the just-enrolled user out of their
+    // own first login for the rest of the window. Only `verify_mfa` burns.
+    let replay_key = totp_replay_key(user.id, &input.code);
+    let already_used = state
+        .repos
+        .challenges
+        .get_challenge(&replay_key)
+        .await
+        .map_err(|e| {
+            crate::otel::record_error("mfa_replay_lookup_failed", &e);
+            err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+        })?
+        .is_some();
+
+    // Build TOTP from stored secret and verify the code
+    let totp = build_totp(&secret_base32, &state.mfa_config.issuer, &user.email)?;
+
+    let is_valid = !already_used && totp.check_current(&input.code).unwrap_or(false);
 
     if !is_valid {
         crate::otel::add_event(
@@ -432,11 +641,24 @@ async fn confirm_totp(
             #[cfg(not(feature = "telemetry"))]
             vec![],
         );
+        report_mfa_failure(
+            &state,
+            Some(user.id),
+            if already_used {
+                "totp_code_replayed"
+            } else {
+                "totp_code_invalid"
+            },
+        );
         return Err(err(
             StatusCode::BAD_REQUEST,
             "Invalid TOTP code. Please try again.",
         ));
     }
+
+    // NB: confirm deliberately does NOT burn the code (see the replay-key
+    // comment above) — only `verify_mfa` does. Burning here would 401 the
+    // user's own first login if it landed in the same window as enrolment.
 
     // Mark the secret as verified
     state
@@ -448,6 +670,20 @@ async fn confirm_totp(
             crate::otel::record_error("totp_verify_failed", &e);
             err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?;
+
+    // Enabling a second factor re-establishes the account's security level, so
+    // every session that predates it — including one an attacker may already
+    // hold — is cut, keeping only the caller's own (finding S2e). Mirrors the
+    // password-change handler in `email_password.rs`.
+    if let Some(cookie) = jar.get(&state.config.session_cookie_name) {
+        session::delete_other_user_sessions(&state, user.id, cookie.value())
+            .await
+            .ok();
+    } else {
+        session::delete_all_user_sessions(&state, user.id)
+            .await
+            .ok();
+    }
 
     crate::otel::add_event(
         "mfa_totp_enabled",
@@ -549,6 +785,90 @@ async fn disable_totp(
     }))
 }
 
+/// Seconds left on a pending challenge, from the absolute deadline it carries.
+///
+/// Challenges written before `expires_at` existed (rolling deploy) fall back to
+/// the full TTL. That is the conservative direction: it can only ever restore
+/// one original window, never stack windows, and the attempt counter — not the
+/// clock — is what bounds the guessing.
+fn remaining_challenge_ttl(pending: &serde_json::Value) -> u64 {
+    match pending
+        .get("expires_at")
+        .and_then(serde_json::Value::as_i64)
+    {
+        Some(expires_at) => (expires_at - chrono::Utc::now().timestamp())
+            .clamp(1, PENDING_CHALLENGE_TTL_SECS as i64) as u64,
+        None => PENDING_CHALLENGE_TTL_SECS,
+    }
+}
+
+/// Charge one failed guess to a pending challenge (finding S2b).
+///
+/// Before this, a wrong code cost the attacker nothing: the 401 came back and
+/// the challenge row sat there for its full 300s TTL, good for as many guesses
+/// as the network allowed. Now each failure increments a counter carried in the
+/// challenge and re-stores it with the time the challenge has LEFT (so failures
+/// never renew the window); at [`MAX_CHALLENGE_ATTEMPTS`] the challenge is
+/// deleted outright and every later attempt against that `pending_session_id`
+/// fails as expired — the user has to log in again.
+///
+/// The increment is deliberately **not** atomic: `ChallengeRepository` is a
+/// plain TTL key-value store with no compare-and-set, so two failures racing in
+/// the same instant can collapse into one increment. The bound therefore holds
+/// to within a factor of the request concurrency — O(limit), not exactly the
+/// limit — which is all this needs to do. Closing "unlimited guesses for 300s"
+/// is the point; the caller-side rate limiter caps concurrency, and an exact
+/// counter would need a CAS the repo trait does not have.
+async fn record_failed_attempt(
+    state: &YAuthState,
+    key: &str,
+    pending: &serde_json::Value,
+    attempts: u64,
+) {
+    let next = attempts.saturating_add(1);
+
+    if next >= MAX_CHALLENGE_ATTEMPTS {
+        if let Err(e) = state.repos.challenges.delete_challenge(key).await {
+            crate::otel::record_error("mfa_challenge_delete_failed", &e);
+        }
+        // Distinct message on purpose: the rejection itself already logged one
+        // `mfa_verification_failed`, and this line says something different —
+        // the challenge was destroyed, so the caller must log in again.
+        tracing::warn!(
+            target: "yauth::mfa",
+            user_id = user_field(
+                pending
+                    .get("user_id")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|id| id.parse().ok())
+            ),
+            attempts = next,
+            "mfa_challenge_exhausted"
+        );
+        return;
+    }
+
+    let mut value = pending.clone();
+    match value.as_object_mut() {
+        Some(object) => {
+            object.insert("attempts".to_string(), serde_json::json!(next));
+        }
+        None => return,
+    }
+
+    if let Err(e) = state
+        .repos
+        .challenges
+        .set_challenge(key, value, remaining_challenge_ttl(pending))
+        .await
+    {
+        // Could not persist the counter — destroy the challenge instead of
+        // leaving an unbounded one behind.
+        crate::otel::record_error("mfa_challenge_attempt_store_failed", &e);
+        let _ = state.repos.challenges.delete_challenge(key).await;
+    }
+}
+
 /// POST /mfa/verify (public)
 ///
 /// Verify a TOTP or backup code during the login MFA challenge.
@@ -571,11 +891,21 @@ async fn verify_mfa(
             err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?
         .ok_or_else(|| {
+            // Expired, never issued, or destroyed by the attempt bound below —
+            // all three are indistinguishable to the caller by design.
+            report_mfa_failure(&state, None, "challenge_missing_or_expired");
             err(
                 StatusCode::UNAUTHORIZED,
                 "Invalid or expired MFA session. Please log in again.",
             )
         })?;
+
+    // Bounded guess counter carried inside the challenge (finding S2b).
+    // Challenges written by an older build have no counter; they start at 0.
+    let attempts = pending
+        .get("attempts")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
 
     let user_id_str = pending["user_id"].as_str().ok_or_else(|| {
         err(
@@ -637,23 +967,68 @@ async fn verify_mfa(
     };
 
     let mut verified = false;
+    let replay_key = totp_replay_key(user_id, &input.code);
 
     // 1. Try TOTP verification first
     if let Some(ref totp_secret) = totp_record {
-        let totp = build_totp(
-            &totp_secret.encrypted_secret,
-            &state.mfa_config.issuer,
-            &user.email,
-        )?;
+        // The user has a second factor on file: refuse to evaluate this request
+        // at all without the cipher, rather than quietly downgrading the account
+        // to backup-codes-only (finding B11).
+        let cipher = require_cipher(&state)?;
+
+        let secret_base32 = match cipher.open(user_id, &totp_secret.encrypted_secret) {
+            Ok(secret) => secret,
+            Err(e) => {
+                // Wrong key, tampered row, or a legacy plaintext base32 secret.
+                // Never fall through to treating the stored string as a raw
+                // secret: fail like a wrong code, and make the difference
+                // visible to operators only.
+                report_mfa_failure_cause(&state, Some(user_id), "secret_unsealable", &e);
+                record_failed_attempt(&state, &key, &pending, attempts).await;
+                return Err(err(StatusCode::UNAUTHORIZED, "Invalid MFA code"));
+            }
+        };
+
+        // Replay closure (finding S2a): a TOTP code is single-use for the whole
+        // ~90s window it stays checkable in, so shoulder-surfing or replaying a
+        // captured request can no longer buy a second session.
+        let already_used = state
+            .repos
+            .challenges
+            .get_challenge(&replay_key)
+            .await
+            .map_err(|e| {
+                crate::otel::record_error("mfa_replay_lookup_failed", &e);
+                err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+            })?
+            .is_some();
+
+        if already_used {
+            crate::otel::add_event(
+                "mfa_totp_code_replayed",
+                #[cfg(feature = "telemetry")]
+                vec![opentelemetry::KeyValue::new("user.id", user_id.to_string())],
+                #[cfg(not(feature = "telemetry"))]
+                vec![],
+            );
+            report_mfa_failure(&state, Some(user_id), "totp_code_replayed");
+            record_failed_attempt(&state, &key, &pending, attempts).await;
+            return Err(err(StatusCode::UNAUTHORIZED, "Invalid MFA code"));
+        }
+
+        let totp = build_totp(&secret_base32, &state.mfa_config.issuer, &user.email)?;
         if totp.check_current(&input.code).unwrap_or(false) {
             verified = true;
         }
     }
 
-    // 2. If TOTP didn't match, try backup codes
+    // 2. If TOTP didn't match, try backup codes.
+    //
+    // Codes are salted Argon2id (finding S2c), so the old "hash the input, look
+    // it up" shortcut is gone: each stored PHC string carries its own salt and
+    // has to be verified separately. Bounded by `backup_code_count` (10) and
+    // reached only on the rare fallback path.
     if !verified {
-        let code_hash = crypto::hash_token(&input.code);
-
         let backup_codes = state
             .repos
             .backup_codes
@@ -665,7 +1040,7 @@ async fn verify_mfa(
             })?;
 
         for bc in backup_codes {
-            if crypto::constant_time_eq(bc.code_hash.as_bytes(), code_hash.as_bytes()) {
+            if verify_backup_code(&input.code, &bc.code_hash).await {
                 // Mark backup code as used
                 state
                     .repos
@@ -698,7 +1073,24 @@ async fn verify_mfa(
             #[cfg(not(feature = "telemetry"))]
             vec![],
         );
+        report_mfa_failure(&state, Some(user_id), "code_invalid");
+        record_failed_attempt(&state, &key, &pending, attempts).await;
         return Err(err(StatusCode::UNAUTHORIZED, "Invalid MFA code"));
+    }
+
+    // Burn the TOTP code for the rest of its validity window (finding S2a).
+    // Harmless when a backup code was used: that code is already consumed.
+    if let Err(e) = state
+        .repos
+        .challenges
+        .set_challenge(
+            &replay_key,
+            serde_json::json!({ "used": true }),
+            TOTP_REPLAY_TTL_SECS,
+        )
+        .await
+    {
+        crate::otel::record_error("mfa_replay_marker_store_failed", &e);
     }
 
     // MFA passed — delete the pending session and create a real session
@@ -785,28 +1177,6 @@ async fn get_backup_code_count(
     }))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::login_success_audit_metadata;
-
-    #[test]
-    fn completed_oauth_mfa_audit_retains_provider_attribution() {
-        assert_eq!(
-            login_success_audit_metadata("oauth:okta"),
-            serde_json::json!({
-                "method": "oauth",
-                "provider": "okta",
-            })
-        );
-        assert_eq!(
-            login_success_audit_metadata("email-password"),
-            serde_json::json!({
-                "method": "email-password",
-            })
-        );
-    }
-}
-
 /// POST /mfa/backup-codes/regenerate (protected)
 ///
 /// Delete all existing backup codes and generate a fresh set.
@@ -816,6 +1186,11 @@ async fn regenerate_backup_codes(
     Extension(user): Extension<AuthUser>,
 ) -> Result<Json<BackupCodesResponse>, (StatusCode, Json<serde_json::Value>)> {
     let err = |status: StatusCode, msg: &str| (status, Json(serde_json::json!({ "error": msg })));
+
+    // Fail closed with no cipher (finding B11): handing out a fresh set of
+    // factor-bypassing codes while the server cannot read the TOTP secret those
+    // codes back up would leave the account defended by the backup codes alone.
+    require_cipher(&state)?;
 
     // Ensure MFA is enabled
     let has_mfa = state
@@ -863,4 +1238,115 @@ async fn regenerate_backup_codes(
     Ok(Json(BackupCodesResponse {
         backup_codes: codes,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completed_oauth_mfa_audit_retains_provider_attribution() {
+        assert_eq!(
+            login_success_audit_metadata("oauth:okta"),
+            serde_json::json!({
+                "method": "oauth",
+                "provider": "okta",
+            })
+        );
+        assert_eq!(
+            login_success_audit_metadata("email-password"),
+            serde_json::json!({
+                "method": "email-password",
+            })
+        );
+    }
+
+    #[test]
+    fn backup_codes_carry_48_bits_in_three_groups() {
+        for code in generate_backup_codes(8) {
+            assert_eq!(code.len(), 14, "expected xxxx-xxxx-xxxx, got {code}");
+            let groups: Vec<&str> = code.split('-').collect();
+            assert_eq!(groups.len(), 3);
+            for group in groups {
+                assert_eq!(group.len(), 4);
+                assert!(group.chars().all(|c| c.is_ascii_hexdigit()), "{code}");
+            }
+        }
+    }
+
+    #[test]
+    fn backup_codes_are_unique_per_draw() {
+        let codes = generate_backup_codes(16);
+        let mut deduped = codes.clone();
+        deduped.sort();
+        deduped.dedup();
+        assert_eq!(deduped.len(), codes.len(), "codes must not repeat");
+    }
+
+    #[test]
+    fn replay_key_is_per_user_and_per_code_and_hides_the_code() {
+        let a = Uuid::now_v7();
+        let b = Uuid::now_v7();
+        assert_ne!(totp_replay_key(a, "123456"), totp_replay_key(b, "123456"));
+        assert_ne!(totp_replay_key(a, "123456"), totp_replay_key(a, "654321"));
+        assert_eq!(totp_replay_key(a, "123456"), totp_replay_key(a, "123456"));
+        assert!(
+            !totp_replay_key(a, "123456").ends_with("123456"),
+            "the key must not embed the code in the clear"
+        );
+    }
+
+    #[test]
+    fn remaining_ttl_counts_down_and_never_exceeds_the_original() {
+        let now = chrono::Utc::now().timestamp();
+
+        let fresh = serde_json::json!({ "expires_at": now + 300 });
+        let ttl = remaining_challenge_ttl(&fresh);
+        assert!((295..=300).contains(&ttl), "unexpected ttl {ttl}");
+
+        let half = serde_json::json!({ "expires_at": now + 100 });
+        assert!((95..=100).contains(&remaining_challenge_ttl(&half)));
+
+        // A re-store may never buy the attacker a longer window than the
+        // challenge originally had, even if the deadline is nonsense.
+        let bogus = serde_json::json!({ "expires_at": now + 100_000 });
+        assert_eq!(remaining_challenge_ttl(&bogus), PENDING_CHALLENGE_TTL_SECS);
+
+        // Already past its deadline: floor at 1s, never 0 (which some KV
+        // backends read as "no expiry").
+        let expired = serde_json::json!({ "expires_at": now - 10 });
+        assert_eq!(remaining_challenge_ttl(&expired), 1);
+
+        // Written before the field existed (rolling deploy).
+        let legacy = serde_json::json!({ "user_id": Uuid::now_v7().to_string() });
+        assert_eq!(remaining_challenge_ttl(&legacy), PENDING_CHALLENGE_TTL_SECS);
+    }
+
+    #[test]
+    fn backup_code_hash_is_salted_and_verifiable() {
+        // Same literal, two hashes: different strings (per-hash salt), both
+        // valid. The old scheme was a bare SHA-256 — deterministic, so a stolen
+        // table was a rainbow-table lookup away from every account's codes.
+        let code = "abcd-ef01-2345";
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let (first, second) = rt.block_on(async {
+            (
+                hash_backup_code(code).await.unwrap(),
+                hash_backup_code(code).await.unwrap(),
+            )
+        });
+
+        assert_ne!(first, second);
+        assert!(first.starts_with("$argon2id$"));
+        assert!(rt.block_on(verify_backup_code(code, &first)));
+        assert!(rt.block_on(verify_backup_code(code, &second)));
+        assert!(!rt.block_on(verify_backup_code("abcd-ef01-2346", &first)));
+
+        // A legacy unsalted SHA-256 row is dead, not accidentally accepted.
+        assert!(!rt.block_on(verify_backup_code(code, &crypto::hash_token(code))));
+    }
 }
