@@ -396,4 +396,37 @@ mod tests {
              character."
         );
     }
+
+    #[test]
+    fn digit_or_special_counts_a_tab_as_special() {
+        // `is_special` is "ASCII and not alphanumeric", which the C0 controls
+        // satisfy. Clients mirroring this rule with a printable-only range
+        // would disagree here.
+        let violations = validate("mypasswo\t", &digit_or_special_policy());
+        assert!(violations.is_empty(), "violations: {violations:?}");
+    }
+
+    #[test]
+    fn length_is_measured_in_bytes_not_chars() {
+        // `Пароль1` is 7 chars but 13 UTF-8 bytes, so it clears a min of 8.
+        // Pinned because the violation copy says "characters": a future
+        // "fix" to `chars().count()` would reject this and silently break
+        // parity with the client mirror (src/lib/password-policy.ts).
+        let password = "Пароль1";
+        assert_eq!(password.chars().count(), 7);
+        let violations = validate(password, &digit_or_special_policy());
+        assert!(violations.is_empty(), "violations: {violations:?}");
+    }
+
+    #[test]
+    fn max_length_is_measured_in_bytes_not_chars() {
+        // 66 chars, 131 bytes — under a 128-char ceiling, over a 128-byte one.
+        let password = format!("{}1", "é".repeat(65));
+        assert_eq!(password.chars().count(), 66);
+        let violations = validate(&password, &digit_or_special_policy());
+        assert!(
+            violations.iter().any(|v| v.contains("at most")),
+            "{violations:?}"
+        );
+    }
 }
