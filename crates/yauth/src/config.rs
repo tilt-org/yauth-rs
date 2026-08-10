@@ -983,9 +983,11 @@ mod tests {
         assert_eq!(config.id_token_ttl, Duration::from_secs(3600));
         assert!(config.claims_supported.contains(&"sub".to_string()));
         assert!(config.claims_supported.contains(&"email".to_string()));
-        assert!(config
-            .claims_supported
-            .contains(&"email_verified".to_string()));
+        assert!(
+            config
+                .claims_supported
+                .contains(&"email_verified".to_string())
+        );
         assert!(config.claims_supported.contains(&"name".to_string()));
         assert_eq!(config.claims_supported.len(), 4);
     }
