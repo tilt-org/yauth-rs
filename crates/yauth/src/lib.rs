@@ -146,6 +146,7 @@ pub struct YAuthBuilder {
     /// share its connection pool across every consumer. `None` (the default)
     /// keeps the original config-built path — the seam is purely additive.
     injected_email_transport: Option<lettre::AsyncSmtpTransport<lettre::Tokio1Executor>>,
+    injected_email_templates: Option<std::sync::Arc<dyn auth::email::AuthEmailTemplates>>,
 }
 
 impl YAuthBuilder {
@@ -183,7 +184,24 @@ impl YAuthBuilder {
             // F4: no shared transport by default — `build()` keeps the
             // config-built email service path until `with_email_transport`.
             injected_email_transport: None,
+            // No host templates by default — the built-in unbranded link mails
+            // stay in use until `with_email_templates`.
+            injected_email_templates: None,
         }
+    }
+
+    /// Install host-supplied branded templates for the four link mails the
+    /// email service sends (verification, magic link, password reset, unlock).
+    ///
+    /// Additive like [`Self::with_email_transport`]: only takes effect when
+    /// `config.smtp` is also `Some`, and the built-in templates remain the
+    /// default for any consumer that never calls this.
+    pub fn with_email_templates(
+        mut self,
+        templates: std::sync::Arc<dyn auth::email::AuthEmailTemplates>,
+    ) -> Self {
+        self.injected_email_templates = Some(templates);
+        self
     }
 
     /// Inject a pre-built SMTP transport to back the email service (F4).
@@ -388,6 +406,7 @@ impl YAuthBuilder {
         // keep the original config-built path unchanged — this is the
         // backward-compatible default for any consumer that never injects one.
         let injected_transport = self.injected_email_transport.take();
+        let injected_templates = self.injected_email_templates.take();
         let email_service = self
             .config
             .smtp
@@ -406,6 +425,11 @@ impl YAuthBuilder {
                     smtp.username.clone(),
                     smtp.password.clone(),
                 ),
+            })
+            .map(|service| match injected_templates {
+                // Host-branded link mails (additive; built-ins otherwise).
+                Some(templates) => service.with_templates(templates),
+                None => service,
             });
 
         // Build the plugins list before constructing state.

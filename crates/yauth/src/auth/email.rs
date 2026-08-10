@@ -3,6 +3,20 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::Tls;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
+/// Host-supplied renderer for the four link mails this service sends, so the
+/// embedding application can brand them without forking the templates.
+///
+/// Each method returns `(subject, body_html)`. The host receives the fully
+/// built one-time URL; it must escape it into its own markup. When no renderer
+/// is installed (via `YAuthBuilder::with_email_templates`), the built-in
+/// unbranded defaults below are used, so this is additive.
+pub trait AuthEmailTemplates: Send + Sync {
+    fn verification(&self, verify_url: &str) -> (String, String);
+    fn magic_link(&self, magic_url: &str) -> (String, String);
+    fn password_reset(&self, reset_url: &str) -> (String, String);
+    fn unlock(&self, unlock_url: &str) -> (String, String);
+}
+
 #[derive(Clone)]
 pub struct EmailService {
     /// The built async SMTP client. `AsyncSmtpTransport<Tokio1Executor>` is
@@ -12,6 +26,8 @@ pub struct EmailService {
     transport: AsyncSmtpTransport<Tokio1Executor>,
     from_address: String,
     app_url: String,
+    /// Host-supplied branded templates; `None` uses the built-in defaults.
+    templates: Option<std::sync::Arc<dyn AuthEmailTemplates>>,
 }
 
 impl EmailService {
@@ -32,7 +48,15 @@ impl EmailService {
             transport,
             from_address,
             app_url,
+            templates: None,
         }
+    }
+
+    /// Install host-supplied branded templates for the four link mails.
+    #[must_use]
+    pub fn with_templates(mut self, templates: std::sync::Arc<dyn AuthEmailTemplates>) -> Self {
+        self.templates = Some(templates);
+        self
     }
 
     /// Build the service from an already-constructed transport — the F4
@@ -49,6 +73,7 @@ impl EmailService {
             transport,
             from_address,
             app_url,
+            templates: None,
         }
     }
 
@@ -110,6 +135,19 @@ impl EmailService {
     pub async fn send_verification_email(&self, to: &str, token: &str) -> Result<(), String> {
         let verify_url = format!("{}/verify-email?token={}", self.app_url, token);
 
+        if let Some(templates) = &self.templates {
+            let (subject, body) = templates.verification(&verify_url);
+            self.send(to, &subject, body).await?;
+            crate::otel::add_event(
+                "verification_email_sent",
+                #[cfg(feature = "telemetry")]
+                vec![opentelemetry::KeyValue::new("email.to", to.to_string())],
+                #[cfg(not(feature = "telemetry"))]
+                vec![],
+            );
+            return Ok(());
+        }
+
         let body = format!(
             r#"<!DOCTYPE html>
 <html>
@@ -148,6 +186,19 @@ impl EmailService {
 
     pub async fn send_magic_link_email(&self, to: &str, token: &str) -> Result<(), String> {
         let magic_url = format!("{}/auth/magic-link/verify?token={}", self.app_url, token);
+
+        if let Some(templates) = &self.templates {
+            let (subject, body) = templates.magic_link(&magic_url);
+            self.send(to, &subject, body).await?;
+            crate::otel::add_event(
+                "magic_link_email_sent",
+                #[cfg(feature = "telemetry")]
+                vec![opentelemetry::KeyValue::new("email.to", to.to_string())],
+                #[cfg(not(feature = "telemetry"))]
+                vec![],
+            );
+            return Ok(());
+        }
 
         let body = format!(
             r#"<!DOCTYPE html>
@@ -188,6 +239,19 @@ impl EmailService {
     pub async fn send_password_reset_email(&self, to: &str, token: &str) -> Result<(), String> {
         let reset_url = format!("{}/reset-password?token={}", self.app_url, token);
 
+        if let Some(templates) = &self.templates {
+            let (subject, body) = templates.password_reset(&reset_url);
+            self.send(to, &subject, body).await?;
+            crate::otel::add_event(
+                "password_reset_email_sent",
+                #[cfg(feature = "telemetry")]
+                vec![opentelemetry::KeyValue::new("email.to", to.to_string())],
+                #[cfg(not(feature = "telemetry"))]
+                vec![],
+            );
+            return Ok(());
+        }
+
         let body = format!(
             r#"<!DOCTYPE html>
 <html>
@@ -225,6 +289,11 @@ impl EmailService {
     }
 
     pub async fn send_unlock_email(&self, to: &str, unlock_url: &str) -> Result<(), String> {
+        if let Some(templates) = &self.templates {
+            let (subject, body) = templates.unlock(unlock_url);
+            return self.send(to, &subject, body).await;
+        }
+
         let body = format!(
             r#"<!DOCTYPE html>
 <html>
