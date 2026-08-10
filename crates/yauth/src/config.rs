@@ -293,14 +293,32 @@ pub struct PasswordPolicyConfig {
     pub min_length: usize,
     /// Maximum password length (default: 128). Prevents denial-of-service via very long passwords.
     pub max_length: usize,
-    pub require_uppercase: bool,
-    pub require_lowercase: bool,
-    pub require_digit: bool,
-    pub require_special: bool,
+    /// Character classes the password must contain (default: no requirement).
+    #[serde(default)]
+    pub character_requirements: CharacterRequirements,
     /// Reject common passwords (top 10,000 from SecLists).
     pub disallow_common_passwords: bool,
     /// Number of previous passwords to remember and prevent reuse. 0 = disabled.
     pub password_history_count: u32,
+}
+
+/// Which character classes a password must contain, beyond the length rules.
+/// One policy knob replacing the former `require_uppercase` /
+/// `require_lowercase` / `require_digit` / `require_special` boolean quartet.
+#[cfg(feature = "email-password")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CharacterRequirements {
+    /// No character-class requirement — any characters satisfy the policy
+    /// (the old all-`false` default).
+    #[default]
+    AnyCharacters,
+    /// At least one digit **or** one special (ASCII non-alphanumeric)
+    /// character.
+    DigitOrSpecial,
+    /// At least one uppercase letter, one lowercase letter, one digit **and**
+    /// one special character (the old all-`true` strict policy).
+    Complex,
 }
 
 #[cfg(feature = "email-password")]
@@ -314,10 +332,7 @@ impl Default for PasswordPolicyConfig {
         Self {
             min_length: 8,
             max_length: 128,
-            require_uppercase: false,
-            require_lowercase: false,
-            require_digit: false,
-            require_special: false,
+            character_requirements: CharacterRequirements::default(),
             disallow_common_passwords: true,
             password_history_count: 0,
         }
@@ -910,10 +925,10 @@ mod tests {
         let config = PasswordPolicyConfig::default();
         assert_eq!(config.min_length, 8);
         assert_eq!(config.max_length, 128);
-        assert!(!config.require_uppercase);
-        assert!(!config.require_lowercase);
-        assert!(!config.require_digit);
-        assert!(!config.require_special);
+        assert_eq!(
+            config.character_requirements,
+            CharacterRequirements::AnyCharacters
+        );
         assert!(config.disallow_common_passwords);
         assert_eq!(config.password_history_count, 0);
     }
@@ -968,11 +983,9 @@ mod tests {
         assert_eq!(config.id_token_ttl, Duration::from_secs(3600));
         assert!(config.claims_supported.contains(&"sub".to_string()));
         assert!(config.claims_supported.contains(&"email".to_string()));
-        assert!(
-            config
-                .claims_supported
-                .contains(&"email_verified".to_string())
-        );
+        assert!(config
+            .claims_supported
+            .contains(&"email_verified".to_string()));
         assert!(config.claims_supported.contains(&"name".to_string()));
         assert_eq!(config.claims_supported.len(), 4);
     }
