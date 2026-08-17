@@ -3,7 +3,7 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::Tls;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
-/// Host-supplied renderer for the four link mails this service sends, so the
+/// Host-supplied renderer for the five link mails this service sends, so the
 /// embedding application can brand them without forking the templates.
 ///
 /// Each method returns `(subject, body_html)`. The host receives the fully
@@ -15,6 +15,10 @@ pub trait AuthEmailTemplates: Send + Sync {
     fn magic_link(&self, magic_url: &str) -> (String, String);
     fn password_reset(&self, reset_url: &str) -> (String, String);
     fn unlock(&self, unlock_url: &str) -> (String, String);
+    /// Sent when a registration attempt hits an email that already has a
+    /// verified account. `reset_url` is a freshly minted password-reset link
+    /// so the (presumably password-forgetting) owner can get back in.
+    fn already_registered(&self, reset_url: &str) -> (String, String);
 }
 
 #[derive(Clone)]
@@ -280,6 +284,65 @@ impl EmailService {
 
         crate::otel::add_event(
             "password_reset_email_sent",
+            #[cfg(feature = "telemetry")]
+            vec![opentelemetry::KeyValue::new("email.to", to.to_string())],
+            #[cfg(not(feature = "telemetry"))]
+            vec![],
+        );
+        Ok(())
+    }
+
+    /// The mail behind the enumeration-safe duplicate-register path: the
+    /// address already has a verified account, so instead of silence the
+    /// owner gets told they have an account, with a password-reset link in
+    /// case a forgotten password is why they tried to sign up again.
+    pub async fn send_already_registered_email(&self, to: &str, token: &str) -> Result<(), String> {
+        let reset_url = format!("{}/reset-password?token={}", self.app_url, token);
+
+        if let Some(templates) = &self.templates {
+            let (subject, body) = templates.already_registered(&reset_url);
+            self.send(to, &subject, body).await?;
+            crate::otel::add_event(
+                "already_registered_email_sent",
+                #[cfg(feature = "telemetry")]
+                vec![opentelemetry::KeyValue::new("email.to", to.to_string())],
+                #[cfg(not(feature = "telemetry"))]
+                vec![],
+            );
+            return Ok(());
+        }
+
+        let body = format!(
+            r#"<!DOCTYPE html>
+<html>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <h2 style="color: #1a1a1a;">You already have an account</h2>
+  <p style="color: #4a4a4a; line-height: 1.6;">
+    Someone — hopefully you — tried to sign up with this email address, but an
+    account already exists for it. You can sign in with your existing password,
+    or reset it below if you've forgotten it.
+  </p>
+  <div style="margin: 30px 0;">
+    <a href="{reset_url}" style="background-color: #18181b; color: #fafafa; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500;">
+      Reset Password
+    </a>
+  </div>
+  <p style="color: #6a6a6a; font-size: 14px;">
+    Or copy and paste this link: <br/>
+    <a href="{reset_url}" style="color: #18181b;">{reset_url}</a>
+  </p>
+  <p style="color: #9a9a9a; font-size: 12px; margin-top: 40px;">
+    This link expires in 1 hour. If this wasn't you, no action is needed — your
+    account is unchanged and your password still works.
+  </p>
+</body>
+</html>"#
+        );
+
+        self.send(to, "You already have an account", body).await?;
+
+        crate::otel::add_event(
+            "already_registered_email_sent",
             #[cfg(feature = "telemetry")]
             vec![opentelemetry::KeyValue::new("email.to", to.to_string())],
             #[cfg(not(feature = "telemetry"))]

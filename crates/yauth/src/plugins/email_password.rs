@@ -134,6 +134,96 @@ fn enumeration_safe_register_ok() -> Response {
         .into_response()
 }
 
+/// Mail the owner of an already-registered address after a duplicate signup
+/// attempt: a fresh verification link for a still-unverified account
+/// (mirroring `resend_verification`), or an "already registered" notice with a
+/// password-reset link for a verified one (mirroring `forgot_password`'s
+/// mint). Best-effort by contract — every failure is recorded and swallowed so
+/// the caller's enumeration-safe 200 is unaffected.
+async fn notify_existing_account(state: &YAuthState, user: &crate::domain::User) {
+    if !user.email_verified {
+        let _ = state
+            .repos
+            .email_verifications
+            .delete_all_for_user(user.id)
+            .await;
+
+        let token = crypto::generate_token();
+        let token_hash = crypto::hash_token(&token);
+        let expires_at =
+            chrono::Utc::now() + chrono::Duration::hours(VERIFICATION_TOKEN_EXPIRY_HOURS);
+
+        let new_verification = crate::domain::NewEmailVerification {
+            id: Uuid::now_v7(),
+            user_id: user.id,
+            token_hash,
+            expires_at: expires_at.naive_utc(),
+            created_at: chrono::Utc::now().naive_utc(),
+        };
+
+        if let Err(e) = state
+            .repos
+            .email_verifications
+            .create(new_verification)
+            .await
+        {
+            crate::otel::record_error("verification_create_failed", &e);
+            return;
+        }
+
+        if let Some(ref email_service) = state.email_service
+            && let Err(e) = email_service
+                .send_verification_email(&user.email, &token)
+                .await
+        {
+            crate::otel::record_error("send_verification_email_failed", &e);
+        }
+
+        crate::otel::add_event(
+            "verification_email_resent",
+            #[cfg(feature = "telemetry")]
+            vec![opentelemetry::KeyValue::new(
+                "user.email",
+                user.email.clone(),
+            )],
+            #[cfg(not(feature = "telemetry"))]
+            vec![],
+        );
+        return;
+    }
+
+    let _ = state
+        .repos
+        .password_resets
+        .delete_unused_for_user(user.id)
+        .await;
+
+    let token = crypto::generate_token();
+    let token_hash = crypto::hash_token(&token);
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(RESET_TOKEN_EXPIRY_HOURS);
+
+    let new_reset = crate::domain::NewPasswordReset {
+        id: Uuid::now_v7(),
+        user_id: user.id,
+        token_hash,
+        expires_at: expires_at.naive_utc(),
+        created_at: chrono::Utc::now().naive_utc(),
+    };
+
+    if let Err(e) = state.repos.password_resets.create(new_reset).await {
+        crate::otel::record_error("password_reset_create_failed", &e);
+        return;
+    }
+
+    if let Some(ref email_service) = state.email_service
+        && let Err(e) = email_service
+            .send_already_registered_email(&user.email, &token)
+            .await
+    {
+        crate::otel::record_error("send_already_registered_email_failed", &e);
+    }
+}
+
 async fn register(
     State(state): State<YAuthState>,
     Json(input): Json<RegisterRequest>,
@@ -211,7 +301,7 @@ async fn register(
             api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?;
 
-        if existing.is_some() {
+        if let Some(existing) = existing {
             crate::otel::add_event(
                 "register_duplicate_email",
                 #[cfg(feature = "telemetry")]
@@ -219,9 +309,22 @@ async fn register(
                 #[cfg(not(feature = "telemetry"))]
                 vec![],
             );
-            // Return a generic 200 — identical shape to "check your inbox" —
-            // so callers cannot distinguish registered vs unregistered emails
-            // (OWASP A07: identification and authentication failures).
+            // The response must stay a generic 200 — identical shape to
+            // "check your inbox" — so callers cannot distinguish registered
+            // vs unregistered emails (OWASP A07). But silence towards the
+            // MAILBOX is not required for that, and it strands the account
+            // owner (they were promised an email and get nothing). So mail
+            // the address, best-effort — errors are recorded and the generic
+            // 200 still goes out:
+            // * unverified account → re-mint and re-send the verification
+            //   link (the common double-signup case), exactly as
+            //   `resend_verification` would;
+            // * verified account → "you already have an account", carrying a
+            //   fresh password-reset link (a forgotten password is the usual
+            //   reason for re-registering). Both mints are already reachable
+            //   unauthenticated via /resend-verification and /forgot-password,
+            //   so this adds no new capability.
+            notify_existing_account(&state, &existing).await;
             return Ok(enumeration_safe_register_ok());
         }
     }
