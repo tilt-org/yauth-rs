@@ -7,7 +7,7 @@
 //! test x backend combination. When unset, all helpers are no-ops.
 //!
 //! Usage:
-//!   OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-local.yackey.cloud \
+//!   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
 //!   OTEL_SERVICE_NAME=yauth-conformance-tests \
 //!   cargo test --features full --test repo_conformance -- --test-threads=4
 
@@ -25,20 +25,20 @@ static PROVIDER: Mutex<Option<SdkTracerProvider>> = Mutex::new(None);
 /// Initialize the tracing + OTel pipeline once. No-op if `OTEL_EXPORTER_OTLP_ENDPOINT` is unset.
 pub fn ensure_init() {
     INIT.call_once(|| {
-        if std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok() {
-            let provider = init_provider();
-            init_tracing();
-            *PROVIDER.lock().unwrap() = Some(provider);
-        }
+        let Ok(endpoint) = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT") else {
+            return;
+        };
+
+        let provider = init_provider(&endpoint);
+        init_tracing();
+        *PROVIDER.lock().unwrap() = Some(provider);
     });
 }
 
-fn init_provider() -> SdkTracerProvider {
+fn init_provider(endpoint: &str) -> SdkTracerProvider {
     use opentelemetry_otlp::{SpanExporter, WithExportConfig};
     use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 
-    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-        .unwrap_or_else(|_| "https://otel-local.yackey.cloud".into());
     let service_name =
         std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "yauth-conformance-tests".into());
 
