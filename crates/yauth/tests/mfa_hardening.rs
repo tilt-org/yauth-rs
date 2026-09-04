@@ -33,15 +33,18 @@ use axum::Router;
 use axum::http::StatusCode;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
-use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use totp_rs::{Algorithm, Secret, TOTP};
-use tower::ServiceExt;
 use uuid::Uuid;
 
-use yauth::backends::memory::InMemoryBackend;
 use yauth::plugins::mfa::MFA_UNAVAILABLE_ERROR;
 use yauth::prelude::*;
+
+mod memory_http;
+use memory_http::request;
+
+/// The shared harness carries whatever this suite records off the bus.
+type Harness = memory_http::Harness<EventLog>;
 
 const ISSUER: &str = "YAuth Test";
 const PASSWORD: &str = "correct-horse-battery-staple";
@@ -165,117 +168,34 @@ impl YAuthPlugin for RecorderPlugin {
 // Harness
 // ---------------------------------------------------------------------------
 
-struct Harness {
-    app: Router,
-    state: YAuthState,
-    events: EventLog,
-}
-
+/// The shared memory-backend app, plus the MFA plugin this suite exists to
+/// exercise. `cipher` is the one knob: `None` is the fail-closed posture.
 async fn harness(cipher: Option<Arc<dyn TotpSecretCipher>>) -> Harness {
     let events = EventLog::default();
-    let backend = InMemoryBackend::new();
-
-    let auth = YAuthBuilder::new(
-        backend,
-        YAuthConfig {
-            base_url: "http://localhost:3000".to_string(),
-            session_cookie_name: "session".to_string(),
-            session_ttl: Duration::from_secs(3600),
-            allow_signups: true,
-            ..Default::default()
+    memory_http::harness(
+        events.clone(),
+        Box::new(RecorderPlugin(events)),
+        |builder| {
+            builder.with_mfa(MfaConfig {
+                issuer: ISSUER.to_string(),
+                // Two codes, not the production ten: every enrolment in this
+                // file pays one Argon2id hash per code, and debug-profile
+                // Argon2 is ~10x release.
+                backup_code_count: 2,
+                secret_cipher: cipher,
+            })
         },
     )
-    .with_email_password(EmailPasswordConfig {
-        min_password_length: 8,
-        require_email_verification: false,
-        hibp_check: false,
-        ..Default::default()
-    })
-    .with_mfa(MfaConfig {
-        issuer: ISSUER.to_string(),
-        // Two codes, not the production ten: every enrolment in this file pays
-        // one Argon2id hash per code, and debug-profile Argon2 is ~10x release.
-        backup_code_count: 2,
-        secret_cipher: cipher,
-    })
-    .with_plugin(Box::new(RecorderPlugin(events.clone())))
-    .build()
     .await
-    .expect("failed to build YAuth");
-
-    let state = auth.state().clone();
-    let app = Router::new()
-        .nest("/auth", auth.router())
-        .with_state(state.clone());
-
-    Harness { app, state, events }
-}
-
-async fn request(
-    app: &Router,
-    method: &str,
-    uri: &str,
-    body: Option<Value>,
-    cookie: Option<&str>,
-) -> (StatusCode, Value, Option<String>) {
-    let mut req = axum::http::Request::builder()
-        .method(method)
-        .uri(uri)
-        .header("content-type", "application/json");
-
-    if let Some(c) = cookie {
-        req = req.header("cookie", c);
-    }
-
-    let body_str = body.map(|b| serde_json::to_string(&b).unwrap());
-    let req = req
-        .body(axum::body::Body::from(body_str.unwrap_or_default()))
-        .unwrap();
-
-    let response = app.clone().oneshot(req).await.unwrap();
-    let status = response.status();
-    let set_cookie = response
-        .headers()
-        .get("set-cookie")
-        .map(|v| v.to_str().unwrap().to_string())
-        .map(|c| c.split(';').next().unwrap().to_string());
-
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let parsed = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-
-    (status, parsed, set_cookie)
 }
 
 /// Register a user and return their id. The account has no second factor yet.
 async fn register(h: &Harness, email: &str) -> Uuid {
-    let (status, body, _) = request(
-        &h.app,
-        "POST",
-        "/auth/register",
-        Some(json!({ "email": email, "password": PASSWORD })),
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED, "register failed: {body}");
-
-    let (status, body, cookie) = login(h, email).await;
-    assert_eq!(status, StatusCode::OK, "login failed: {body}");
-    let cookie = cookie.expect("login must set a session cookie");
-
-    let (status, body, _) = request(&h.app, "GET", "/auth/session", None, Some(&cookie)).await;
-    assert_eq!(status, StatusCode::OK, "session failed: {body}");
-    body["user"]["id"].as_str().unwrap().parse().unwrap()
+    memory_http::register(h, email, PASSWORD).await.0
 }
 
 async fn login(h: &Harness, email: &str) -> (StatusCode, Value, Option<String>) {
-    request(
-        &h.app,
-        "POST",
-        "/auth/login",
-        Some(json!({ "email": email, "password": PASSWORD })),
-        None,
-    )
-    .await
+    memory_http::login(h, email, PASSWORD).await
 }
 
 /// Log in expecting the account to be past the password step but gated on MFA.

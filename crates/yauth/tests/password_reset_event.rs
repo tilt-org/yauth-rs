@@ -22,15 +22,18 @@ use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::http::StatusCode;
-use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tower::ServiceExt;
 use uuid::Uuid;
 
 use yauth::auth::crypto::hash_token;
-use yauth::backends::memory::InMemoryBackend;
 use yauth::domain::NewPasswordReset;
 use yauth::prelude::*;
+
+mod memory_http;
+use memory_http::{login, register, request};
+
+/// The shared harness carries whatever this suite records off the bus.
+type Harness = memory_http::Harness<EventLog>;
 
 const PASSWORD: &str = "correct-horse-battery-staple";
 const NEW_PASSWORD: &str = "recovered-horse-battery-staple";
@@ -76,111 +79,12 @@ impl YAuthPlugin for RecorderPlugin {
 // Harness
 // ---------------------------------------------------------------------------
 
-struct Harness {
-    app: Router,
-    state: YAuthState,
-    events: EventLog,
-}
-
+/// The shared memory-backend app. This suite needs no extra plugin: everything
+/// it drives — register, login, change-password, reset-password — is the
+/// email-password plugin the shared harness already configures.
 async fn harness() -> Harness {
     let events = EventLog::default();
-    let backend = InMemoryBackend::new();
-
-    let auth = YAuthBuilder::new(
-        backend,
-        YAuthConfig {
-            base_url: "http://localhost:3000".to_string(),
-            session_cookie_name: "session".to_string(),
-            session_ttl: Duration::from_secs(3600),
-            allow_signups: true,
-            ..Default::default()
-        },
-    )
-    .with_email_password(EmailPasswordConfig {
-        min_password_length: 8,
-        require_email_verification: false,
-        hibp_check: false,
-        ..Default::default()
-    })
-    .with_plugin(Box::new(RecorderPlugin(events.clone())))
-    .build()
-    .await
-    .expect("failed to build YAuth");
-
-    let state = auth.state().clone();
-    let app = Router::new()
-        .nest("/auth", auth.router())
-        .with_state(state.clone());
-
-    Harness { app, state, events }
-}
-
-async fn request(
-    app: &Router,
-    method: &str,
-    uri: &str,
-    body: Option<Value>,
-    cookie: Option<&str>,
-) -> (StatusCode, Value, Option<String>) {
-    let mut req = axum::http::Request::builder()
-        .method(method)
-        .uri(uri)
-        .header("content-type", "application/json");
-
-    if let Some(c) = cookie {
-        req = req.header("cookie", c);
-    }
-
-    let body_str = body.map(|b| serde_json::to_string(&b).unwrap());
-    let req = req
-        .body(axum::body::Body::from(body_str.unwrap_or_default()))
-        .unwrap();
-
-    let response = app.clone().oneshot(req).await.unwrap();
-    let status = response.status();
-    let set_cookie = response
-        .headers()
-        .get("set-cookie")
-        .map(|v| v.to_str().unwrap().to_string())
-        .map(|c| c.split(';').next().unwrap().to_string());
-
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let parsed = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-
-    (status, parsed, set_cookie)
-}
-
-/// Register, log in, and return `(user_id, session_cookie)`.
-async fn register(h: &Harness, email: &str) -> (Uuid, String) {
-    let (status, body, _) = request(
-        &h.app,
-        "POST",
-        "/auth/register",
-        Some(json!({ "email": email, "password": PASSWORD })),
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED, "register failed: {body}");
-
-    let (status, body, cookie) = login(h, email, PASSWORD).await;
-    assert_eq!(status, StatusCode::OK, "login failed: {body}");
-    let cookie = cookie.expect("login must set a session cookie");
-
-    let (status, body, _) = request(&h.app, "GET", "/auth/session", None, Some(&cookie)).await;
-    assert_eq!(status, StatusCode::OK, "session failed: {body}");
-    let user_id = body["user"]["id"].as_str().unwrap().parse().unwrap();
-    (user_id, cookie)
-}
-
-async fn login(h: &Harness, email: &str, password: &str) -> (StatusCode, Value, Option<String>) {
-    request(
-        &h.app,
-        "POST",
-        "/auth/login",
-        Some(json!({ "email": email, "password": password })),
-        None,
-    )
-    .await
+    memory_http::harness(events.clone(), Box::new(RecorderPlugin(events)), |b| b).await
 }
 
 /// Put a reset token on file the way `forgot_password` does.
@@ -226,7 +130,7 @@ async fn reset_password(h: &Harness, token: &str, password: &str) -> (StatusCode
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completing_a_reset_publishes_password_changed() {
     let h = harness().await;
-    let (user_id, _) = register(&h, "reset-event@example.com").await;
+    let (user_id, _) = register(&h, "reset-event@example.com", PASSWORD).await;
     assert!(
         h.events.password_changes().is_empty(),
         "register + login must not look like a password change"
@@ -266,7 +170,7 @@ async fn completing_a_reset_publishes_password_changed() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_refused_reset_publishes_nothing() {
     let h = harness().await;
-    let (user_id, _) = register(&h, "reset-refused@example.com").await;
+    let (user_id, _) = register(&h, "reset-refused@example.com", PASSWORD).await;
 
     // Unknown token.
     let (status, body) = reset_password(&h, "no-such-token", NEW_PASSWORD).await;
@@ -305,7 +209,7 @@ async fn a_refused_reset_publishes_nothing() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reset_and_change_publish_the_same_event() {
     let h = harness().await;
-    let (user_id, cookie) = register(&h, "reset-mirror@example.com").await;
+    let (user_id, cookie) = register(&h, "reset-mirror@example.com", PASSWORD).await;
 
     let (status, body, _) = request(
         &h.app,
