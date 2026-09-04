@@ -105,12 +105,22 @@ impl TotpSecretCipher for TestCipher {
 /// `(user_id, reason)` pairs seen on the bus.
 type Failures = Vec<(Option<Uuid>, String)>;
 
+/// `(user_id, method)` pairs from every `MfaEnabled` seen on the bus.
+type Enablements = Vec<(Uuid, String)>;
+
 #[derive(Clone, Default)]
-struct EventLog(Arc<Mutex<Failures>>);
+struct EventLog {
+    failures: Arc<Mutex<Failures>>,
+    enablements: Arc<Mutex<Enablements>>,
+}
 
 impl EventLog {
     fn failures(&self) -> Failures {
-        self.0.lock().unwrap().clone()
+        self.failures.lock().unwrap().clone()
+    }
+
+    fn enablements(&self) -> Enablements {
+        self.enablements.lock().unwrap().clone()
     }
 }
 
@@ -130,8 +140,22 @@ impl YAuthPlugin for RecorderPlugin {
     }
 
     fn on_event(&self, event: &AuthEvent, _ctx: &PluginContext) -> EventResponse {
-        if let AuthEvent::MfaVerificationFailed { user_id, reason } = event {
-            self.0.0.lock().unwrap().push((*user_id, reason.clone()));
+        match event {
+            AuthEvent::MfaVerificationFailed { user_id, reason } => {
+                self.0
+                    .failures
+                    .lock()
+                    .unwrap()
+                    .push((*user_id, reason.clone()));
+            }
+            AuthEvent::MfaEnabled { user_id, method } => {
+                self.0
+                    .enablements
+                    .lock()
+                    .unwrap()
+                    .push((*user_id, method.clone()));
+            }
+            _ => {}
         }
         EventResponse::Continue
     }
@@ -702,6 +726,77 @@ async fn a_backup_code_authenticates_once_and_is_consumed() {
     assert!(cookie.is_none());
 }
 
+/// Regeneration replaces the set wholesale. Both enrolment paths now hash the
+/// whole set concurrently and only then delete-and-insert (review findings 21
+/// and F21), so this pins what that reordering must not disturb: every issued
+/// code is on file exactly once, none of the superseded ones survives, and the
+/// count is the configured one rather than whatever the concurrent hashing
+/// happened to finish.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn regenerating_replaces_the_whole_backup_code_set() {
+    let h = harness(Some(TestCipher::arc(0x0f))).await;
+    let user = enrol(&h, "regen@test.local").await;
+
+    // Regeneration is a protected route, so authenticate through the factor.
+    let pending = login_for_challenge(&h, &user.email).await;
+    let (status, body, cookie) = verify(&h, &pending, &code_at(&user.totp, 0)).await;
+    assert_eq!(status, StatusCode::OK, "verify failed: {body}");
+    let cookie = cookie.expect("a completed verify mints a session");
+
+    let (status, body, _) = request(
+        &h.app,
+        "POST",
+        "/auth/mfa/backup-codes/regenerate",
+        None,
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "regenerate failed: {body}");
+
+    let fresh: Vec<String> = body["backup_codes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        fresh.len(),
+        user.backup_codes.len(),
+        "the configured number of codes, every time"
+    );
+
+    let stored = h
+        .state
+        .repos
+        .backup_codes
+        .find_unused_by_user_id(user.user_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        stored.len(),
+        fresh.len(),
+        "one row per issued code — no drops, no duplicates: {stored:?}"
+    );
+
+    for code in &fresh {
+        let matches = stored
+            .iter()
+            .filter(|row| {
+                yauth::auth::password::verify_password_sync(code, &row.code_hash).unwrap_or(false)
+            })
+            .count();
+        assert_eq!(matches, 1, "every issued code must be on file once: {code}");
+    }
+    for old in &user.backup_codes {
+        assert!(
+            !stored.iter().any(|row| {
+                yauth::auth::password::verify_password_sync(old, &row.code_hash).unwrap_or(false)
+            }),
+            "a superseded code must not survive: {old}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // S2e — enabling a factor cuts the other sessions
 // ---------------------------------------------------------------------------
@@ -747,6 +842,63 @@ async fn confirming_totp_revokes_every_other_session() {
         status,
         StatusCode::OK,
         "the caller's own session must survive"
+    );
+}
+
+/// The sweep above is invisible outside yauth unless it is announced. A host
+/// that keeps its own record of where an account is signed in — a device list,
+/// a push registry — learns about the cut sessions from `MfaEnabled` or not at
+/// all, and would keep showing a killed device as currently signed in (review
+/// finding 35).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn confirming_totp_publishes_mfa_enabled() {
+    let h = harness(Some(TestCipher::arc(0x21))).await;
+    let email = "mfa-enabled-event@test.local";
+    let user_id = register(&h, email).await;
+
+    let (_, _, cookie) = login(&h, email).await;
+    let cookie = cookie.expect("pre-MFA login must set a session cookie");
+
+    let (status, body, _) =
+        request(&h.app, "POST", "/auth/mfa/totp/setup", None, Some(&cookie)).await;
+    assert_eq!(status, StatusCode::OK, "setup failed: {body}");
+    assert!(
+        h.events.enablements().is_empty(),
+        "an unconfirmed setup has not enabled anything: {:?}",
+        h.events.enablements()
+    );
+    let totp = totp_for(body["secret"].as_str().unwrap(), email);
+
+    // A refused confirm announces nothing either.
+    let (status, body, _) = request(
+        &h.app,
+        "POST",
+        "/auth/mfa/totp/confirm",
+        Some(json!({ "code": "000000" })),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        h.events.enablements().is_empty(),
+        "a refused confirm must not look like an enrolment: {:?}",
+        h.events.enablements()
+    );
+
+    let (status, body, _) = request(
+        &h.app,
+        "POST",
+        "/auth/mfa/totp/confirm",
+        Some(json!({ "code": code_at(&totp, 0) })),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "confirm failed: {body}");
+
+    assert_eq!(
+        h.events.enablements(),
+        vec![(user_id, "totp".to_string())],
+        "exactly one MfaEnabled, carrying the enrolling account and its method"
     );
 }
 

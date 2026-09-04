@@ -1133,9 +1133,9 @@ async fn reset_password(
         .delete_unused_for_user(reset.user_id)
         .await;
 
-    session::delete_all_user_sessions(&state, reset.user_id)
-        .await
-        .ok();
+    // No caller session to keep: the reset flow proves ownership with an emailed
+    // token, not a cookie, so every session goes (review finding 44).
+    session::delete_sessions_except(&state, reset.user_id, None).await;
 
     // Same event, same payload, same position in the sequence as
     // `change_password` below: the hash is stored and the sessions are gone
@@ -1271,15 +1271,13 @@ async fn change_password(
         api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
     })?;
 
-    if let Some(cookie) = jar.get(&state.config.session_cookie_name) {
-        session::delete_other_user_sessions(&state, user.id, cookie.value())
-            .await
-            .ok();
-    } else {
-        session::delete_all_user_sessions(&state, user.id)
-            .await
-            .ok();
-    }
+    session::delete_sessions_except(
+        &state,
+        user.id,
+        jar.get(&state.config.session_cookie_name)
+            .map(|cookie| cookie.value()),
+    )
+    .await;
 
     state.emit_event(&AuthEvent::PasswordChanged { user_id: user.id });
 

@@ -421,11 +421,65 @@ fn is_backup_code_shape(candidate: &str) -> bool {
 /// rows, and a stolen table could be attacked once for every account at the
 /// speed of a hash-per-nanosecond GPU.
 ///
-/// Cost: `Argon2::default()` (~35ms release) × `backup_code_count` (10) ≈ 0.35s
-/// on the two rare paths that touch every code — enrolment and verification —
-/// and it runs on a blocking thread, off the async executor.
+/// Cost: `Argon2::default()` (~35ms release) on a blocking thread, off the
+/// async executor. Enrolment hashes the whole set at once — see
+/// [`hash_backup_codes`] — while verification walks them one at a time.
 async fn hash_backup_code(code: &str) -> Result<String, password_hash::Error> {
     password::hash_password(code).await
+}
+
+/// Generate `count` codes and hash all of them concurrently, returning
+/// `(plaintext, PHC hashes)` (review findings 21 and F21).
+///
+/// **Concurrently**, because serially this is `backup_code_count` × ~35 ms
+/// ≈ 0.35 s of dead time on the two enrolment paths, and 20-40× that in a debug
+/// build — most of the wall clock of the fork's own MFA suites. Each hash
+/// already runs on its own blocking thread; all this does is start them before
+/// awaiting any of them. The cost is that the Argon2 memory blocks are now
+/// concurrent rather than sequential: `count` × 19 MiB in flight per enrolment
+/// instead of 19 MiB. That is bounded by `backup_code_count` and is only
+/// reachable by an authenticated caller, but it *is* the amplifier that
+/// `POST /mfa/totp/setup` and `/recovery-codes/regenerate` hand to a host that
+/// leaves them off its rate-limit table (review finding 6); the host must keep
+/// them on it.
+///
+/// The order of the returned hashes does not track the order of the codes and
+/// does not need to: each row stores one independent hash and verification
+/// walks the whole unused set.
+///
+/// Callers must hash **before** deleting the codes on file. The two operations
+/// are not one transaction — the repository trait exposes single-row `create`
+/// and there is no `create_many` to widen it with — so between the delete and
+/// the last insert the player has fewer codes than they hold on paper. A client
+/// disconnect drops the handler mid-sequence (hyper half-closes by default), so
+/// that window is reachable in practice, not just in theory. Hashing first
+/// shrinks it from ~0.35 s of Argon2 to the round-trips alone.
+async fn hash_backup_codes(
+    count: usize,
+) -> Result<(Vec<String>, Vec<String>), (StatusCode, Json<serde_json::Value>)> {
+    let codes = generate_backup_codes(count);
+
+    let mut hashing = tokio::task::JoinSet::new();
+    for code in &codes {
+        let code = code.clone();
+        hashing.spawn(async move { hash_backup_code(&code).await });
+    }
+
+    let mut hashes = Vec::with_capacity(codes.len());
+    while let Some(joined) = hashing.join_next().await {
+        let hash = joined
+            .expect("backup-code hash task panicked")
+            .map_err(|e| {
+                crate::otel::record_error("mfa_backup_code_hash_failed", &e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Internal error" })),
+                )
+            })?;
+        hashes.push(hash);
+    }
+
+    Ok((codes, hashes))
 }
 
 /// Check a candidate against one stored backup-code hash.
@@ -472,22 +526,22 @@ fn build_totp(
     })
 }
 
-/// Store backup codes in the database for a user, returning the plaintext codes.
-async fn store_backup_codes(
+/// Insert already-hashed backup codes for a user.
+///
+/// Sequential on purpose. `BackupCodeRepository` exposes a single-row `create`
+/// and nothing else; a batch insert would mean widening a sealed trait across
+/// all eleven backend implementations in a vendored fork of an archived
+/// upstream, to save `backup_code_count` round-trips on a path a player walks
+/// once. The expensive half — the Argon2id hashing — is already done by the
+/// time this is called (see [`hash_backup_codes`]), which is what actually
+/// shortens the window in which the player holds more codes than the database
+/// does.
+async fn insert_backup_codes(
     state: &YAuthState,
     user_id: Uuid,
-    count: usize,
-) -> Result<Vec<String>, (StatusCode, Json<serde_json::Value>)> {
-    let codes = generate_backup_codes(count);
-
-    for code in &codes {
-        let code_hash = hash_backup_code(code).await.map_err(|e| {
-            crate::otel::record_error("mfa_backup_code_hash_failed", &e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "Internal error" })),
-            )
-        })?;
+    hashes: Vec<String>,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    for code_hash in hashes {
         let now = chrono::Utc::now().naive_utc();
         let new_code = crate::domain::NewBackupCode {
             id: Uuid::now_v7(),
@@ -510,7 +564,7 @@ async fn store_backup_codes(
             })?;
     }
 
-    Ok(codes)
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -604,11 +658,20 @@ async fn setup_totp(
         err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
     })?;
 
-    // Delete any existing backup codes and generate fresh ones
+    // Generate and hash the fresh set BEFORE dropping the one on file (review
+    // findings 21 and F21): the delete and the inserts are not one transaction,
+    // so everything between them is time the player has no usable codes, and a
+    // handler that is dropped in that gap — a client disconnect is enough —
+    // leaves them with none at all. Hashing first takes the Argon2id half of
+    // that window out of it. Hashing here rather than at the top of the handler
+    // also means a request that 409s on an already-enabled account, or fails to
+    // seal, never pays for it.
+    let (backup_codes, code_hashes) = hash_backup_codes(state.mfa_config.backup_code_count).await?;
+
+    // Delete any existing backup codes and store the fresh ones
     let _ = state.repos.backup_codes.delete_all_for_user(user.id).await;
 
-    let backup_codes =
-        store_backup_codes(&state, user.id, state.mfa_config.backup_code_count).await?;
+    insert_backup_codes(&state, user.id, code_hashes).await?;
 
     crate::otel::add_event(
         "mfa_totp_setup",
@@ -750,17 +813,28 @@ async fn confirm_totp(
 
     // Enabling a second factor re-establishes the account's security level, so
     // every session that predates it — including one an attacker may already
-    // hold — is cut, keeping only the caller's own (finding S2e). Mirrors the
-    // password-change handler in `email_password.rs`.
-    if let Some(cookie) = jar.get(&state.config.session_cookie_name) {
-        session::delete_other_user_sessions(&state, user.id, cookie.value())
-            .await
-            .ok();
-    } else {
-        session::delete_all_user_sessions(&state, user.id)
-            .await
-            .ok();
-    }
+    // hold — is cut, keeping only the caller's own (finding S2e). Shares
+    // `delete_sessions_except` with the two password handlers in
+    // `email_password.rs`, which run the same sweep for the same reason.
+    session::delete_sessions_except(
+        &state,
+        user.id,
+        jar.get(&state.config.session_cookie_name)
+            .map(|cookie| cookie.value()),
+    )
+    .await;
+
+    // The sweep above kills yauth's own sessions and nothing else. A host that
+    // keeps its own view of "where this account is signed in" — a device list,
+    // a push-notification registry — has no way to learn that those sessions
+    // are gone unless it is told, and would go on presenting a cut device as
+    // currently signed in (review finding 35). Emitted here, after the sweep and
+    // before the audit-log write, exactly where `change_password` and
+    // `reset_password` emit `PasswordChanged` for the identical reason.
+    state.emit_event(&AuthEvent::MfaEnabled {
+        user_id: user.id,
+        method: "totp".to_string(),
+    });
 
     crate::otel::add_event(
         "mfa_totp_enabled",
@@ -1351,6 +1425,12 @@ async fn regenerate_backup_codes(
         ));
     }
 
+    // Hash the replacement set before dropping the one on file — same reason as
+    // enrolment (review findings 21 and F21): the delete and the inserts are not
+    // one transaction, and a handler dropped in between leaves the player with
+    // no codes at all.
+    let (codes, code_hashes) = hash_backup_codes(state.mfa_config.backup_code_count).await?;
+
     // Delete old backup codes
     state
         .repos
@@ -1362,8 +1442,8 @@ async fn regenerate_backup_codes(
             err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?;
 
-    // Generate and store fresh backup codes
-    let codes = store_backup_codes(&state, user.id, state.mfa_config.backup_code_count).await?;
+    // Store the fresh backup codes
+    insert_backup_codes(&state, user.id, code_hashes).await?;
 
     crate::otel::add_event(
         "mfa_backup_codes_regenerated",
