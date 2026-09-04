@@ -51,6 +51,61 @@ fn totp_replay_key(user_id: Uuid, code: &str) -> String {
     format!("mfa_totp_used:{}:{}", user_id, crypto::hash_token(code))
 }
 
+/// Body stored behind a replay marker. Only its *presence* carries meaning.
+fn totp_replay_marker() -> serde_json::Value {
+    serde_json::json!({ "used": true })
+}
+
+/// Has this code already been consumed? Read-only.
+///
+/// One lookup, one error tag, one 500 mapping, so the enrolment and login
+/// handlers cannot drift apart (review finding 20). `verify_mfa` does not read
+/// the marker — it takes it with [`claim_totp_code`] before checking the code,
+/// which is the same question asked atomically.
+async fn totp_code_already_used(state: &YAuthState, replay_key: &str) -> Result<bool, ApiError> {
+    state
+        .repos
+        .challenges
+        .get_challenge(replay_key)
+        .await
+        .map(|marker| marker.is_some())
+        .map_err(|e| {
+            crate::otel::record_error("mfa_replay_lookup_failed", &e);
+            api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+        })
+}
+
+/// Take the single-use marker for this code, or report that someone else holds
+/// it. `true` means this request now owns the code for
+/// [`TOTP_REPLAY_TTL_SECS`] and must release it if the request does not end in
+/// a session.
+///
+/// Set-if-absent rather than read-then-write (review finding 4): two requests
+/// carrying the same valid code used to both observe "unused" and both mint a
+/// session, so the S2a single-use property did not survive concurrency.
+async fn claim_totp_code(state: &YAuthState, replay_key: &str) -> Result<bool, ApiError> {
+    state
+        .repos
+        .challenges
+        .try_claim_challenge(replay_key, totp_replay_marker(), TOTP_REPLAY_TTL_SECS)
+        .await
+        .map_err(|e| {
+            crate::otel::record_error("mfa_replay_claim_failed", &e);
+            api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+        })
+}
+
+/// Give back a claim taken for a code that did not authenticate.
+///
+/// Best-effort by design: the marker expires on its own, and failing to release
+/// it costs at most one skipped time-step, so it must never turn a 401 into a
+/// 500.
+async fn release_totp_code_claim(state: &YAuthState, replay_key: &str) {
+    if let Err(e) = state.repos.challenges.delete_challenge(replay_key).await {
+        crate::otel::record_error("mfa_replay_marker_release_failed", &e);
+    }
+}
+
 /// Resolve the configured TOTP-secret cipher, or refuse.
 ///
 /// Fail-closed seam for finding B11: with no cipher there is no safe way to
@@ -332,6 +387,31 @@ fn generate_backup_codes(count: usize) -> Vec<String> {
         .collect()
 }
 
+/// Does `candidate` have the exact literal shape [`generate_backup_codes`]
+/// emits — `xxxx-xxxx-xxxx`, twelve hex characters in three dash-separated
+/// groups of four?
+///
+/// Gate for `verify_mfa`'s backup-code branch (review finding 6). Without it a
+/// wrong six-digit TOTP code costs one Argon2id verify (~19 MiB, tens of
+/// milliseconds) per unused stored code, turning the cheapest possible wrong
+/// guess into a memory-hard amplifier and leaking the remaining-code count
+/// through response latency.
+///
+/// Behaviour-preserving: nothing on this path normalises the submitted string
+/// — no trimming, no case folding, no dash stripping — so anything this
+/// predicate rejects could never have verified against a stored PHC hash of a
+/// generated code. Pre-#263 codes were `xxxx-xxxx` and are rejected here, but
+/// they were already dead: they are stored as bare SHA-256, which
+/// [`verify_backup_code`] refuses for not being a PHC string.
+fn is_backup_code_shape(candidate: &str) -> bool {
+    let bytes = candidate.as_bytes();
+    bytes.len() == 14
+        && bytes.iter().enumerate().all(|(index, byte)| match index {
+            4 | 9 => *byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        })
+}
+
 /// Hash one backup code for storage (finding S2c).
 ///
 /// Argon2id via the same primitives the fork uses for passwords, storing the
@@ -609,6 +689,10 @@ async fn confirm_totp(
             )
         })?;
 
+    // Build TOTP from stored secret and verify the code
+    let totp = build_totp(&secret_base32, &state.mfa_config.issuer, &user.email)?;
+    let code_matches = totp.check_current(&input.code).unwrap_or(false);
+
     // Replay closure, enrolment side (finding S2a): a code already consumed by a
     // login `verify` is refused here too, so one observed over the user's
     // shoulder cannot be spent at enrolment inside its window. Confirm only
@@ -616,22 +700,15 @@ async fn confirm_totp(
     // already-authenticated ceremony with no replay value of its own, and
     // burning the confirm code would lock the just-enrolled user out of their
     // own first login for the rest of the window. Only `verify_mfa` burns.
+    //
+    // The read comes after `check_current` (review finding 51): a code that does
+    // not match is rejected either way, so a wrong guess should not pay a
+    // round-trip to the challenge store. `verify_mfa` deliberately keeps the
+    // opposite order — it must *claim* the marker before checking.
     let replay_key = totp_replay_key(user.id, &input.code);
-    let already_used = state
-        .repos
-        .challenges
-        .get_challenge(&replay_key)
-        .await
-        .map_err(|e| {
-            crate::otel::record_error("mfa_replay_lookup_failed", &e);
-            err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
-        })?
-        .is_some();
+    let already_used = code_matches && totp_code_already_used(&state, &replay_key).await?;
 
-    // Build TOTP from stored secret and verify the code
-    let totp = build_totp(&secret_base32, &state.mfa_config.issuer, &user.email)?;
-
-    let is_valid = !already_used && totp.check_current(&input.code).unwrap_or(false);
+    let is_valid = code_matches && !already_used;
 
     if !is_valid {
         crate::otel::add_event(
@@ -812,13 +889,17 @@ fn remaining_challenge_ttl(pending: &serde_json::Value) -> u64 {
 /// deleted outright and every later attempt against that `pending_session_id`
 /// fails as expired — the user has to log in again.
 ///
-/// The increment is deliberately **not** atomic: `ChallengeRepository` is a
-/// plain TTL key-value store with no compare-and-set, so two failures racing in
-/// the same instant can collapse into one increment. The bound therefore holds
-/// to within a factor of the request concurrency — O(limit), not exactly the
-/// limit — which is all this needs to do. Closing "unlimited guesses for 300s"
-/// is the point; the caller-side rate limiter caps concurrency, and an exact
-/// counter would need a CAS the repo trait does not have.
+/// The increment is deliberately **not** atomic: `ChallengeRepository` gained a
+/// set-if-absent primitive for the replay marker
+/// ([`ChallengeRepository::try_claim_challenge`]), but no read-modify-write one,
+/// so two failures racing in the same instant can still collapse into one
+/// increment. The bound therefore holds to within a factor of the request
+/// concurrency — O(limit), not exactly the limit — which is all this needs to
+/// do. Closing "unlimited guesses for 300s" is the point; the caller-side rate
+/// limiter caps concurrency, and an exact counter would need a JSONB increment
+/// (or a CAS) across twelve backend impls to bound something that is already
+/// bounded. The property that *must* survive concurrency is the single-use
+/// marker, and that one is atomic.
 async fn record_failed_attempt(
     state: &YAuthState,
     key: &str,
@@ -968,57 +1049,99 @@ async fn verify_mfa(
 
     let mut verified = false;
     let replay_key = totp_replay_key(user_id, &input.code);
+    // Set once this request has taken the single-use marker for `input.code`,
+    // and is therefore the party responsible for giving it back if the request
+    // does not end in a session (review findings 4 and F4).
+    let mut holds_replay_claim = false;
+    // Set once a factor has published its own `mfa_verification_failed`, so the
+    // terminal rejection does not publish a second, vaguer one for the same
+    // request (finding S2d: exactly one line and one event per rejection).
+    let mut failure_reported = false;
 
-    // 1. Try TOTP verification first
-    if let Some(ref totp_secret) = totp_record {
-        // The user has a second factor on file: refuse to evaluate this request
-        // at all without the cipher, rather than quietly downgrading the account
-        // to backup-codes-only (finding B11).
-        let cipher = require_cipher(&state)?;
+    // 1. Try TOTP verification first.
+    //
+    // Both halves of this `if let` are *conditions*, not preconditions. A
+    // deployment with no cipher configured, or a stored secret this cipher
+    // cannot open, skips the TOTP factor and falls through to the backup-code
+    // branch below — which is precisely the credential that exists for that
+    // recovery (review findings 3 and 25). Refusing the whole request instead
+    // would lock every enrolled account out by every factor, with no
+    // self-service way back in. The fail-closed 503 stays where it belongs: on
+    // the write paths (setup, confirm, regenerate), which cannot proceed
+    // without a cipher at all.
+    if let (Some(totp_secret), Some(cipher)) = (
+        totp_record.as_ref(),
+        state.mfa_config.secret_cipher.as_ref(),
+    ) {
+        match cipher.open(user_id, &totp_secret.encrypted_secret) {
+            Ok(secret_base32) => {
+                // Replay closure (finding S2a): a TOTP code is single-use for
+                // the whole ~90s window it stays checkable in, so
+                // shoulder-surfing or replaying a captured request can no longer
+                // buy a second session. The marker is CLAIMED here, before the
+                // code is checked, so two requests carrying the same valid code
+                // cannot both observe "unused" and both mint a session (review
+                // finding 4). Losing the claim is indistinguishable from a
+                // genuine replay, which is the correct answer for both.
+                if claim_totp_code(&state, &replay_key).await? {
+                    holds_replay_claim = true;
 
-        let secret_base32 = match cipher.open(user_id, &totp_secret.encrypted_secret) {
-            Ok(secret) => secret,
+                    // A stored secret that opens but will not parse is a server
+                    // fault, not a wrong code — hand the marker back rather than
+                    // burning the caller's code on a 500 (review finding F4).
+                    let totp =
+                        match build_totp(&secret_base32, &state.mfa_config.issuer, &user.email) {
+                            Ok(totp) => totp,
+                            Err(e) => {
+                                release_totp_code_claim(&state, &replay_key).await;
+                                return Err(e);
+                            }
+                        };
+
+                    if totp.check_current(&input.code).unwrap_or(false) {
+                        verified = true;
+                    }
+                } else {
+                    crate::otel::add_event(
+                        "mfa_totp_code_replayed",
+                        #[cfg(feature = "telemetry")]
+                        vec![opentelemetry::KeyValue::new("user.id", user_id.to_string())],
+                        #[cfg(not(feature = "telemetry"))]
+                        vec![],
+                    );
+                    report_mfa_failure(&state, Some(user_id), "totp_code_replayed");
+                    // Deliberately NOT charged against the per-challenge guess
+                    // budget (review finding 42): holding the marker is proof
+                    // the code was *correct*, and a second tab, a second device
+                    // or a re-submitted form inside the same 30s step is a user,
+                    // not an attacker. Spending guesses on a proven-correct code
+                    // destroys the challenge and sends them back to the password
+                    // step. The 401 body stays byte-identical to a wrong code so
+                    // no oracle appears.
+                    return Err(err(StatusCode::UNAUTHORIZED, "Invalid MFA code"));
+                }
+            }
             Err(e) => {
                 // Wrong key, tampered row, or a legacy plaintext base32 secret.
                 // Never fall through to treating the stored string as a raw
-                // secret: fail like a wrong code, and make the difference
-                // visible to operators only.
+                // secret — that is what makes an un-purged plaintext row
+                // unusable — but do not end the request either: backup codes are
+                // independent Argon2id credentials and legacy SHA-256 code rows
+                // are dead by construction, so letting this reach them cannot
+                // resurrect the plaintext bypass (review finding 3). The cause
+                // stays visible to operators only. No attempt is charged here;
+                // the terminal failure below charges exactly once (review
+                // finding 42's rider).
+                //
+                // Reported at once rather than deferred to the rejection, so
+                // that an operator sees the unreadable row even on the run where
+                // the player recovers with a backup code — that request
+                // succeeds and would otherwise say nothing. It is also the
+                // rejection's reason when no backup code follows, which is why
+                // the terminal block must not add a second, vaguer event.
                 report_mfa_failure_cause(&state, Some(user_id), "secret_unsealable", &e);
-                record_failed_attempt(&state, &key, &pending, attempts).await;
-                return Err(err(StatusCode::UNAUTHORIZED, "Invalid MFA code"));
+                failure_reported = true;
             }
-        };
-
-        // Replay closure (finding S2a): a TOTP code is single-use for the whole
-        // ~90s window it stays checkable in, so shoulder-surfing or replaying a
-        // captured request can no longer buy a second session.
-        let already_used = state
-            .repos
-            .challenges
-            .get_challenge(&replay_key)
-            .await
-            .map_err(|e| {
-                crate::otel::record_error("mfa_replay_lookup_failed", &e);
-                err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
-            })?
-            .is_some();
-
-        if already_used {
-            crate::otel::add_event(
-                "mfa_totp_code_replayed",
-                #[cfg(feature = "telemetry")]
-                vec![opentelemetry::KeyValue::new("user.id", user_id.to_string())],
-                #[cfg(not(feature = "telemetry"))]
-                vec![],
-            );
-            report_mfa_failure(&state, Some(user_id), "totp_code_replayed");
-            record_failed_attempt(&state, &key, &pending, attempts).await;
-            return Err(err(StatusCode::UNAUTHORIZED, "Invalid MFA code"));
-        }
-
-        let totp = build_totp(&secret_base32, &state.mfa_config.issuer, &user.email)?;
-        if totp.check_current(&input.code).unwrap_or(false) {
-            verified = true;
         }
     }
 
@@ -1027,8 +1150,10 @@ async fn verify_mfa(
     // Codes are salted Argon2id (finding S2c), so the old "hash the input, look
     // it up" shortcut is gone: each stored PHC string carries its own salt and
     // has to be verified separately. Bounded by `backup_code_count` (10) and
-    // reached only on the rare fallback path.
-    if !verified {
+    // reached only on the rare fallback path — and only for a candidate that
+    // actually looks like a backup code, so a wrong six-digit TOTP guess costs
+    // one cheap comparison instead of ten Argon2id verifies (review finding 6).
+    if !verified && is_backup_code_shape(&input.code) {
         let backup_codes = state
             .repos
             .backup_codes
@@ -1066,6 +1191,12 @@ async fn verify_mfa(
     }
 
     if !verified {
+        // Nothing authenticated, so give the marker back: a wrong guess must not
+        // burn a code the genuine authenticator may still emit for the rest of
+        // this step, and the claim was taken speculatively (review finding 4).
+        if holds_replay_claim {
+            release_totp_code_claim(&state, &replay_key).await;
+        }
         crate::otel::add_event(
             "mfa_verify_failed",
             #[cfg(feature = "telemetry")]
@@ -1073,36 +1204,46 @@ async fn verify_mfa(
             #[cfg(not(feature = "telemetry"))]
             vec![],
         );
-        report_mfa_failure(&state, Some(user_id), "code_invalid");
+        if !failure_reported {
+            report_mfa_failure(&state, Some(user_id), "code_invalid");
+        }
+        // The single charge against the per-challenge budget. Every other exit
+        // from this handler is either a success, a server fault, or a
+        // proven-correct code being replayed — none of which is a guess.
         record_failed_attempt(&state, &key, &pending, attempts).await;
         return Err(err(StatusCode::UNAUTHORIZED, "Invalid MFA code"));
     }
 
-    // Burn the TOTP code for the rest of its validity window (finding S2a).
-    // Harmless when a backup code was used: that code is already consumed.
-    if let Err(e) = state
-        .repos
-        .challenges
-        .set_challenge(
-            &replay_key,
-            serde_json::json!({ "used": true }),
-            TOTP_REPLAY_TTL_SECS,
-        )
-        .await
-    {
-        crate::otel::record_error("mfa_replay_marker_store_failed", &e);
-    }
+    // The TOTP code is already burnt for the rest of its validity window: the
+    // claim taken above IS the burn (finding S2a). A backup code needs no
+    // marker — `mark_used` on its own row is its single-use record — so the
+    // path that never reached the TOTP arm writes nothing here.
 
     // MFA passed — delete the pending session and create a real session
     let _ = state.repos.challenges.delete_challenge(&key).await;
 
-    let (token, _session_id) =
-        session::create_session(&state, user_id, None, None, state.config.session_ttl)
-            .await
-            .map_err(|e| {
-                crate::otel::record_error("session_create_failed", &e);
-                err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
-            })?;
+    let (token, _session_id) = match session::create_session(
+        &state,
+        user_id,
+        None,
+        None,
+        state.config.session_ttl,
+    )
+    .await
+    {
+        Ok(session) => session,
+        Err(e) => {
+            // The factor passed but no session exists, so the caller will
+            // retry with the same code. Release the marker, or a transient
+            // fault here refuses their still-valid code for the rest of the
+            // step (review finding F4).
+            if holds_replay_claim {
+                release_totp_code_claim(&state, &replay_key).await;
+            }
+            crate::otel::record_error("session_create_failed", &e);
+            return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error"));
+        }
+    };
 
     crate::otel::add_event(
         "mfa_verified",
@@ -1272,6 +1413,43 @@ mod tests {
                 assert!(group.chars().all(|c| c.is_ascii_hexdigit()), "{code}");
             }
         }
+    }
+
+    #[test]
+    fn the_shape_gate_accepts_every_generated_code_and_nothing_else() {
+        for code in generate_backup_codes(32) {
+            assert!(
+                is_backup_code_shape(&code),
+                "the gate must never refuse a code we issued: {code}"
+            );
+        }
+
+        // The case the gate exists for: a six-digit TOTP guess must not reach
+        // the Argon2id sweep.
+        assert!(!is_backup_code_shape("123456"));
+        assert!(!is_backup_code_shape("000000"));
+
+        // Near misses.
+        assert!(!is_backup_code_shape(""));
+        assert!(!is_backup_code_shape("abcd-ef01-234"), "too short");
+        assert!(!is_backup_code_shape("abcd-ef01-23456"), "too long");
+        assert!(!is_backup_code_shape("abcdef01-2345"), "missing a dash");
+        assert!(
+            !is_backup_code_shape("abcd-ef012345-"),
+            "dash in the wrong place"
+        );
+        assert!(!is_backup_code_shape("abc-def01-2345"), "dashes shifted");
+        assert!(
+            !is_backup_code_shape("abcd ef01 2345"),
+            "spaces, not dashes"
+        );
+        assert!(!is_backup_code_shape("abcd-ef01-234g"), "g is not hex");
+        assert!(!is_backup_code_shape("abcd-ef01-2345 "), "trailing space");
+        assert!(!is_backup_code_shape(" abcd-ef01-2345"), "leading space");
+
+        // The pre-#263 format is refused. Those rows are stored as bare
+        // SHA-256 and could not verify anyway, so nothing usable is lost.
+        assert!(!is_backup_code_shape("abcd-ef01"));
     }
 
     #[test]

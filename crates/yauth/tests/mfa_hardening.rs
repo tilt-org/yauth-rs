@@ -9,6 +9,10 @@
 //! * S2b — a pending challenge absorbs a bounded number of guesses.
 //! * S2c — backup codes are 48-bit and stored salted (Argon2id PHC).
 //! * S2d — each rejection publishes exactly one `MfaVerificationFailed` event.
+//!   (A *successful* verify is silent, with one deliberate exception: an
+//!   unreadable stored secret reports `secret_unsealable` where it happens, so
+//!   the operator still sees the broken row on the run where a backup code
+//!   recovers the account.)
 //! * S2e — enabling TOTP cuts every other session.
 //!
 //! ```text
@@ -21,6 +25,7 @@
     feature = "mfa"
 ))]
 
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -287,16 +292,37 @@ fn totp_for(secret_base32: &str, email: &str) -> TOTP {
 /// test enrol and then log in without tripping the single-use marker the way a
 /// real user separated by a few seconds would not.
 fn code_at(totp: &TOTP, steps_ahead: u64) -> String {
-    let now = SystemTime::now()
+    code_for_step(totp, current_step() + steps_ahead)
+}
+
+/// The 30-second TOTP step the clock is in right now.
+fn current_step() -> u64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_secs();
-    totp.generate(now - (now % 30) + steps_ahead * 30)
+        .as_secs()
+        / 30
+}
+
+/// The code for an *absolute* step.
+///
+/// [`code_at`] is relative to "now", so two of its calls straddling a step
+/// boundary silently mean different codes — enough to make a test that spends
+/// one code and then wants a different one flaky. A test that has to keep
+/// talking about the same two codes captures [`current_step`] once and asks
+/// for them by number.
+fn code_for_step(totp: &TOTP, step: u64) -> String {
+    totp.generate(step * 30)
 }
 
 /// A six-digit code guaranteed not to be accepted right now.
 fn wrong_code(totp: &TOTP) -> String {
-    let accepted: Vec<String> = (0..3).map(|i| code_at(totp, i.max(1) - 1)).collect();
+    // The plugin checks with a ±1 step tolerance, so all three of the
+    // surrounding steps have to be excluded — including the previous one.
+    let step = current_step();
+    let accepted: Vec<String> = (step - 1..=step + 1)
+        .map(|candidate| code_for_step(totp, candidate))
+        .collect();
     (0..1000u32)
         .map(|n| format!("{n:06}"))
         .find(|candidate| !accepted.contains(candidate))
@@ -722,4 +748,409 @@ async fn confirming_totp_revokes_every_other_session() {
         StatusCode::OK,
         "the caller's own session must survive"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Recovery — an unreadable TOTP secret must not close the backup-code door
+// ---------------------------------------------------------------------------
+
+/// Seed a verified TOTP row and one usable backup code without going through
+/// the enrolment routes, which need a cipher this account may not have.
+async fn seed_factor_out_of_band(h: &Harness, user_id: Uuid, stored_secret: &str) -> String {
+    h.state
+        .repos
+        .totp
+        .delete_for_user(user_id, None)
+        .await
+        .expect("clear any existing secret");
+    h.state
+        .repos
+        .totp
+        .create(yauth_entity::NewTotpSecret {
+            id: Uuid::now_v7(),
+            user_id,
+            encrypted_secret: stored_secret.to_string(),
+            verified: true,
+            created_at: chrono::Utc::now().naive_utc(),
+        })
+        .await
+        .expect("seed totp row");
+
+    let backup_code = "dead-beef-cafe".to_string();
+    h.state
+        .repos
+        .backup_codes
+        .create(yauth_entity::NewBackupCode {
+            id: Uuid::now_v7(),
+            user_id,
+            code_hash: yauth::auth::password::hash_password_sync(&backup_code).unwrap(),
+            used: false,
+            created_at: chrono::Utc::now().naive_utc(),
+        })
+        .await
+        .expect("seed backup code");
+
+    backup_code
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_backup_code_still_works_when_the_secret_is_sealed_under_a_foreign_key() {
+    // Key rotation, key loss, a restore from another environment: the TOTP row
+    // is intact but this deployment's cipher cannot open it. Backup codes are
+    // the credential that exists for exactly that, and refusing the request at
+    // the `open()` failure made them unreachable — locking every enrolled
+    // player out of every factor with no self-service way back (finding 3).
+    let h = harness(Some(TestCipher::arc(0x5a))).await;
+    let email = "foreign-key@test.local";
+    let user_id = register(&h, email).await;
+
+    let secret = Secret::generate_secret().to_encoded().to_string();
+    let foreign = TestCipher::arc(0xa5);
+    let sealed_elsewhere = foreign.seal(user_id, &secret).unwrap();
+    let backup_code = seed_factor_out_of_band(&h, user_id, &sealed_elsewhere).await;
+
+    // The TOTP factor is genuinely unusable — the code is right for the secret,
+    // but this deployment cannot read the secret.
+    let totp = totp_for(&secret, email);
+    let pending = login_for_challenge(&h, email).await;
+    let (status, body, cookie) = verify(&h, &pending, &code_at(&totp, 0)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "an unopenable secret must not authenticate: {body}"
+    );
+    assert!(cookie.is_none());
+    assert_eq!(
+        h.events.failures(),
+        vec![(Some(user_id), "secret_unsealable".to_string())],
+        "the rejection must publish exactly one event, naming the real cause \
+         rather than a second, vaguer 'code_invalid' after it (S2d)"
+    );
+
+    // The recovery credential works.
+    let pending = login_for_challenge(&h, email).await;
+    let (status, body, cookie) = verify(&h, &pending, &backup_code).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a backup code must survive an unreadable secret: {body}"
+    );
+    let cookie = cookie.expect("recovery must mint a session");
+    let (status, _, _) = request(&h.app, "GET", "/auth/session", None, Some(&cookie)).await;
+    assert_eq!(status, StatusCode::OK, "the minted session must work");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_a_cipher_totp_is_refused_but_backup_codes_still_authenticate() {
+    // `secret_cipher: None` is a deployment with the sealing key unset or
+    // unparseable. The TOTP factor cannot be evaluated, but the login must not
+    // die at that arm: `/login` and `/me` still advertise MFA, and setup,
+    // confirm and regenerate all 503, so a hard refusal here leaves the account
+    // with no way in and no way to self-remediate (findings 25 and 41).
+    let h = harness(None).await;
+    let email = "nocipher-verify@test.local";
+    let user_id = register(&h, email).await;
+
+    // Seeded as a plaintext base32 row, the shape a pre-sealing deployment left
+    // behind; with no cipher the plugin never looks at it.
+    let secret = Secret::generate_secret().to_encoded().to_string();
+    let backup_code = seed_factor_out_of_band(&h, user_id, &secret).await;
+    let totp = totp_for(&secret, email);
+
+    let pending = login_for_challenge(&h, email).await;
+    let (status, body, cookie) = verify(&h, &pending, &code_at(&totp, 0)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a correct TOTP code must NOT pass while the secret cannot be sealed: {body}"
+    );
+    assert!(
+        cookie.is_none(),
+        "no session may be minted without a readable second factor"
+    );
+    assert_ne!(
+        status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "the login path must not fail closed past the recovery branch"
+    );
+
+    let pending = login_for_challenge(&h, email).await;
+    let (status, body, cookie) = verify(&h, &pending, &backup_code).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the recovery credential must remain usable with no cipher: {body}"
+    );
+    assert!(cookie.is_some(), "recovery must mint a session");
+
+    // The write paths stay fail-closed — no cipher, no new secret and no new
+    // set of factor-bypassing codes.
+    let cookie = cookie.unwrap();
+    for uri in ["/auth/mfa/totp/setup", "/auth/mfa/backup-codes/regenerate"] {
+        let (status, body, _) = request(&h.app, "POST", uri, None, Some(&cookie)).await;
+        assert_eq!(
+            status,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{uri} must still refuse: {body}"
+        );
+        assert_eq!(body["error"], json!(MFA_UNAVAILABLE_ERROR));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S2a under concurrency, and what a replay costs the user
+// ---------------------------------------------------------------------------
+
+/// Number of requests that race on one code in
+/// [`simultaneous_verifies_of_one_code_mint_exactly_one_session`].
+///
+/// One per CPU on the reference box: the racers busy-wait on the rendezvous
+/// below, so oversubscribing only deschedules them apart again.
+const RACERS: usize = 4;
+
+/// A [`TestCipher`] that, once armed, releases every caller of `open` together.
+///
+/// The window between "is this code burnt?" and "burn it" is a few microseconds
+/// wide, so spawning tasks and hoping they collide is not a test — it passes
+/// against the broken implementation most of the time. `open` is the last thing
+/// `verify_mfa` does before it touches the marker, so parking every racer there
+/// until all of them have arrived puts them all in that window at once.
+///
+/// This narrows the odds rather than removing them: the assertion is exact, but
+/// its power as a *detector* of a read-then-write marker is empirical. Reverting
+/// `claim_totp_code` to get-then-set fails this test 16 runs out of 16 on the
+/// reference box with the release offset below; at 5 ms it was 14 out of 16, and
+/// slower or busier hardware can widen the gap again. Treat a lucky green as
+/// noise, not as evidence — the deterministic gate for the backend the platform
+/// actually runs is `backends::seaorm_pg::challenge_repo`'s SQL pin and its two
+/// live-Postgres cases, which catch the same regression without a race.
+struct RendezvousCipher {
+    inner: TestCipher,
+    parties: usize,
+    arrived: AtomicUsize,
+    /// Wall-clock nanosecond at which every parked caller leaves, published by
+    /// whichever one arrives last. Zero until then.
+    release_at: AtomicU64,
+    armed: AtomicBool,
+}
+
+fn wall_nanos() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
+}
+
+impl RendezvousCipher {
+    fn arc(key: u8, parties: usize) -> Arc<Self> {
+        Arc::new(Self {
+            inner: TestCipher { key },
+            parties,
+            arrived: AtomicUsize::new(0),
+            release_at: AtomicU64::new(0),
+            armed: AtomicBool::new(false),
+        })
+    }
+
+    /// Arm the rendezvous. Every `open` from here on parks until `parties` of
+    /// them have arrived, so exactly that many requests must be in flight.
+    fn arm(&self) {
+        self.armed.store(true, Ordering::SeqCst);
+    }
+}
+
+impl TotpSecretCipher for RendezvousCipher {
+    fn seal(&self, user_id: Uuid, secret_base32: &str) -> Result<String, TotpCipherError> {
+        self.inner.seal(user_id, secret_base32)
+    }
+
+    fn open(&self, user_id: Uuid, stored: &str) -> Result<String, TotpCipherError> {
+        let opened = self.inner.open(user_id, stored);
+        if self.armed.load(Ordering::SeqCst) {
+            // A busy-wait on a shared *wall-clock* release instant, not a
+            // `Barrier`: a condvar hands the sleepers back to the OS scheduler,
+            // which wakes them hundreds of microseconds apart — far wider than
+            // the window under test, so the race never happens and the test
+            // passes against a broken implementation. The last arriver publishes
+            // an instant a few milliseconds out and everyone spins until the
+            // clock passes it, so all callers leave together. Bounded, so a
+            // wrong `parties` fails an assertion instead of hanging the suite.
+            // The offset has to cover thread-scheduling jitter on a loaded box,
+            // not just the publish: a straggler that reaches the loop after the
+            // instant has passed leaves alone and cannot collide with anyone.
+            if self.arrived.fetch_add(1, Ordering::SeqCst) + 1 == self.parties {
+                self.release_at
+                    .store(wall_nanos() + 20_000_000, Ordering::SeqCst);
+            }
+            let give_up = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                let release_at = self.release_at.load(Ordering::SeqCst);
+                if (release_at != 0 && wall_nanos() >= release_at)
+                    || std::time::Instant::now() >= give_up
+                {
+                    break;
+                }
+                std::hint::spin_loop();
+            }
+        }
+        opened
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn simultaneous_verifies_of_one_code_mint_exactly_one_session() {
+    // Read-then-write on the replay marker let every concurrent request observe
+    // "unused", so all of them minted a session and a duplicated request was
+    // silent instead of producing a visible 401 (finding 4).
+    let cipher = RendezvousCipher::arc(0x13, RACERS);
+    let h = harness(Some(cipher.clone() as Arc<dyn TotpSecretCipher>)).await;
+    let user = enrol(&h, "concurrent@test.local").await;
+    let code = code_at(&user.totp, 1);
+
+    let mut pendings = Vec::with_capacity(RACERS);
+    for _ in 0..RACERS {
+        pendings.push(login_for_challenge(&h, &user.email).await);
+    }
+
+    // One OS thread per racer, so the rendezvous cannot deadlock behind a task
+    // scheduler that decided to run them one after another.
+    cipher.arm();
+    let racers: Vec<_> = pendings
+        .into_iter()
+        .map(|pending| {
+            let app = h.app.clone();
+            let code = code.clone();
+            std::thread::spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(async move {
+                        request(
+                            &app,
+                            "POST",
+                            "/auth/mfa/verify",
+                            Some(json!({ "pending_session_id": pending, "code": code })),
+                            None,
+                        )
+                        .await
+                    })
+            })
+        })
+        .collect();
+
+    let mut sessions = 0;
+    let mut statuses = Vec::with_capacity(RACERS);
+    for racer in racers {
+        let (status, _, cookie) = racer.join().unwrap();
+        statuses.push(status);
+        if cookie.is_some() {
+            sessions += 1;
+        }
+    }
+
+    assert_eq!(
+        sessions, 1,
+        "exactly one of {RACERS} simultaneous verifies of one code may mint a \
+         session, got {sessions}: {statuses:?}"
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::UNAUTHORIZED)
+            .count(),
+        RACERS - 1,
+        "every loser must be refused exactly like a replay: {statuses:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn replaying_a_genuine_code_does_not_spend_the_guess_budget() {
+    // A second device, a second tab, or the frontend re-submitting the field it
+    // never cleared: the marker proves the code was *correct*, so charging it
+    // against the five-guess budget destroys the challenge and forces the
+    // password step again for something that is not a guess (finding 42).
+    let h = harness(Some(TestCipher::arc(0x44))).await;
+    let user = enrol(&h, "replay-budget@test.local").await;
+    // Both codes are pinned to one captured step: the test runs for several
+    // seconds, and `code_at(_, 0)` re-read at the end would BE `burnt` if the
+    // clock crossed a 30 s boundary in between. `step` stays acceptable
+    // throughout by the ±1 tolerance, and is never the code that was spent.
+    let step = current_step();
+    let burnt = code_for_step(&user.totp, step + 1);
+    let fresh = code_for_step(&user.totp, step);
+
+    let pending = login_for_challenge(&h, &user.email).await;
+    let (status, body, cookie) = verify(&h, &pending, &burnt).await;
+    assert_eq!(status, StatusCode::OK, "first use must pass: {body}");
+    assert!(cookie.is_some());
+
+    // A fresh challenge, then more replays than the challenge has guesses.
+    let pending = login_for_challenge(&h, &user.email).await;
+    for attempt in 1..=(5 + 3) {
+        let (status, body, cookie) = verify(&h, &pending, &burnt).await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "replay {attempt} must be refused: {body}"
+        );
+        assert!(cookie.is_none());
+    }
+
+    // The challenge survived: a proven-correct code is not a guess.
+    let (status, body, cookie) = verify(&h, &pending, &fresh).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the challenge must still be alive for a fresh code: {body}"
+    );
+    assert!(cookie.is_some());
+
+    // And the rejections still read as replays, not as wrong codes.
+    assert!(
+        h.events
+            .failures()
+            .iter()
+            .filter(|(id, reason)| *id == Some(user.user_id) && reason == "totp_code_replayed")
+            .count()
+            >= 8,
+        "every replay must be reported as one: {:?}",
+        h.events.failures()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_wrong_code_does_not_burn_the_step_for_the_right_one() {
+    // The marker is claimed before the code is checked, so a claim taken for a
+    // guess that then fails has to be released — otherwise a wrong guess would
+    // block the genuine code of a later attempt within the same window
+    // (finding 4).
+    let h = harness(Some(TestCipher::arc(0x66))).await;
+    let user = enrol(&h, "release@test.local").await;
+    let bad = wrong_code(&user.totp);
+
+    let pending = login_for_challenge(&h, &user.email).await;
+    let (status, _, _) = verify(&h, &pending, &bad).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // Same wrong string again: it must read as a wrong code, never as a replay
+    // of a code this account already spent.
+    let (status, _, _) = verify(&h, &pending, &bad).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(
+        h.events
+            .failures()
+            .iter()
+            .all(|(_, reason)| reason != "totp_code_replayed"),
+        "a wrong guess must never leave a replay marker behind: {:?}",
+        h.events.failures()
+    );
+
+    let (status, body, cookie) = verify(&h, &pending, &code_at(&user.totp, 1)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the right code must still work: {body}"
+    );
+    assert!(cookie.is_some());
 }
