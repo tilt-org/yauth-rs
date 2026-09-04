@@ -119,4 +119,37 @@ impl ChallengeRepository for RedisCachedChallenges {
             Ok(())
         })
     }
+
+    /// Delegated to the inner repo, which is the source of truth.
+    ///
+    /// Deliberately **not** a Redis `SET NX EX`: the cache is a read-through
+    /// decorator that may miss or be evicted at any time, so a claim taken in
+    /// Redis alone would be lost while the database still held the key (and a
+    /// second claimant would win). The inner repo decides; Redis only caches the
+    /// value the winner wrote, so the following `get_challenge` hits the cache.
+    fn try_claim_challenge(
+        &self,
+        key: &str,
+        value: serde_json::Value,
+        ttl_secs: u64,
+    ) -> RepoFuture<'_, bool> {
+        let key = key.to_string();
+        Box::pin(async move {
+            let claimed = self
+                .inner
+                .try_claim_challenge(&key, value.clone(), ttl_secs)
+                .await?;
+
+            if claimed && let Ok(json) = serde_json::to_string(&value) {
+                let mut conn = self.redis.clone();
+                let r: Result<(), redis::RedisError> =
+                    conn.set_ex(self.challenge_key(&key), json, ttl_secs).await;
+                if let Err(e) = r {
+                    log::warn!("Redis cache write failed for try_claim_challenge: {e}");
+                }
+            }
+
+            Ok(claimed)
+        })
+    }
 }
