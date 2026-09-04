@@ -105,9 +105,16 @@ pub fn mfa_schema() -> Vec<TableDef> {
                     .nullable()
                     .references("yauth_users", "id", OnDelete::Cascade),
             )
-            // Argon2id PHC string (~97 chars, salt embedded), not the 64-char
-            // hex SHA-256 this column held before 2026-08-10. Unbounded VARCHAR
-            // so a future parameter or algorithm change cannot overflow it.
+            // Argon2id PHC string (97 chars for any realistic `m_cost`, salt
+            // embedded), not the 64-char hex SHA-256 this column held before
+            // 2026-08-10 — so `VarcharN(64)` no longer fits and every enrolment
+            // would fail on insert.
+            //
+            // `ColumnType::Varchar` is not one width: Postgres renders a bare
+            // `VARCHAR` (unbounded), SQLite `TEXT`, MySQL `VARCHAR(255)`. All
+            // three hold 97 characters with room to spare, which is the bar
+            // here; only the Postgres arm is genuinely unbounded. A host that
+            // owns its own DDL must give this column at least 128 characters.
             .column(ColumnDef::new("code_hash", ColumnType::Varchar))
             .column(ColumnDef::new("used", ColumnType::Boolean).default("false"))
             .column(ColumnDef::new("created_at", ColumnType::DateTime).default("now()")),
