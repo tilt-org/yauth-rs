@@ -1391,6 +1391,9 @@ async fn start_server(db: Pool) -> u16 {
     .with_mfa(yauth::config::MfaConfig {
         issuer: "YAuth".into(),
         backup_code_count: 10,
+        // See `examples/server.rs`: no cipher, so MFA fails closed rather than
+        // storing a plaintext secret (fork patch 2026-08-10, #263 / B11).
+        secret_cipher: None,
     })
     .with_api_key()
     .with_admin()

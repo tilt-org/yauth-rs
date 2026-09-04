@@ -35,13 +35,18 @@
 //!
 //! # Failure handling in the plugin
 //!
-//! * No cipher configured → the MFA plugin refuses to read or write secrets and
-//!   returns HTTP 503 ([`crate::plugins::mfa::MFA_UNAVAILABLE_ERROR`]). It never
-//!   degrades to plaintext.
-//! * `open` returns `Err` (wrong key, tampered row, legacy plaintext) → treated
-//!   as a failed authentication attempt (the same response as a wrong code),
-//!   plus one `tracing::error!` carrying the `user_id` so operators can see the
-//!   difference the caller cannot.
+//! * No cipher configured → every path that would **write or read a secret**
+//!   refuses: enrolment, confirmation and backup-code regeneration answer HTTP
+//!   503 ([`crate::plugins::mfa::MFA_UNAVAILABLE_ERROR`]). It never degrades to
+//!   plaintext.
+//! * `open` returns `Err` (wrong key, tampered row, legacy plaintext) →
+//!   enrolment-confirm treats it as a failed attempt, the same response as a
+//!   wrong code.
+//! * On **login verify**, both of the above skip the TOTP factor rather than
+//!   ending the request, so the caller drops through to the backup-code branch:
+//!   a lost or rotated key must not take the recovery credential down with the
+//!   one it is there to recover. Either way one `tracing::error!` carries the
+//!   `user_id`, so operators can see the difference the caller cannot.
 
 use uuid::Uuid;
 
@@ -68,6 +73,65 @@ pub enum TotpCipherError {
 ///
 /// Implemented by the host application; see the module docs for the contract
 /// that makes this seam actually protect anything.
+///
+/// # Examples
+///
+/// A minimal implementation, showing the three properties the plugin leans on.
+/// It is **not** a cipher — it does not encrypt anything — but it is shaped like
+/// one, and the assertions below are the contract a real implementation has to
+/// satisfy:
+///
+/// ```
+/// use uuid::Uuid;
+/// use yauth::auth::secret_cipher::{TotpCipherError, TotpSecretCipher};
+///
+/// struct TaggingCipher;
+///
+/// const TAG: &str = "example.v1.";
+///
+/// impl TotpSecretCipher for TaggingCipher {
+///     fn seal(&self, user_id: Uuid, secret_base32: &str) -> Result<String, TotpCipherError> {
+///         // Versioned, and the owner is bound into the payload.
+///         Ok(format!("{TAG}{user_id}.{secret_base32}"))
+///     }
+///
+///     fn open(&self, user_id: Uuid, stored: &str) -> Result<String, TotpCipherError> {
+///         // Anything this implementation did not produce is refused outright —
+///         // never guessed at, never passed through.
+///         let body = stored
+///             .strip_prefix(TAG)
+///             .ok_or_else(|| TotpCipherError::Open("unrecognised envelope".into()))?;
+///         let (owner, secret) = body
+///             .split_once('.')
+///             .ok_or_else(|| TotpCipherError::Open("malformed envelope".into()))?;
+///         if owner != user_id.to_string() {
+///             return Err(TotpCipherError::Open("owner mismatch".into()));
+///         }
+///         Ok(secret.to_string())
+///     }
+/// }
+///
+/// let owner = Uuid::now_v7();
+/// let sealed = TaggingCipher.seal(owner, "JBSWY3DPEHPK3PXP").unwrap();
+///
+/// // 1. The stored value is versioned, and it round-trips for its owner.
+/// assert!(sealed.starts_with(TAG));
+/// assert_eq!(TaggingCipher.open(owner, &sealed).unwrap(), "JBSWY3DPEHPK3PXP");
+///
+/// // 2. A legacy plaintext row does NOT open. This is the load-bearing one: it
+/// //    is what makes an un-purged pre-sealing secret unusable rather than
+/// //    silently honoured as a live second factor.
+/// assert!(TaggingCipher.open(owner, "JBSWY3DPEHPK3PXP").is_err());
+///
+/// // 3. A row copied onto another account does not open either, so a stolen
+/// //    ciphertext cannot enrol the attacker's authenticator against a victim.
+/// let attacker = Uuid::now_v7();
+/// assert!(TaggingCipher.open(attacker, &sealed).is_err());
+/// ```
+///
+/// The host implementation the platform ships is `casino-crypto`'s
+/// `TotpSecretSealer`: XChaCha20-Poly1305 under a single 32-byte data key, a
+/// fixed `tsc.v1.` envelope tag, and the `user_id` bound in as associated data.
 pub trait TotpSecretCipher: Send + Sync {
     /// Encrypt `secret_base32` for storage, returning a versioned,
     /// self-describing string.
@@ -79,63 +143,4 @@ pub trait TotpSecretCipher: Send + Sync {
     /// MUST return `Err` for any input `seal` did not produce, including a bare
     /// base32 secret.
     fn open(&self, user_id: Uuid, stored: &str) -> Result<String, TotpCipherError>;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Minimal cipher exercising the documented contract: a version tag, the
-    /// owner bound into the payload, and a hard rejection of anything that does
-    /// not carry the tag. Not a real cipher — it does not encrypt — it exists
-    /// to pin the *shape* the plugin depends on.
-    struct TaggingCipher;
-
-    const TAG: &str = "test.v1.";
-
-    impl TotpSecretCipher for TaggingCipher {
-        fn seal(&self, user_id: Uuid, secret_base32: &str) -> Result<String, TotpCipherError> {
-            Ok(format!("{TAG}{user_id}.{secret_base32}"))
-        }
-
-        fn open(&self, user_id: Uuid, stored: &str) -> Result<String, TotpCipherError> {
-            let body = stored
-                .strip_prefix(TAG)
-                .ok_or_else(|| TotpCipherError::Open("unrecognised envelope".into()))?;
-            let (owner, secret) = body
-                .split_once('.')
-                .ok_or_else(|| TotpCipherError::Open("malformed envelope".into()))?;
-            if owner != user_id.to_string() {
-                return Err(TotpCipherError::Open("owner mismatch".into()));
-            }
-            Ok(secret.to_string())
-        }
-    }
-
-    #[test]
-    fn seal_open_roundtrip() {
-        let uid = Uuid::now_v7();
-        let sealed = TaggingCipher.seal(uid, "JBSWY3DPEHPK3PXP").unwrap();
-        assert!(sealed.starts_with(TAG), "sealed value must be versioned");
-        assert_eq!(
-            TaggingCipher.open(uid, &sealed).unwrap(),
-            "JBSWY3DPEHPK3PXP"
-        );
-    }
-
-    #[test]
-    fn open_rejects_legacy_plaintext_base32() {
-        // The load-bearing property: a row written before the seam existed must
-        // NOT open, so it cannot be used as a live second factor.
-        let uid = Uuid::now_v7();
-        assert!(TaggingCipher.open(uid, "JBSWY3DPEHPK3PXP").is_err());
-    }
-
-    #[test]
-    fn open_rejects_another_users_row() {
-        let owner = Uuid::now_v7();
-        let attacker = Uuid::now_v7();
-        let sealed = TaggingCipher.seal(owner, "JBSWY3DPEHPK3PXP").unwrap();
-        assert!(TaggingCipher.open(attacker, &sealed).is_err());
-    }
 }
