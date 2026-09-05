@@ -65,6 +65,24 @@ impl ChallengeRepository for InMemoryChallengeRepo {
         })
     }
 
+    fn update_challenge_if_live(
+        &self,
+        key: &str,
+        value: serde_json::Value,
+    ) -> RepoFuture<'_, bool> {
+        let key = key.to_string();
+        Box::pin(async move {
+            let mut map = self.entries.lock().await;
+            match map.get_mut(&key) {
+                Some(entry) if entry.expires_at > Instant::now() => {
+                    entry.value = value;
+                    Ok(true)
+                }
+                _ => Ok(false),
+            }
+        })
+    }
+
     /// Atomic: the read and the insert happen under one hold of the map mutex,
     /// so two tasks racing on the same key cannot both claim it.
     fn try_claim_challenge(

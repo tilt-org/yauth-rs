@@ -120,6 +120,27 @@ impl ChallengeRepository for RedisCachedChallenges {
         })
     }
 
+    fn update_challenge_if_live(
+        &self,
+        key: &str,
+        value: serde_json::Value,
+    ) -> RepoFuture<'_, bool> {
+        let key = key.to_string();
+        Box::pin(async move {
+            let updated = self.inner.update_challenge_if_live(&key, value).await?;
+
+            // Evict instead of setting a fresh TTL or publishing this request's
+            // snapshot after another request has deleted the authoritative row.
+            let mut conn = self.redis.clone();
+            let result: Result<(), redis::RedisError> = conn.del(self.challenge_key(&key)).await;
+            if let Err(e) = result {
+                log::warn!("Redis cache cleanup failed for update_challenge_if_live: {e}");
+            }
+
+            Ok(updated)
+        })
+    }
+
     /// Delegated to the inner repo, which is the source of truth.
     ///
     /// Deliberately **not** a Redis `SET NX EX`: the cache is a read-through

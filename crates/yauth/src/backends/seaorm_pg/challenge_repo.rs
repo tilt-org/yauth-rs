@@ -1,6 +1,6 @@
 use sea_orm::prelude::*;
 use sea_orm::sea_query::{Expr, ExprTrait, OnConflict};
-use sea_orm::{ConnectionTrait, Insert, Schema, Set};
+use sea_orm::{ConnectionTrait, Insert, Schema, Set, UpdateMany};
 
 use super::entities::challenges;
 use super::sea_err;
@@ -65,6 +65,17 @@ fn claim_insert(
             )
             .to_owned(),
     )
+}
+
+fn live_challenge_update(
+    key: String,
+    value: serde_json::Value,
+    now: DateTimeWithTimeZone,
+) -> UpdateMany<challenges::Entity> {
+    challenges::Entity::update_many()
+        .col_expr(challenges::Column::Value, Expr::value(value))
+        .filter(challenges::Column::Key.eq(key))
+        .filter(challenges::Column::ExpiresAt.gt(now))
 }
 
 impl sealed::Sealed for SeaOrmChallengeRepo {}
@@ -140,6 +151,26 @@ impl ChallengeRepository for SeaOrmChallengeRepo {
         })
     }
 
+    fn update_challenge_if_live(
+        &self,
+        key: &str,
+        value: serde_json::Value,
+    ) -> RepoFuture<'_, bool> {
+        let key = key.to_string();
+        Box::pin(async move {
+            self.ensure_init().await?;
+
+            // UPDATE cannot recreate a row deleted by a concurrent request.
+            // Do not write expires_at: an attempt never renews the challenge.
+            let result = live_challenge_update(key, value, chrono::Utc::now().fixed_offset())
+                .exec(&self.db)
+                .await
+                .map_err(sea_err)?;
+
+            Ok(result.rows_affected > 0)
+        })
+    }
+
     /// Atomic: one [`claim_insert`] statement.
     ///
     /// Postgres takes a row lock on the conflicting tuple before evaluating the
@@ -180,6 +211,29 @@ mod tests {
     use sea_orm::QueryTrait;
 
     use super::*;
+
+    #[test]
+    fn the_update_never_inserts_or_changes_the_expiry() {
+        let sql = live_challenge_update(
+            "pending-test".into(),
+            serde_json::json!({ "attempts": 1 }),
+            chrono::Utc::now().fixed_offset(),
+        )
+        .build(sea_orm::DatabaseBackend::Postgres)
+        .to_string();
+
+        let (update, predicate) = sql.split_once(" WHERE ").expect("conditional update");
+        assert!(
+            update.starts_with(r#"UPDATE "yauth_challenges" SET "value" ="#),
+            "{sql}"
+        );
+        assert!(
+            !update.contains("expires_at"),
+            "the original deadline must not change: {sql}"
+        );
+        assert!(predicate.contains(r#""key" = 'pending-test'"#), "{sql}");
+        assert!(predicate.contains(r#""expires_at" >"#), "{sql}");
+    }
 
     /// The claim's whole value is in the SQL: without the `WHERE` on the
     /// conflict action the statement is an unconditional upsert whose

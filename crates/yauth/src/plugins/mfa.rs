@@ -32,7 +32,7 @@ use crate::state::YAuthState;
 pub const MFA_UNAVAILABLE_ERROR: &str = "MFA is temporarily unavailable";
 
 /// Lifetime of a pending MFA challenge, in seconds. Mirrored by the writer in
-/// [`MfaPlugin::on_event`] and by the attempt-counter re-store.
+/// [`MfaPlugin::on_event`]. Attempt updates preserve the stored deadline.
 const PENDING_CHALLENGE_TTL_SECS: u64 = 300;
 
 /// Failed `/mfa/verify` attempts tolerated per pending challenge before the
@@ -249,10 +249,10 @@ impl YAuthPlugin for MfaPlugin {
                                 "user_id": user_id.to_string(),
                                 "method": method,
                                 // Finding S2b: the challenge carries its own
-                                // bounded failure counter and its absolute
-                                // deadline, so a re-store after a failed
-                                // attempt can keep the ORIGINAL deadline
-                                // instead of silently renewing the window.
+                                // bounded failure counter. Keep the absolute
+                                // deadline for older builds during a rolling
+                                // deploy; updates now preserve the repository's
+                                // original expiry directly.
                                 "attempts": 0,
                                 "expires_at": chrono::Utc::now().timestamp()
                                     + PENDING_CHALLENGE_TTL_SECS as i64,
@@ -936,31 +936,13 @@ async fn disable_totp(
     }))
 }
 
-/// Seconds left on a pending challenge, from the absolute deadline it carries.
-///
-/// Challenges written before `expires_at` existed (rolling deploy) fall back to
-/// the full TTL. That is the conservative direction: it can only ever restore
-/// one original window, never stack windows, and the attempt counter — not the
-/// clock — is what bounds the guessing.
-fn remaining_challenge_ttl(pending: &serde_json::Value) -> u64 {
-    match pending
-        .get("expires_at")
-        .and_then(serde_json::Value::as_i64)
-    {
-        Some(expires_at) => (expires_at - chrono::Utc::now().timestamp())
-            .clamp(1, PENDING_CHALLENGE_TTL_SECS as i64) as u64,
-        None => PENDING_CHALLENGE_TTL_SECS,
-    }
-}
-
 /// Charge one failed guess to a pending challenge (finding S2b).
 ///
 /// Before this, a wrong code cost the attacker nothing: the 401 came back and
 /// the challenge row sat there for its full 300s TTL, good for as many guesses
 /// as the network allowed. Now each failure increments a counter carried in the
-/// challenge and re-stores it with the time the challenge has LEFT (so failures
-/// never renew the window); at [`MAX_CHALLENGE_ATTEMPTS`] the challenge is
-/// deleted outright and every later attempt against that `pending_session_id`
+/// challenge without changing its stored expiry; at [`MAX_CHALLENGE_ATTEMPTS`]
+/// the challenge is deleted outright and every later attempt against that `pending_session_id`
 /// fails as expired — the user has to log in again.
 ///
 /// The increment is deliberately **not** atomic: `ChallengeRepository` gained a
@@ -974,6 +956,10 @@ fn remaining_challenge_ttl(pending: &serde_json::Value) -> u64 {
 /// (or a CAS) across twelve backend impls to bound something that is already
 /// bounded. The property that *must* survive concurrency is the single-use
 /// marker, and that one is atomic.
+///
+/// Updating the value is conditional on the challenge still being live. Unlike
+/// an upsert, this cannot recreate a challenge that another request consumed or
+/// exhausted while this request was validating its factor.
 async fn record_failed_attempt(
     state: &YAuthState,
     key: &str,
@@ -1014,7 +1000,7 @@ async fn record_failed_attempt(
     if let Err(e) = state
         .repos
         .challenges
-        .set_challenge(key, value, remaining_challenge_ttl(pending))
+        .update_challenge_if_live(key, value)
         .await
     {
         // Could not persist the counter — destroy the challenge instead of
@@ -1552,32 +1538,6 @@ mod tests {
             !totp_replay_key(a, "123456").ends_with("123456"),
             "the key must not embed the code in the clear"
         );
-    }
-
-    #[test]
-    fn remaining_ttl_counts_down_and_never_exceeds_the_original() {
-        let now = chrono::Utc::now().timestamp();
-
-        let fresh = serde_json::json!({ "expires_at": now + 300 });
-        let ttl = remaining_challenge_ttl(&fresh);
-        assert!((295..=300).contains(&ttl), "unexpected ttl {ttl}");
-
-        let half = serde_json::json!({ "expires_at": now + 100 });
-        assert!((95..=100).contains(&remaining_challenge_ttl(&half)));
-
-        // A re-store may never buy the attacker a longer window than the
-        // challenge originally had, even if the deadline is nonsense.
-        let bogus = serde_json::json!({ "expires_at": now + 100_000 });
-        assert_eq!(remaining_challenge_ttl(&bogus), PENDING_CHALLENGE_TTL_SECS);
-
-        // Already past its deadline: floor at 1s, never 0 (which some KV
-        // backends read as "no expiry").
-        let expired = serde_json::json!({ "expires_at": now - 10 });
-        assert_eq!(remaining_challenge_ttl(&expired), 1);
-
-        // Written before the field existed (rolling deploy).
-        let legacy = serde_json::json!({ "user_id": Uuid::now_v7().to_string() });
-        assert_eq!(remaining_challenge_ttl(&legacy), PENDING_CHALLENGE_TTL_SECS);
     }
 
     #[test]

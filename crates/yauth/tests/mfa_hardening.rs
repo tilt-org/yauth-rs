@@ -1226,3 +1226,267 @@ async fn a_wrong_code_does_not_burn_the_step_for_the_right_one() {
     );
     assert!(cookie.is_some());
 }
+
+/// Pause one decryption after its request has read the pending challenge.
+/// This models a delayed validation without depending on Argon2 timing or the
+/// scheduler; all other requests continue through the real cipher and router.
+struct PausingCipher {
+    inner: TestCipher,
+    armed: AtomicBool,
+    arrived: tokio::sync::Notify,
+    resume: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl PausingCipher {
+    fn new() -> (Arc<Self>, std::sync::mpsc::Sender<()>) {
+        let (resume, receiver) = std::sync::mpsc::channel();
+        (
+            Arc::new(Self {
+                inner: TestCipher { key: 0x35 },
+                armed: AtomicBool::new(false),
+                arrived: tokio::sync::Notify::new(),
+                resume: Mutex::new(receiver),
+            }),
+            resume,
+        )
+    }
+}
+
+impl TotpSecretCipher for PausingCipher {
+    fn seal(&self, user_id: Uuid, secret: &str) -> Result<String, TotpCipherError> {
+        self.inner.seal(user_id, secret)
+    }
+
+    fn open(&self, user_id: Uuid, stored: &str) -> Result<String, TotpCipherError> {
+        if self.armed.swap(false, Ordering::SeqCst) {
+            self.arrived.notify_one();
+            self.resume
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("the other request must finish before resuming validation");
+        }
+        self.inner.open(user_id, stored)
+    }
+}
+
+async fn pause_verify(
+    h: &Harness,
+    pending: &str,
+    bad: String,
+    cipher: &PausingCipher,
+) -> std::thread::JoinHandle<(StatusCode, Value, Option<String>)> {
+    cipher.armed.store(true, Ordering::SeqCst);
+    let app = h.app.clone();
+    let delayed_pending = pending.to_string();
+    let delayed = std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(request(
+                &app,
+                "POST",
+                "/auth/mfa/verify",
+                Some(json!({ "pending_session_id": delayed_pending, "code": bad })),
+                None,
+            ))
+    });
+    tokio::time::timeout(Duration::from_secs(5), cipher.arrived.notified())
+        .await
+        .expect("the delayed request must read the challenge first");
+    delayed
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delayed_failure_cannot_revive_a_consumed_challenge() {
+    let (cipher, resume) = PausingCipher::new();
+    let h = harness(Some(cipher.clone())).await;
+    let user = enrol(&h, "consumed-challenge@test.local").await;
+    let pending = login_for_challenge(&h, &user.email).await;
+    let delayed = pause_verify(&h, &pending, wrong_code(&user.totp), &cipher).await;
+
+    let (status, body, cookie) = verify(&h, &pending, &code_at(&user.totp, 0)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the other request must authenticate: {body}"
+    );
+    assert!(cookie.is_some());
+
+    resume.send(()).unwrap();
+    let (status, _, _) = delayed.join().unwrap();
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // This factor is unused and would authenticate if the late failure had
+    // recreated the primary-authentication token consumed above.
+    let (status, body, cookie) = verify(&h, &pending, &user.backup_codes[0]).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a consumed challenge must stay dead: {body}"
+    );
+    assert!(cookie.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delayed_failure_cannot_revive_an_exhausted_challenge() {
+    let (cipher, resume) = PausingCipher::new();
+    let h = harness(Some(cipher.clone())).await;
+    let user = enrol(&h, "exhausted-challenge@test.local").await;
+    let pending = login_for_challenge(&h, &user.email).await;
+    let bad = wrong_code(&user.totp);
+    let delayed = pause_verify(&h, &pending, bad.clone(), &cipher).await;
+
+    for _ in 0..5 {
+        let (status, _, _) = verify(&h, &pending, &bad).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+    let (status, _, _) = verify(&h, &pending, &code_at(&user.totp, 0)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the challenge is exhausted"
+    );
+
+    resume.send(()).unwrap();
+    let (status, _, _) = delayed.join().unwrap();
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, body, cookie) = verify(&h, &pending, &code_at(&user.totp, 0)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "an exhausted challenge must stay dead: {body}"
+    );
+    assert!(cookie.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delayed_failure_cannot_revive_an_expired_challenge() {
+    let (cipher, resume) = PausingCipher::new();
+    let h = harness(Some(cipher.clone())).await;
+    let user = enrol(&h, "expired-challenge@test.local").await;
+    let pending = login_for_challenge(&h, &user.email).await;
+    let delayed = pause_verify(&h, &pending, wrong_code(&user.totp), &cipher).await;
+
+    // Expire the stored entry without changing the snapshot already read by
+    // the delayed request. The repository owns the authoritative deadline.
+    let key = format!("mfa_pending:{pending}");
+    let value = h
+        .state
+        .repos
+        .challenges
+        .get_challenge(&key)
+        .await
+        .unwrap()
+        .unwrap();
+    h.state
+        .repos
+        .challenges
+        .set_challenge(&key, value, 0)
+        .await
+        .unwrap();
+
+    resume.send(()).unwrap();
+    let (status, _, _) = delayed.join().unwrap();
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, body, cookie) = verify(&h, &pending, &code_at(&user.totp, 0)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "an expired challenge must stay dead: {body}"
+    );
+    assert!(cookie.is_none());
+}
+
+/// Exercise the same public repository contract on memory and, when enabled,
+/// the production database/cache. Use dedicated test services and unique keys.
+#[tokio::test]
+async fn challenge_updates_preserve_lifetime() {
+    use yauth::backends::memory::InMemoryBackend;
+    use yauth::repo::{ChallengeRepository, DatabaseBackend};
+
+    let mut repos: Vec<(&str, Arc<dyn ChallengeRepository>)> = vec![];
+    let memory = InMemoryBackend::new().repositories().challenges;
+    repos.push(("memory", memory.clone()));
+
+    #[cfg(feature = "seaorm-pg-backend")]
+    if let Ok(url) = std::env::var("SEAORM_PG_DATABASE_URL") {
+        let db = sea_orm::Database::connect(url)
+            .await
+            .expect("test Postgres");
+        let backend = yauth::backends::seaorm_pg::SeaOrmPgBackend::from_connection(db);
+        repos.push(("seaorm-pg", backend.repositories().challenges));
+    }
+
+    #[cfg(feature = "redis")]
+    if let Ok(url) = std::env::var("YAUTH_TEST_REDIS_URL") {
+        let redis = redis::Client::open(url)
+            .unwrap()
+            .get_connection_manager()
+            .await
+            .expect("test Redis");
+        repos.push((
+            "redis-cached",
+            Arc::new(yauth::backends::redis::RedisCachedChallenges::new(
+                memory,
+                redis,
+                format!("yauth-test-{}", Uuid::now_v7()),
+            )),
+        ));
+    }
+
+    for (name, repo) in repos {
+        let key = format!("yauth-test-update-{}", Uuid::now_v7());
+        assert!(
+            !repo.update_challenge_if_live(&key, json!(1)).await.unwrap(),
+            "{name}: missing"
+        );
+        assert!(
+            repo.get_challenge(&key).await.unwrap().is_none(),
+            "{name}: no insert"
+        );
+
+        repo.set_challenge(&key, json!(0), 60).await.unwrap();
+        assert!(
+            repo.update_challenge_if_live(&key, json!(1)).await.unwrap(),
+            "{name}: live"
+        );
+        assert_eq!(
+            repo.get_challenge(&key).await.unwrap(),
+            Some(json!(1)),
+            "{name}: updated value"
+        );
+
+        repo.delete_challenge(&key).await.unwrap();
+        assert!(
+            !repo.update_challenge_if_live(&key, json!(2)).await.unwrap(),
+            "{name}: consumed"
+        );
+        assert!(
+            repo.get_challenge(&key).await.unwrap().is_none(),
+            "{name}: no resurrection"
+        );
+
+        // Update halfway through the original lifetime; neither the database
+        // deadline nor a cache write may grant another full lifetime.
+        repo.set_challenge(&key, json!(0), 2).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert!(
+            repo.update_challenge_if_live(&key, json!(1)).await.unwrap(),
+            "{name}: live before original expiry"
+        );
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert!(
+            repo.get_challenge(&key).await.unwrap().is_none(),
+            "{name}: original expiry preserved"
+        );
+        assert!(
+            !repo.update_challenge_if_live(&key, json!(2)).await.unwrap(),
+            "{name}: expired"
+        );
+        repo.delete_challenge(&key).await.unwrap();
+    }
+}
