@@ -162,6 +162,12 @@ opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-http = { workspace = true, optional = true }
 
 log = "0.4"
+# Structured failure telemetry for second-factor and session-sweep rejections
+# (`mfa_verification_failed`, `secret_unsealable`, `session_sweep_failed`): one
+# event per rejection carrying a `user_id` field. `log` carries no structured
+# fields. Same version as the dev-dependency below, so no new package enters
+# the lockfile.
+tracing = "0.1"
 
 # Feature-gated: verified-domain DNS TXT challenge (issue #90, `organizations` feature).
 # Async resolver. tokio-runtime + system-config keeps the dep light and graceful
