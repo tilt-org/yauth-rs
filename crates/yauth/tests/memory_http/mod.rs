@@ -74,6 +74,24 @@ pub async fn harness<E>(
         ..Default::default()
     });
 
+    // Under `full` — the feature set CI builds every suite with — the `bearer`
+    // feature is on, and `build()` refuses to run without a bearer config. The
+    // upstream in-memory suites satisfy that guard with a throwaway secret;
+    // this harness does the same. Neither consumer mints or presents a token.
+    #[cfg(feature = "bearer")]
+    let builder = builder.with_bearer(yauth::config::BearerConfig {
+        jwt_secret: "test-secret-for-memory-http-harness".to_string(),
+        access_token_ttl: Duration::from_secs(900),
+        refresh_token_ttl: Duration::from_secs(86400),
+        audience: None,
+        #[cfg(feature = "asymmetric-jwt")]
+        signing_algorithm: Default::default(),
+        #[cfg(feature = "asymmetric-jwt")]
+        signing_key_pem: None,
+        #[cfg(feature = "asymmetric-jwt")]
+        kid: None,
+    });
+
     let auth = configure(builder)
         .with_plugin(recorder)
         .build()
