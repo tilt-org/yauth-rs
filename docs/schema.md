@@ -44,8 +44,8 @@ Only the tables for your enabled features are created. Core tables are always pr
 
 | Table | Description |
 |-------|-------------|
-| `yauth_totp_secrets` | `id`, `user_id` -> users (unique), `encrypted_secret`, `verified`, `created_at` |
-| `yauth_backup_codes` | `id`, `user_id` -> users, `code_hash`, `used`, `created_at` |
+| `yauth_totp_secrets` | `id`, `user_id` -> users (unique), `encrypted_secret` (sealed by the host's `TotpSecretCipher`), `verified`, `created_at` |
+| `yauth_backup_codes` | `id`, `user_id` -> users, `code_hash` (Argon2id PHC string — an unbounded `VARCHAR`, at least 128 characters if you own the DDL), `used`, `created_at` |
 
 ### oauth
 

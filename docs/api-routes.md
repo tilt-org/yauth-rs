@@ -44,6 +44,8 @@ All routes are mounted under your chosen prefix (e.g., `/api/auth`).
 | GET | `/mfa/backup-codes` | Yes | Get backup code count |
 | POST | `/mfa/backup-codes/regenerate` | Yes | Regenerate backup codes |
 
+`setup`, `confirm` and `backup-codes/regenerate` answer `503` when no `MfaConfig::secret_cipher` is configured (see [Configuration](configuration.md#mfa-mfa-feature)). `verify` accepts a given TOTP code once per 120-second window and allows five wrong codes per pending challenge before deleting it; backup codes are `xxxx-xxxx-xxxx` and are consumed on use. Confirming TOTP revokes the caller's other sessions.
+
 ## OAuth (Client)
 
 | Method | Path | Auth | Description |

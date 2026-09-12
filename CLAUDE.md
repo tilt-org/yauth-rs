@@ -139,7 +139,7 @@ The suite covers three categories:
 2. **Behavioral contracts** — semantic invariants the type system can't enforce: expired tokens return `None`, used tokens return `None`, `user.delete()` cascades to all related entities, rate limiting is fail-open on error.
 3. **Type edge cases** — UUID round-trip (CHAR(36) ↔ Uuid), NULL vs empty string, large text (no silent truncation), unicode/emoji, datetime precision, JSON structural equality, case-insensitive email.
 
-**When adding a new backend:** implement `DatabaseBackend` + all repository traits, add the backend to `test_backends()`, and run the suite. If all 65 tests pass, the backend is correct.
+**When adding a new backend:** implement `DatabaseBackend` + all repository traits, add the backend to `test_backends()`, and run the suite. If all 65 tests pass, the backend is correct. Override `ChallengeRepository::try_claim_challenge` (set-if-absent) and `update_challenge_if_live` (conditional update) as single statements — their trait defaults are a non-atomic read-then-write and `NotImplemented` respectively, and the MFA login path relies on both; `backends/seaorm_pg/challenge_repo.rs` is the reference.
 
 **Schema setup in tests:** Conformance and integration tests set up the database schema using raw SQL via test helper functions (not `backend.migrate()`). Each test backend has a setup function that executes DDL directly against the database connection. This keeps the test infrastructure independent of the migration system.
 
@@ -350,7 +350,7 @@ Uses native OpenTelemetry SDK (no `tracing` crate). Key points:
 - `crate::otel` helper module provides `record_error()`, `add_event()`, `set_attribute()`, `with_span()` — all compile to no-ops when `telemetry` feature is disabled
 - `telemetry::init()` registers `TraceContextPropagator` for W3C traceparent/tracestate propagation
 - `telemetry::layer::trace_middleware` creates native OTel server spans with context attached via `cx.attach()` and stored in request extensions
-- Operational logging uses `log` crate (not `tracing`) — library does NOT init a log subscriber
+- Operational logging uses `log` crate (not `tracing`) — library does NOT init a log subscriber. The one exception is three structured security events that carry a `user_id` field and so go through `tracing`: `mfa_verification_failed` and `secret_unsealable` (`target: "yauth::mfa"`) and `session_sweep_failed` (`target: "yauth::session"`)
 - `@opentelemetry/sdk-trace-web` for frontend
 - CORS must include `traceparent` and `tracestate` headers
 - Health checks excluded from tracing
