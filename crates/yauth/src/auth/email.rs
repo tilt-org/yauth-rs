@@ -1,7 +1,8 @@
-use lettre::message::header::ContentType;
+use lettre::message::header::{HeaderName, HeaderValue};
+use lettre::message::{Mailbox, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::Tls;
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use lettre::{Address, AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
 /// Host-supplied renderer for the five link mails this service sends, so the
 /// embedding application can brand them without forking the templates.
@@ -19,6 +20,16 @@ pub trait AuthEmailTemplates: Send + Sync {
     /// verified account. `reset_url` is a freshly minted password-reset link
     /// so the (presumably password-forgetting) owner can get back in.
     fn already_registered(&self, reset_url: &str) -> (String, String);
+
+    /// A `text/plain` rendering of one of the bodies above. `Some` makes the
+    /// message `multipart/alternative` — text part first, HTML second — for
+    /// text-only clients and for mailbox providers that score HTML-only mail
+    /// down; `None` (the default) sends the HTML part alone. The host owns the
+    /// markup, so it owns the conversion too; the built-in templates carry no
+    /// text alternative.
+    fn plain_text_alternative(&self, _body_html: &str) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -29,6 +40,12 @@ pub struct EmailService {
     /// [`Self::with_transport`] — every consumer then shares one pool (F4).
     transport: AsyncSmtpTransport<Tokio1Executor>,
     from_address: String,
+    /// Display name on the `From` header (`Name <from_address>`); `None`
+    /// sends the bare address. See [`Self::with_from_name`].
+    from_name: Option<String>,
+    /// `Reply-To` address; `None` sets no such header. See
+    /// [`Self::with_reply_to`].
+    reply_to: Option<String>,
     app_url: String,
     /// Host-supplied branded templates; `None` uses the built-in defaults.
     templates: Option<std::sync::Arc<dyn AuthEmailTemplates>>,
@@ -51,6 +68,8 @@ impl EmailService {
         Self {
             transport,
             from_address,
+            from_name: None,
+            reply_to: None,
             app_url,
             templates: None,
         }
@@ -60,6 +79,26 @@ impl EmailService {
     #[must_use]
     pub fn with_templates(mut self, templates: std::sync::Arc<dyn AuthEmailTemplates>) -> Self {
         self.templates = Some(templates);
+        self
+    }
+
+    /// Display name for the `From` header — `Name <from_address>` instead of
+    /// the bare address, which mailbox providers (and the AWS SES
+    /// production-access review) read as a hygiene signal. Blank ⇒ the bare
+    /// address. Fed from `SmtpConfig::from_name` by the builder.
+    #[must_use]
+    pub fn with_from_name(mut self, from_name: Option<String>) -> Self {
+        self.from_name = non_blank(from_name);
+        self
+    }
+
+    /// `Reply-To` address for every message — a monitored mailbox a
+    /// recipient's reply reaches when the sending address is unmonitored.
+    /// Blank ⇒ no `Reply-To` header. Fed from `SmtpConfig::reply_to` by the
+    /// builder.
+    #[must_use]
+    pub fn with_reply_to(mut self, reply_to: Option<String>) -> Self {
+        self.reply_to = non_blank(reply_to);
         self
     }
 
@@ -76,6 +115,8 @@ impl EmailService {
         Self {
             transport,
             from_address,
+            from_name: None,
+            reply_to: None,
             app_url,
             templates: None,
         }
@@ -113,20 +154,63 @@ impl EmailService {
         }
     }
 
-    async fn send(&self, to: &str, subject: &str, body: String) -> Result<(), String> {
-        let email = Message::builder()
-            .from(
-                self.from_address
-                    .parse()
-                    .map_err(|e| format!("Invalid from address: {}", e))?,
-            )
-            .to(to
-                .parse()
-                .map_err(|e| format!("Invalid to address: {}", e))?)
+    /// Build the message [`Self::send`] submits, without sending it — public
+    /// so a host can assert the headers and body structure it configured
+    /// through this service without an SMTP round trip.
+    ///
+    /// Every message carries the same sender identity and hygiene headers:
+    /// `From` with the configured display name, `Reply-To` when configured, a
+    /// `Message-ID` minted under the `From` domain (`<uuid@domain>` — lettre
+    /// does not add one, and a relay-assigned id would sit under the relay's
+    /// hostname), `Auto-Submitted: auto-generated` (RFC 3834: a machine
+    /// generated this one-time link, so auto-responders should not answer
+    /// it), and `MIME-Version: 1.0`. The body is `multipart/alternative`,
+    /// text part first, when the installed templates supply an
+    /// [`AuthEmailTemplates::plain_text_alternative`], and a single
+    /// `text/html` part otherwise.
+    pub fn build_message(
+        &self,
+        to: &str,
+        subject: &str,
+        body_html: String,
+    ) -> Result<Message, String> {
+        let from_address: Address = self
+            .from_address
+            .trim()
+            .parse()
+            .map_err(|e| format!("Invalid from address: {e}"))?;
+        let message_id = format!("<{}@{}>", uuid::Uuid::now_v7(), from_address.domain());
+        let mut builder = Message::builder()
+            .from(Mailbox::new(self.from_name.clone(), from_address))
+            .to(to.parse().map_err(|e| format!("Invalid to address: {e}"))?)
             .subject(subject)
-            .header(ContentType::TEXT_HTML)
-            .body(body)
-            .map_err(|e| format!("Failed to build email: {}", e))?;
+            .message_id(Some(message_id))
+            .raw_header(HeaderValue::new(
+                HeaderName::new_from_ascii_str("Auto-Submitted"),
+                "auto-generated".to_string(),
+            ));
+        if let Some(reply_to) = &self.reply_to {
+            builder = builder.reply_to(
+                reply_to
+                    .parse()
+                    .map_err(|e| format!("Invalid reply-to address: {e}"))?,
+            );
+        }
+
+        let plain_text = self
+            .templates
+            .as_ref()
+            .and_then(|templates| templates.plain_text_alternative(&body_html))
+            .filter(|text| !text.trim().is_empty());
+        let message = match plain_text {
+            Some(text) => builder.multipart(MultiPart::alternative_plain_html(text, body_html)),
+            None => builder.singlepart(SinglePart::html(body_html)),
+        };
+        message.map_err(|e| format!("Failed to build email: {e}"))
+    }
+
+    async fn send(&self, to: &str, subject: &str, body: String) -> Result<(), String> {
+        let email = self.build_message(to, subject, body)?;
 
         self.transport
             .send(email)
@@ -384,5 +468,161 @@ impl EmailService {
 
         self.send(to, "Unlock your account", body).await?;
         Ok(())
+    }
+}
+
+/// Trim an optional knob and treat blank as unset.
+fn non_blank(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `builder_dangerous` opens no connection until a send, so a closed port
+    /// is fine for building messages.
+    fn service() -> EmailService {
+        EmailService::new(
+            "127.0.0.1".to_string(),
+            1,
+            "noreply@yauth.test".to_string(),
+            "http://localhost:3000".to_string(),
+            None,
+            None,
+        )
+    }
+
+    fn wire(message: Message) -> String {
+        String::from_utf8(message.formatted()).expect("message is valid UTF-8")
+    }
+
+    fn header<'a>(wire: &'a str, name: &str) -> Option<&'a str> {
+        wire.lines().find(|line| line.starts_with(name))
+    }
+
+    /// Test-only templates that render a text alternative.
+    struct PlainTextTemplates;
+
+    impl AuthEmailTemplates for PlainTextTemplates {
+        fn verification(&self, verify_url: &str) -> (String, String) {
+            ("Verify".to_string(), format!("<p>Verify: {verify_url}</p>"))
+        }
+
+        fn magic_link(&self, magic_url: &str) -> (String, String) {
+            ("Sign in".to_string(), format!("<p>{magic_url}</p>"))
+        }
+
+        fn password_reset(&self, reset_url: &str) -> (String, String) {
+            ("Reset".to_string(), format!("<p>{reset_url}</p>"))
+        }
+
+        fn unlock(&self, unlock_url: &str) -> (String, String) {
+            ("Unlock".to_string(), format!("<p>{unlock_url}</p>"))
+        }
+
+        fn already_registered(&self, reset_url: &str) -> (String, String) {
+            ("Registered".to_string(), format!("<p>{reset_url}</p>"))
+        }
+
+        fn plain_text_alternative(&self, body_html: &str) -> Option<String> {
+            Some(body_html.replace("<p>", "").replace("</p>", ""))
+        }
+    }
+
+    #[test]
+    fn messages_carry_the_sender_identity_and_hygiene_headers() {
+        let message = service()
+            .with_from_name(Some("YAuth".to_string()))
+            .with_reply_to(Some("support@yauth.test".to_string()))
+            .build_message(
+                "user@example.com",
+                "Verify your email address",
+                "<p>Hello</p>".to_string(),
+            )
+            .expect("build message");
+        let wire = wire(message);
+
+        assert_eq!(
+            header(&wire, "From:"),
+            Some("From: YAuth <noreply@yauth.test>")
+        );
+        assert_eq!(
+            header(&wire, "Reply-To:"),
+            Some("Reply-To: support@yauth.test")
+        );
+        assert_eq!(
+            header(&wire, "Auto-Submitted:"),
+            Some("Auto-Submitted: auto-generated")
+        );
+        let message_id = header(&wire, "Message-ID:").expect("Message-ID header");
+        assert!(
+            message_id.starts_with("Message-ID: <") && message_id.ends_with("@yauth.test>"),
+            "minted under the From domain: {message_id}"
+        );
+        assert_eq!(header(&wire, "MIME-Version:"), Some("MIME-Version: 1.0"));
+        assert!(wire.contains("Content-Type: text/html"), "{wire}");
+        assert!(
+            !wire.contains("multipart/alternative"),
+            "the built-in templates carry no text alternative: {wire}"
+        );
+    }
+
+    #[test]
+    fn blank_identity_knobs_send_the_bare_address_and_no_reply_to() {
+        let message = service()
+            .with_from_name(Some("   ".to_string()))
+            .with_reply_to(Some(String::new()))
+            .build_message("user@example.com", "Subject", "<p>Hello</p>".to_string())
+            .expect("build message");
+        let wire = wire(message);
+
+        assert_eq!(header(&wire, "From:"), Some("From: noreply@yauth.test"));
+        assert_eq!(header(&wire, "Reply-To:"), None);
+    }
+
+    #[test]
+    fn a_host_text_alternative_makes_the_body_multipart_text_first() {
+        let message = service()
+            .with_templates(std::sync::Arc::new(PlainTextTemplates))
+            .build_message(
+                "user@example.com",
+                "Verify",
+                "<p>Verify: https://example.com/verify</p>".to_string(),
+            )
+            .expect("build message");
+        let wire = wire(message);
+
+        assert!(
+            wire.contains("Content-Type: multipart/alternative"),
+            "{wire}"
+        );
+        let plain = wire.find("Content-Type: text/plain").expect("text part");
+        let html = wire.find("Content-Type: text/html").expect("HTML part");
+        assert!(plain < html, "the text part precedes the HTML part: {wire}");
+        assert!(
+            wire[plain..html].contains("Verify: https://example.com/verify"),
+            "{wire}"
+        );
+    }
+
+    #[test]
+    fn message_ids_are_unique_per_build() {
+        let service = service();
+        let first = wire(
+            service
+                .build_message("user@example.com", "Subject", "<p>a</p>".to_string())
+                .expect("build first"),
+        );
+        let second = wire(
+            service
+                .build_message("user@example.com", "Subject", "<p>b</p>".to_string())
+                .expect("build second"),
+        );
+        let first_id = header(&first, "Message-ID:").expect("first Message-ID");
+        let second_id = header(&second, "Message-ID:").expect("second Message-ID");
+        assert_ne!(first_id, second_id);
     }
 }

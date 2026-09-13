@@ -1363,6 +1363,8 @@ async fn start_server(db: Pool) -> u16 {
                 host: "127.0.0.1".into(),
                 port: MAILPIT_SMTP_PORT,
                 from: "noreply@yauth.test".into(),
+                from_name: None,
+                reply_to: None,
                 username: None,
                 password: None,
             }),

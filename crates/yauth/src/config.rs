@@ -209,6 +209,18 @@ pub struct SmtpConfig {
     pub port: u16,
     /// Sender email address for all outgoing emails (e.g., `"auth@example.com"`).
     pub from: String,
+    /// Display name for the `From` header — `Name <from>` instead of the bare
+    /// address, which mailbox providers (and the AWS SES production-access
+    /// review) read as a hygiene signal. `None`/blank (default) ⇒ the bare
+    /// address. In-house message-hygiene patch — see
+    /// `auth::email::EmailService::build_message`.
+    #[serde(default)]
+    pub from_name: Option<String>,
+    /// `Reply-To` address for every outgoing email — a monitored mailbox a
+    /// recipient's reply reaches when [`Self::from`] is unmonitored.
+    /// `None`/blank (default) ⇒ no `Reply-To` header.
+    #[serde(default)]
+    pub reply_to: Option<String>,
     /// SMTP auth username. `None` (default) ⇒ unauthenticated plaintext relay
     /// (e.g. the docker-compose mailpit). `Some` together with [`Self::password`]
     /// ⇒ STARTTLS relay with credentials, for an authenticated relay such as

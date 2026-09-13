@@ -411,20 +411,27 @@ impl YAuthBuilder {
             .config
             .smtp
             .as_ref()
-            .map(|smtp| match injected_transport {
-                Some(transport) => auth::email::EmailService::with_transport(
-                    transport,
-                    smtp.from.clone(),
-                    self.config.base_url.clone(),
-                ),
-                None => auth::email::EmailService::new(
-                    smtp.host.clone(),
-                    smtp.port,
-                    smtp.from.clone(),
-                    self.config.base_url.clone(),
-                    smtp.username.clone(),
-                    smtp.password.clone(),
-                ),
+            .map(|smtp| {
+                let service = match injected_transport {
+                    Some(transport) => auth::email::EmailService::with_transport(
+                        transport,
+                        smtp.from.clone(),
+                        self.config.base_url.clone(),
+                    ),
+                    None => auth::email::EmailService::new(
+                        smtp.host.clone(),
+                        smtp.port,
+                        smtp.from.clone(),
+                        self.config.base_url.clone(),
+                        smtp.username.clone(),
+                        smtp.password.clone(),
+                    ),
+                };
+                // Message hygiene: the sender identity (`From` display name,
+                // `Reply-To`) rides `[smtp]` so every path sends the same one.
+                service
+                    .with_from_name(smtp.from_name.clone())
+                    .with_reply_to(smtp.reply_to.clone())
             })
             .map(|service| match injected_templates {
                 // Host-branded link mails (additive; built-ins otherwise).

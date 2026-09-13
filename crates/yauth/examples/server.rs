@@ -91,6 +91,8 @@ async fn main() {
             host,
             port,
             from,
+            from_name: env::var("SMTP_FROM_NAME").ok(),
+            reply_to: env::var("SMTP_REPLY_TO").ok(),
             username: env::var("SMTP_USERNAME").ok(),
             password: env::var("SMTP_PASSWORD").ok(),
         }
