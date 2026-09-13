@@ -48,6 +48,49 @@ impl RateLimiter {
     }
 }
 
+/// Admission for operations that may send mail to an unauthenticated caller's
+/// chosen address. Unlike general auth throttling, storage failure must not
+/// turn an email endpoint into an unmetered sender. Never log the key/error:
+/// either can contain a recipient address from the database or provider.
+pub(crate) async fn check_mail_rate_limit(
+    state: &crate::state::YAuthState,
+    key: &str,
+    limit: u32,
+    window_secs: u64,
+) -> Result<(), crate::error::ApiError> {
+    let result = state
+        .repos
+        .rate_limits
+        .check_rate_limit(key, limit, window_secs)
+        .await
+        .map_err(|_| {
+            tracing::warn!(target: "yauth.email", "email admission budget unavailable");
+            crate::error::api_err(
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "Email requests are temporarily unavailable",
+            )
+        })?;
+    if !result.allowed {
+        return Err(crate::error::api_err(
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            "Too many requests",
+        ));
+    }
+    Ok(())
+}
+
+/// One destination budget shared by registration (including duplicates),
+/// verification resends, resets and magic links. Operation hopping cannot
+/// multiply the mailbox's quota. Match the auth plane's canonical address
+/// normalization; no new external service or deployment setting is required.
+pub(crate) async fn check_recipient_mail_budget(
+    state: &crate::state::YAuthState,
+    email: &str,
+) -> Result<(), crate::error::ApiError> {
+    let normalized = crate::auth::input::sanitize(email).to_lowercase();
+    check_mail_rate_limit(state, &format!("auth-email:{normalized}"), 10, 60).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

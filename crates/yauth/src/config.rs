@@ -223,10 +223,10 @@ pub struct SmtpConfig {
 
 /// Per-operation rate limit configuration.
 ///
-/// Controls how many requests are allowed within a sliding time window.
-/// Set to `None` on `EmailPasswordConfig` to disable rate limiting entirely
-/// (useful for testing). The default preserves existing behavior: 10 requests
-/// per 60-second window.
+/// Controls how many requests are allowed within a time window (fixed on the
+/// SeaORM Postgres backend). `None` on `EmailPasswordConfig` disables these
+/// per-operation limits; the shared ten-per-minute email recipient ceiling
+/// still applies. Defaults to 10 requests per 60-second window.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitConfig {
     pub max_requests: u32,
@@ -258,9 +258,10 @@ pub struct EmailPasswordConfig {
     /// Additional password complexity requirements (uppercase, digits, etc.).
     #[serde(default)]
     pub password_policy: PasswordPolicyConfig,
-    /// Per-operation rate limit. `Some(config)` enables rate limiting with the
-    /// given parameters; `None` disables rate limiting entirely. Defaults to
-    /// 10 requests per 60-second window.
+    /// Per-operation rate limit. `Some(config)` enables these limits with the
+    /// given parameters; `None` disables only the per-operation limits, not
+    /// the shared email recipient ceiling. Defaults to 10 requests per
+    /// 60-second window.
     #[serde(default = "default_rate_limit")]
     pub rate_limit: Option<RateLimitConfig>,
 }

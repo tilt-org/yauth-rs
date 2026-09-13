@@ -9,6 +9,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::auth::rate_limit::{check_mail_rate_limit, check_recipient_mail_budget};
 use crate::auth::{crypto, hibp, input, password, password_policy, session};
 use crate::error::api_err;
 use crate::middleware::AuthUser;
@@ -236,17 +237,8 @@ async fn register(
         ));
     }
 
-    if let Some(ref rl) = state.email_password_config.rate_limit
-        && !state
-            .repos
-            .rate_limits
-            .check_rate_limit("register", rl.max_requests, rl.window_secs)
-            .await
-            .map(|r| r.allowed)
-            .unwrap_or(true)
-    {
-        crate::otel::add_event("register_rate_limited", vec![]);
-        return Err(api_err(StatusCode::TOO_MANY_REQUESTS, "Too many requests"));
+    if let Some(ref rl) = state.email_password_config.rate_limit {
+        check_mail_rate_limit(&state, "register", rl.max_requests, rl.window_secs).await?;
     }
 
     let email = input::sanitize(&input.email).to_lowercase();
@@ -293,6 +285,8 @@ async fn register(
         );
         return Err(api_err(StatusCode::BAD_REQUEST, &breach_msg));
     }
+
+    check_recipient_mail_budget(&state, &email).await?;
 
     // Check if user exists
     {
@@ -858,21 +852,16 @@ async fn resend_verification(
 ) -> Result<Json<MessageResponse>, (StatusCode, Json<serde_json::Value>)> {
     let email = input::sanitize(&input.email).to_lowercase();
 
-    if let Some(ref rl) = state.email_password_config.rate_limit
-        && !state
-            .repos
-            .rate_limits
-            .check_rate_limit(
-                &format!("resend:{}", email),
-                rl.max_requests,
-                rl.window_secs,
-            )
-            .await
-            .map(|r| r.allowed)
-            .unwrap_or(true)
-    {
-        return Err(api_err(StatusCode::TOO_MANY_REQUESTS, "Too many requests"));
+    if let Some(ref rl) = state.email_password_config.rate_limit {
+        check_mail_rate_limit(
+            &state,
+            &format!("resend:{}", email),
+            rl.max_requests,
+            rl.window_secs,
+        )
+        .await?;
     }
+    check_recipient_mail_budget(&state, &email).await?;
 
     let success_msg = Json(MessageResponse {
         message: "If an account exists with that email, a verification link has been sent."
@@ -943,21 +932,16 @@ async fn forgot_password(
 ) -> Result<Json<MessageResponse>, (StatusCode, Json<serde_json::Value>)> {
     let email = input::sanitize(&input.email).to_lowercase();
 
-    if let Some(ref rl) = state.email_password_config.rate_limit
-        && !state
-            .repos
-            .rate_limits
-            .check_rate_limit(
-                &format!("forgot:{}", email),
-                rl.max_requests,
-                rl.window_secs,
-            )
-            .await
-            .map(|r| r.allowed)
-            .unwrap_or(true)
-    {
-        return Err(api_err(StatusCode::TOO_MANY_REQUESTS, "Too many requests"));
+    if let Some(ref rl) = state.email_password_config.rate_limit {
+        check_mail_rate_limit(
+            &state,
+            &format!("forgot:{}", email),
+            rl.max_requests,
+            rl.window_secs,
+        )
+        .await?;
     }
+    check_recipient_mail_budget(&state, &email).await?;
 
     let success_msg = Json(MessageResponse {
         message: "If an account exists with that email, a password reset link has been sent."
