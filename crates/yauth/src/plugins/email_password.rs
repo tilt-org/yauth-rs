@@ -9,7 +9,9 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::auth::rate_limit::{check_mail_rate_limit, check_recipient_mail_budget};
+use crate::auth::rate_limit::{
+    check_mail_rate_limit, check_recipient_mail_budget, mail_budget_key,
+};
 use crate::auth::{crypto, hibp, input, password, password_policy, session};
 use crate::error::api_err;
 use crate::middleware::AuthUser;
@@ -855,7 +857,7 @@ async fn resend_verification(
     if let Some(ref rl) = state.email_password_config.rate_limit {
         check_mail_rate_limit(
             &state,
-            &format!("resend:{}", email),
+            &mail_budget_key("resend", &email),
             rl.max_requests,
             rl.window_secs,
         )
@@ -935,7 +937,7 @@ async fn forgot_password(
     if let Some(ref rl) = state.email_password_config.rate_limit {
         check_mail_rate_limit(
             &state,
-            &format!("forgot:{}", email),
+            &mail_budget_key("forgot", &email),
             rl.max_requests,
             rl.window_secs,
         )

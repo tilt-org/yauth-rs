@@ -8,7 +8,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::auth::rate_limit::{check_mail_rate_limit, check_recipient_mail_budget};
+use crate::auth::rate_limit::{
+    check_mail_rate_limit, check_recipient_mail_budget, mail_budget_key,
+};
 use crate::auth::session::session_set_cookie;
 use crate::auth::{crypto, session};
 use crate::config::MagicLinkConfig;
@@ -74,7 +76,7 @@ async fn send_magic_link(
 ) -> Result<Json<MagicLinkMessageResponse>, ApiError> {
     let email = crate::auth::input::sanitize(&input.email).to_lowercase();
 
-    check_mail_rate_limit(&state, &format!("magic-link:{}", email), 10, 60).await?;
+    check_mail_rate_limit(&state, &mail_budget_key("magic-link", &email), 10, 60).await?;
 
     if email.is_empty() || !email.contains('@') {
         return Err(api_err(StatusCode::BAD_REQUEST, "Valid email is required"));
