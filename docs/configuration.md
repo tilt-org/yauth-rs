@@ -53,11 +53,17 @@ Behaviour to keep in mind when tuning rate limits: a TOTP code is single-use at 
 
 - `host`, `port`, `from`
 - `username`, `password` — `Some` for an authenticated STARTTLS relay (for example the AWS SES SMTP endpoint); `None` (default) sends over an unauthenticated plaintext relay such as the docker-compose mailpit.
+- `from_name` — display name for the `From` header (`Name <from>`); `None` or blank (default) sends the bare address.
+- `reply_to` — `Reply-To` address for every mail, for when `from` is unmonitored; `None` or blank (default) sets no such header.
+
+Every mail carries `From` (with the display name), `Reply-To` when configured, a `Message-ID` minted under the `from` domain, `Auto-Submitted: auto-generated` and `MIME-Version: 1.0`. `EmailService::build_message` returns the exact message a send would submit, so a host can assert its headers without an SMTP server.
 
 Sends go through lettre's `AsyncSmtpTransport<Tokio1Executor>`. Two additive builder seams, both effective only when `smtp` is `Some`:
 
 - `YAuthBuilder::with_email_transport(transport)` — inject a transport you built at boot so yauth shares one connection pool with the rest of your application.
-- `YAuthBuilder::with_email_templates(Arc<dyn AuthEmailTemplates>)` — brand the five mails. Each trait method receives the action URL and returns the subject and body; the built-in unbranded templates remain the default.
+- `YAuthBuilder::with_email_templates(Arc<dyn AuthEmailTemplates>)` — brand the five mails. Each trait method receives the action URL and returns the subject and body; the built-in unbranded templates remain the default. The provided method `plain_text_alternative(body_html)` returns `None` by default; return `Some(text)` to send the mail as `multipart/alternative`, text part first.
+
+**Admission.** The four routes that mail an address an unauthenticated caller chose (`/register`, `/resend-verification`, `/forgot-password`, `/magic-link/send`) share a fixed budget of 10 requests per address per 60 seconds on top of their per-operation limits (`EmailPasswordConfig::rate_limit`, which `None` disables, and magic-link's fixed 10 per 60 seconds). The budget is not configurable and is applied whether or not `smtp` is set. Budget keys hold a SHA-256 of the normalised address, never the address. If the rate-limit store fails, these routes answer `503` rather than send unmetered mail.
 
 ## Account Lockout
 

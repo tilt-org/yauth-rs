@@ -19,13 +19,15 @@ existing database. This page records those column deltas per release.
 
 ---
 
-## Sealed TOTP secrets, Argon2id backup codes, async email (this release)
+## Sealed TOTP secrets, Argon2id backup codes, async email, mail admission (this release)
 
 This release folds in the patch set that `tilt-org/frontend` carried on its vendored
-copy of yauth 0.14.0 (its `third_party/yauth` tree). It changes the MFA plugin's
-storage format, tightens its login path, makes email delivery asynchronous, and
-reshapes three config structs. Read the whole section before bumping: two of the
-changes are **operational cutovers**, not just recompiles.
+copy of yauth 0.14.0 (its `third_party/yauth` tree), through 2026-10-07. It changes the
+MFA plugin's storage format, tightens its login path, makes email delivery asynchronous,
+meters every route that mails an unauthenticated caller's address and refuses those
+requests when the meter is unavailable, and reshapes three config structs. Read the whole
+section before bumping: two of the changes are **operational cutovers**, not just
+recompiles.
 
 ### Compile-time changes
 
@@ -33,8 +35,9 @@ changes are **operational cutovers**, not just recompiles.
 |---------|--------|------------|
 | `PasswordPolicyConfig` | `require_uppercase` / `require_lowercase` / `require_digit` / `require_special` are replaced by one `character_requirements: CharacterRequirements` | `AnyCharacters` (default) is the old all-`false`; `Complex` is the old all-`true`; `DigitOrSpecial` is new. Serialises as `any_characters` / `digit_or_special` / `complex`. |
 | `MfaConfig` | New field `secret_cipher: Option<Arc<dyn TotpSecretCipher>>` (`#[serde(skip)]`, hand-written `Debug` that prints presence only) | Add it to struct literals (or use `..Default::default()`). `None` fails closed — see below. |
-| `SmtpConfig` | New fields `username: Option<String>`, `password: Option<String>` (`#[serde(default)]`) | Add them to struct literals. `Some` pair ⇒ STARTTLS with credentials; `None` ⇒ the unauthenticated plaintext relay you had before. |
-| `EmailService` | `new()` takes `username, password` after `app_url`; every `send_*_email` is now `async`; new `with_transport`, `with_templates`, `send_already_registered_email` | `.await` the sends; construct with the two extra arguments. |
+| `SmtpConfig` | New fields `username: Option<String>`, `password: Option<String>`, `from_name: Option<String>`, `reply_to: Option<String>` (all `#[serde(default)]`) | Add them to struct literals. A `Some` username/password pair ⇒ STARTTLS with credentials; `None` ⇒ the unauthenticated plaintext relay you had before. `from_name` / `reply_to` set the `From` display name and a `Reply-To` header; `None` or blank sends the bare address and no `Reply-To`. |
+| `EmailService` | `new()` takes `username, password` after `app_url`; every `send_*_email` is now `async`; new `with_transport`, `with_templates`, `with_from_name`, `with_reply_to`, `send_already_registered_email`, and a public `build_message(to, subject, body_html) -> Result<lettre::Message, String>` | `.await` the sends; construct with the two extra arguments. `build_message` returns exactly what a send would submit, so a host can assert headers without an SMTP server. |
+| `AuthEmailTemplates` | New provided method `plain_text_alternative(&self, body_html: &str) -> Option<String>` (default `None`) | Nothing. Return `Some(text)` to send the mail as `multipart/alternative`, text part first. |
 | `YAuthBuilder` | New additive seams `with_email_transport(AsyncSmtpTransport<Tokio1Executor>)` and `with_email_templates(Arc<dyn AuthEmailTemplates>)` | Optional. Both only take effect when `config.smtp` is `Some`. |
 | `AuthEvent` | New variant `MfaVerificationFailed { user_id: Option<Uuid>, reason: String }` (webhook type `mfa.verification_failed`); `MfaEnabled` is now actually emitted; `PasswordChanged` is now also emitted by password-reset completion | Exhaustive `match`es on `AuthEvent` need a new arm. |
 | `ChallengeRepository` | New methods `try_claim_challenge(key, value, ttl_secs) -> bool` (default: non-atomic read-then-write) and `update_challenge_if_live(key, value) -> bool` (default: `Err(RepoError::NotImplemented)`) | Custom backends: implement both as single statements. Built-in coverage is listed under *Backends* below. |
@@ -128,6 +131,50 @@ previously held a 64-character hex SHA-256.
   method, `already_registered`, for it.
 - `EmailService` sends over lettre's `AsyncSmtpTransport<Tokio1Executor>` — no more
   blocking SMTP calls inside async handlers.
+- Every link mail now carries the same sender identity and hygiene headers: `From` with
+  the `SmtpConfig::from_name` display name, `Reply-To` when `SmtpConfig::reply_to` is set,
+  a `Message-ID` minted under the `From` address's domain (`<uuid-v7@domain>`; lettre adds
+  none), `Auto-Submitted: auto-generated` (RFC 3834) and `MIME-Version: 1.0`. The built-in
+  templates still send a single `text/html` part.
+
+### Email admission (behaviour, no schema)
+
+These apply to the four routes that send mail to an address an unauthenticated caller
+chose: `POST /register`, `POST /resend-verification`, `POST /forgot-password` and
+`POST /magic-link/send`.
+
+- **They fail closed.** If the rate-limit store errors, they answer
+  `503 {"error": "Email requests are temporarily unavailable"}` instead of letting the
+  request through unmetered, and log one `email admission budget unavailable` warning
+  (`target: "yauth.email"`) that deliberately carries neither the key nor the error, since
+  either can contain an address. Every other rate-limited route keeps its fail-open policy.
+- **One recipient budget spans all four.** On top of the per-operation limits
+  (`EmailPasswordConfig::rate_limit`, magic-link's fixed 10 per 60 s), an address gets at
+  most 10 of these requests per 60 s in total, so hopping between routes does not multiply
+  its quota. It is a fixed ceiling, not a setting: `rate_limit: None` turns off only the
+  per-operation limits. It is checked before any account, token or mail is created —
+  duplicate registrations included — and answers `429 {"error": "Too many requests"}`.
+- **Budget keys no longer contain addresses.** The per-address keys are `<scope>:` plus the
+  SHA-256 hex of the canonical address (NUL bytes stripped, trimmed, lowercased) for the
+  scopes `auth-email` (the shared budget), `resend`, `forgot` and `magic-link`, so every key
+  has a fixed width — a bounded `yauth_rate_limits.key` column (for example
+  `VARCHAR(255)`) can no longer turn a long address into a 503 — and the table stores no
+  addresses. The digest is unkeyed: it obscures the key, it does not anonymise it. The
+  format change restarts in-flight windows once, at deploy.
+- **Magic-link input is normalised like email-password input** (`input::sanitize`, then
+  lowercase) instead of `trim().to_lowercase()`.
+- The `register_rate_limited` and `magic_link_rate_limited` OpenTelemetry events are gone;
+  the latter exported the recipient as `user.email`.
+- **`SeaOrmPgBackend`'s rate limiter is transactional.** Each check inserts the counter row
+  if it is absent, then locks it (`SELECT … FOR UPDATE`) before deciding, so concurrent
+  first requests and window resets can no longer lose increments, and an unexpected insert
+  failure now propagates instead of being ignored. A capacity of N admits exactly N
+  requests per window, as the in-memory backend always has (this backend used to admit
+  N − 1);
+  refused requests neither increment the counter nor extend the window; the first request
+  after a window expires starts a new one; a capacity above `i32::MAX` or a zero or
+  out-of-range window is an error. Other backends are unchanged, and with `with_redis()` the
+  Redis decorator keeps counting in Redis and reaches the database only when Redis fails.
 
 ### Backends
 
