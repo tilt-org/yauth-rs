@@ -139,6 +139,14 @@ pub struct YAuthBuilder {
     admin_config: Option<config::AdminConfig>,
     #[cfg(feature = "redis")]
     redis: Option<(redis::aio::ConnectionManager, String)>,
+    /// Optional pre-built SMTP transport (F4). When set **and** `config.smtp`
+    /// is `Some`, `build()` constructs the email service from this shared
+    /// transport instead of building its own from the config credentials, so
+    /// the host can build one `AsyncSmtpTransport<Tokio1Executor>` at boot and
+    /// share its connection pool across every consumer. `None` (the default)
+    /// keeps the original config-built path — the seam is purely additive.
+    injected_email_transport: Option<lettre::AsyncSmtpTransport<lettre::Tokio1Executor>>,
+    injected_email_templates: Option<std::sync::Arc<dyn auth::email::AuthEmailTemplates>>,
 }
 
 impl YAuthBuilder {
@@ -173,7 +181,43 @@ impl YAuthBuilder {
             admin_config: None,
             #[cfg(feature = "redis")]
             redis: None,
+            // F4: no shared transport by default — `build()` keeps the
+            // config-built email service path until `with_email_transport`.
+            injected_email_transport: None,
+            // No host templates by default — the built-in unbranded link mails
+            // stay in use until `with_email_templates`.
+            injected_email_templates: None,
         }
+    }
+
+    /// Install host-supplied branded templates for the four link mails the
+    /// email service sends (verification, magic link, password reset, unlock).
+    ///
+    /// Additive like [`Self::with_email_transport`]: only takes effect when
+    /// `config.smtp` is also `Some`, and the built-in templates remain the
+    /// default for any consumer that never calls this.
+    pub fn with_email_templates(
+        mut self,
+        templates: std::sync::Arc<dyn auth::email::AuthEmailTemplates>,
+    ) -> Self {
+        self.injected_email_templates = Some(templates);
+        self
+    }
+
+    /// Inject a pre-built SMTP transport to back the email service (F4).
+    ///
+    /// `AsyncSmtpTransport<Tokio1Executor>` is cheaply [`Clone`] (it shares one
+    /// underlying connection pool); building it once at boot and cloning it
+    /// into both this instance and any other mailer means all of them share a
+    /// single pool. Additive and backward-compatible: this only takes effect
+    /// when `config.smtp` is also `Some`; otherwise (and when never called)
+    /// `build()` behaves exactly as before.
+    pub fn with_email_transport(
+        mut self,
+        transport: lettre::AsyncSmtpTransport<lettre::Tokio1Executor>,
+    ) -> Self {
+        self.injected_email_transport = Some(transport);
+        self
     }
 
     /// Enable Redis caching with the default `"yauth"` key prefix.
@@ -356,15 +400,44 @@ impl YAuthBuilder {
         let dummy_hash = auth::password::hash_password_sync("dummy-password-for-timing")
             .expect("Failed to generate dummy hash");
 
-        // Build email service
-        let email_service = self.config.smtp.as_ref().map(|smtp| {
-            auth::email::EmailService::new(
-                smtp.host.clone(),
-                smtp.port,
-                smtp.from.clone(),
-                self.config.base_url.clone(),
-            )
-        });
+        // Build email service. F4: when a shared transport was injected via
+        // `with_email_transport` AND `[smtp]` is configured, wrap that shared
+        // transport (one connection pool across every consumer). Otherwise
+        // keep the original config-built path unchanged — this is the
+        // backward-compatible default for any consumer that never injects one.
+        let injected_transport = self.injected_email_transport.take();
+        let injected_templates = self.injected_email_templates.take();
+        let email_service = self
+            .config
+            .smtp
+            .as_ref()
+            .map(|smtp| {
+                let service = match injected_transport {
+                    Some(transport) => auth::email::EmailService::with_transport(
+                        transport,
+                        smtp.from.clone(),
+                        self.config.base_url.clone(),
+                    ),
+                    None => auth::email::EmailService::new(
+                        smtp.host.clone(),
+                        smtp.port,
+                        smtp.from.clone(),
+                        self.config.base_url.clone(),
+                        smtp.username.clone(),
+                        smtp.password.clone(),
+                    ),
+                };
+                // Message hygiene: the sender identity (`From` display name,
+                // `Reply-To`) rides `[smtp]` so every path sends the same one.
+                service
+                    .with_from_name(smtp.from_name.clone())
+                    .with_reply_to(smtp.reply_to.clone())
+            })
+            .map(|service| match injected_templates {
+                // Host-branded link mails (additive; built-ins otherwise).
+                Some(templates) => service.with_templates(templates),
+                None => service,
+            });
 
         // Build the plugins list before constructing state.
         // Account lockout must be registered BEFORE email-password so it

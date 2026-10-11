@@ -21,6 +21,8 @@ pub mod rate_limit;
 #[cfg(feature = "organizations")]
 pub mod rbac;
 pub mod saml_sp;
+#[cfg(feature = "mfa")]
+pub mod secret_cipher;
 pub mod session;
 #[cfg(feature = "bearer")]
 pub mod signing;

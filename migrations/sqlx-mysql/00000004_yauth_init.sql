@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS `yauth_totp_secrets` (
 CREATE TABLE IF NOT EXISTS `yauth_backup_codes` (
     `id` CHAR(36) PRIMARY KEY,
     `user_id` CHAR(36),
-    `code_hash` VARCHAR(64) NOT NULL,
+    `code_hash` VARCHAR(255) NOT NULL,
     `used` TINYINT(1) NOT NULL DEFAULT false,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (`user_id`) REFERENCES `yauth_users`(`id`) ON DELETE CASCADE

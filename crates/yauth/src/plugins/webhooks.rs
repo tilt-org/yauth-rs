@@ -92,6 +92,7 @@ fn event_type_name(event: &AuthEvent) -> &'static str {
         AuthEvent::EmailVerified { .. } => "email.verified",
         AuthEvent::MfaEnabled { .. } => "mfa.enabled",
         AuthEvent::MfaDisabled { .. } => "mfa.disabled",
+        AuthEvent::MfaVerificationFailed { .. } => "mfa.verification_failed",
         AuthEvent::UserBanned { .. } => "user.banned",
         AuthEvent::UserUnbanned { .. } => "user.unbanned",
         AuthEvent::UserSuspended { .. } => "user.suspended",

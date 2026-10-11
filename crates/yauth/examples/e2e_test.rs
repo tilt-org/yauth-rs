@@ -1363,6 +1363,10 @@ async fn start_server(db: Pool) -> u16 {
                 host: "127.0.0.1".into(),
                 port: MAILPIT_SMTP_PORT,
                 from: "noreply@yauth.test".into(),
+                from_name: None,
+                reply_to: None,
+                username: None,
+                password: None,
             }),
             auto_admin_first_user: false,
             ..Default::default()
@@ -1389,6 +1393,9 @@ async fn start_server(db: Pool) -> u16 {
     .with_mfa(yauth::config::MfaConfig {
         issuer: "YAuth".into(),
         backup_code_count: 10,
+        // See `examples/server.rs`: no cipher, so MFA fails closed rather than
+        // storing a plaintext secret (fork patch 2026-08-10, #263 / B11).
+        secret_cipher: None,
     })
     .with_api_key()
     .with_admin()

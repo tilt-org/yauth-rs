@@ -95,6 +95,9 @@ async fn main() {
     .with_mfa(yauth::config::MfaConfig {
         issuer: mfa_issuer,
         backup_code_count: 10,
+        // See `examples/server.rs`: no cipher, so MFA fails closed rather than
+        // storing a plaintext secret (fork patch 2026-08-10, #263 / B11).
+        secret_cipher: None,
     })
     .with_bearer(yauth::config::BearerConfig {
         jwt_secret,

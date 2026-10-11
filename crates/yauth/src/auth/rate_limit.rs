@@ -48,6 +48,61 @@ impl RateLimiter {
     }
 }
 
+/// Admission for operations that may send mail to an unauthenticated caller's
+/// chosen address. Unlike general auth throttling, storage failure must not
+/// turn an email endpoint into an unmetered sender. Never log the key/error:
+/// either can contain a recipient address from the database or provider.
+pub(crate) async fn check_mail_rate_limit(
+    state: &crate::state::YAuthState,
+    key: &str,
+    limit: u32,
+    window_secs: u64,
+) -> Result<(), crate::error::ApiError> {
+    let result = state
+        .repos
+        .rate_limits
+        .check_rate_limit(key, limit, window_secs)
+        .await
+        .map_err(|_| {
+            tracing::warn!(target: "yauth.email", "email admission budget unavailable");
+            crate::error::api_err(
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "Email requests are temporarily unavailable",
+            )
+        })?;
+    if !result.allowed {
+        return Err(crate::error::api_err(
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            "Too many requests",
+        ));
+    }
+    Ok(())
+}
+
+/// The rate-limit key of a per-recipient mail budget: `<scope>:` plus the
+/// SHA-256 (hex) of the canonical address (null bytes stripped, trimmed,
+/// Unicode-lowercased). Admission insert errors propagate as a 503, and a host
+/// may store keys in a bounded column (the casino schema's is VARCHAR(255)), so
+/// a key that embedded the address turned long input into an apparent storage
+/// outage. The digest keeps every key 64 hex characters past its scope and
+/// keeps addresses out of the table. It is unkeyed: it bounds and obscures the
+/// key, but whoever already knows an address can still find its row.
+pub(crate) fn mail_budget_key(scope: &str, email: &str) -> String {
+    let normalized = crate::auth::input::sanitize(email).to_lowercase();
+    format!("{scope}:{}", crate::auth::crypto::hash_token(&normalized))
+}
+
+/// One destination budget shared by registration (including duplicates),
+/// verification resends, resets and magic links. Operation hopping cannot
+/// multiply the mailbox's quota. Match the auth plane's canonical address
+/// normalization; no new external service or deployment setting is required.
+pub(crate) async fn check_recipient_mail_budget(
+    state: &crate::state::YAuthState,
+    email: &str,
+) -> Result<(), crate::error::ApiError> {
+    check_mail_rate_limit(state, &mail_budget_key("auth-email", email), 10, 60).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,6 +130,23 @@ mod tests {
         assert!(rl.check("user2").await);
         assert!(!rl.check("user1").await);
         assert!(!rl.check("user2").await);
+    }
+
+    #[test]
+    fn mail_budget_keys_are_fixed_width_digests_of_the_canonical_address() {
+        let key = mail_budget_key("auth-email", "player@example.com");
+        assert_eq!(key.len(), "auth-email:".len() + 64);
+        assert!(key.starts_with("auth-email:"));
+        assert!(!key.contains('@'), "{key}");
+        // Normalized before hashing: case, padding and null bytes share a budget.
+        assert_eq!(key, mail_budget_key("auth-email", " PLAYER@Example.com\0 "));
+        // Scopes stay distinct, and length no longer depends on the input.
+        assert_ne!(key, mail_budget_key("forgot", "player@example.com"));
+        let long = format!("{}@example.com", "a".repeat(1_000));
+        assert_eq!(
+            mail_budget_key("magic-link", &long).len(),
+            "magic-link:".len() + 64
+        );
     }
 
     #[tokio::test]

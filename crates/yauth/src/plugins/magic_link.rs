@@ -8,6 +8,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::auth::rate_limit::{
+    check_mail_rate_limit, check_recipient_mail_budget, mail_budget_key,
+};
 use crate::auth::session::session_set_cookie;
 use crate::auth::{crypto, session};
 use crate::config::MagicLinkConfig;
@@ -71,29 +74,15 @@ async fn send_magic_link(
     State(state): State<YAuthState>,
     Json(input): Json<MagicLinkSendRequest>,
 ) -> Result<Json<MagicLinkMessageResponse>, ApiError> {
-    let email = input.email.trim().to_lowercase();
+    let email = crate::auth::input::sanitize(&input.email).to_lowercase();
 
-    if !state
-        .repos
-        .rate_limits
-        .check_rate_limit(&format!("magic-link:{}", email), 10, 60)
-        .await
-        .map(|r| r.allowed)
-        .unwrap_or(true)
-    {
-        crate::otel::add_event(
-            "magic_link_rate_limited",
-            #[cfg(feature = "telemetry")]
-            vec![opentelemetry::KeyValue::new("user.email", email.clone())],
-            #[cfg(not(feature = "telemetry"))]
-            vec![],
-        );
-        return Err(api_err(StatusCode::TOO_MANY_REQUESTS, "Too many requests"));
-    }
+    check_mail_rate_limit(&state, &mail_budget_key("magic-link", &email), 10, 60).await?;
 
     if email.is_empty() || !email.contains('@') {
         return Err(api_err(StatusCode::BAD_REQUEST, "Valid email is required"));
     }
+
+    check_recipient_mail_budget(&state, &email).await?;
 
     let success_msg = Json(MagicLinkMessageResponse {
         message: "If an account exists with that email, a magic link has been sent.".to_string(),
@@ -162,7 +151,7 @@ async fn send_magic_link(
         })?;
 
     if let Some(ref email_service) = state.email_service
-        && let Err(e) = email_service.send_magic_link_email(&email, &token)
+        && let Err(e) = email_service.send_magic_link_email(&email, &token).await
     {
         crate::otel::record_error("send_magic_link_email_failed", &e);
     }

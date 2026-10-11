@@ -64,6 +64,50 @@ impl ChallengeRepository for InMemoryChallengeRepo {
             Ok(())
         })
     }
+
+    fn update_challenge_if_live(
+        &self,
+        key: &str,
+        value: serde_json::Value,
+    ) -> RepoFuture<'_, bool> {
+        let key = key.to_string();
+        Box::pin(async move {
+            let mut map = self.entries.lock().await;
+            match map.get_mut(&key) {
+                Some(entry) if entry.expires_at > Instant::now() => {
+                    entry.value = value;
+                    Ok(true)
+                }
+                _ => Ok(false),
+            }
+        })
+    }
+
+    /// Atomic: the read and the insert happen under one hold of the map mutex,
+    /// so two tasks racing on the same key cannot both claim it.
+    fn try_claim_challenge(
+        &self,
+        key: &str,
+        value: serde_json::Value,
+        ttl_secs: u64,
+    ) -> RepoFuture<'_, bool> {
+        let key = key.to_string();
+        Box::pin(async move {
+            let mut map = self.entries.lock().await;
+            let now = Instant::now();
+            if map.get(&key).is_some_and(|entry| entry.expires_at > now) {
+                return Ok(false);
+            }
+            map.insert(
+                key,
+                ChallengeEntry {
+                    value,
+                    expires_at: now + Duration::from_secs(ttl_secs),
+                },
+            );
+            Ok(true)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -106,6 +150,71 @@ mod tests {
         assert!(repo.get_challenge("key1").await.unwrap().is_some());
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert_eq!(repo.get_challenge("key1").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn claim_is_exclusive_until_the_entry_expires() {
+        let repo = new_repo();
+
+        assert!(
+            repo.try_claim_challenge("key1", json!(1), 60)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !repo
+                .try_claim_challenge("key1", json!(2), 60)
+                .await
+                .unwrap(),
+            "a live entry must refuse a second claim"
+        );
+        // The refused claim must not have overwritten the winner's value.
+        assert_eq!(repo.get_challenge("key1").await.unwrap(), Some(json!(1)));
+
+        repo.delete_challenge("key1").await.unwrap();
+        assert!(
+            repo.try_claim_challenge("key1", json!(3), 60)
+                .await
+                .unwrap(),
+            "a released key must be claimable again"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_expired_entry_is_claimable() {
+        let repo = new_repo();
+        repo.set_challenge("key1", json!("stale"), 1).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(
+            repo.try_claim_challenge("key1", json!("fresh"), 60)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            repo.get_challenge("key1").await.unwrap(),
+            Some(json!("fresh"))
+        );
+    }
+
+    #[tokio::test]
+    async fn only_one_of_many_concurrent_claims_wins() {
+        let repo = Arc::new(new_repo());
+        let mut tasks = Vec::new();
+        for n in 0..16 {
+            let repo = repo.clone();
+            tasks.push(tokio::spawn(async move {
+                repo.try_claim_challenge("race", json!(n), 60)
+                    .await
+                    .unwrap()
+            }));
+        }
+        let mut winners = 0;
+        for task in tasks {
+            if task.await.unwrap() {
+                winners += 1;
+            }
+        }
+        assert_eq!(winners, 1, "exactly one claim may succeed");
     }
 
     #[tokio::test]

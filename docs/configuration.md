@@ -21,12 +21,49 @@ Set `remember_me_ttl` on `YAuthConfig` to enable longer sessions when users opt 
 
 Configure `PasswordPolicyConfig` on `EmailPasswordConfig`:
 
-- `require_uppercase`, `require_lowercase`, `require_digit`, `require_special` — character class requirements
-- `max_length` — maximum password length (default: 128)
+- `min_length` — minimum password length in bytes (default: 8)
+- `max_length` — maximum password length in bytes (default: 128)
+- `character_requirements` — `CharacterRequirements::AnyCharacters` (default: no class requirement), `DigitOrSpecial` (at least one digit or one ASCII special character), or `Complex` (an uppercase letter, a lowercase letter, a digit and a special character). Serialises as `any_characters` / `digit_or_special` / `complex`.
 - `disallow_common_passwords` — reject top common passwords
 - `password_history_count` — prevent reuse of last N passwords (0 = disabled)
 
+Violations come back as one sentence in the `400` body's `error` field — for example `Password must be at least 8 characters long and include a number or a special character.` — built by `yauth::auth::password_policy::compose_message` from the individual fragments, so a client that mirrors the policy can show the same wording per rule.
+
 **When to use:** When regulatory compliance or security policy requires specific password complexity rules beyond minimum length + HIBP checking.
+
+## MFA (`mfa` feature)
+
+Configure `MfaConfig`:
+
+- `issuer` — name shown in authenticator apps
+- `backup_code_count` — codes issued at enrolment and on regeneration (default: 10)
+- `secret_cipher` — `Option<Arc<dyn TotpSecretCipher>>`: the host-provided envelope cipher for the TOTP shared secret at rest. Not serialisable (`#[serde(skip)]`); `Debug` prints only whether one is set.
+
+`TotpSecretCipher` (re-exported as `yauth::config::TotpSecretCipher` and via the prelude) has two synchronous halves, `seal(user_id, secret)` and `open(user_id, sealed)`. `seal` must return a versioned, self-describing string; `open` must reject anything `seal` did not produce, including a bare base32 secret; both receive the `user_id` so the ciphertext can be bound to its owner. Keep them cheap — they run on the request path. The trait's rustdoc carries a runnable example implementation.
+
+With `secret_cipher: None` (the default) the plugin **fails closed**: `POST /mfa/totp/setup`, `POST /mfa/totp/confirm` and `POST /mfa/backup-codes/regenerate` answer `503 {"error": "MFA is temporarily unavailable"}`, and `POST /mfa/verify` skips the TOTP factor and accepts only backup codes. The same fall-through applies when the configured cipher cannot open a stored secret (rotated or lost key): the user recovers with a backup code and re-enrols. There is no re-seal path, so treat the key as being as durable as the enrolled population.
+
+Behaviour to keep in mind when tuning rate limits: a TOTP code is single-use at login for 120 seconds; a pending login challenge allows five wrong codes and is then deleted; enrolment and regeneration hash `backup_code_count` codes with Argon2id concurrently, so keep both routes rate-limited; enabling TOTP revokes the user's other sessions. Every rejected verification logs `mfa_verification_failed` (`target: "yauth::mfa"`, fields `user_id`, `reason`) and publishes `AuthEvent::MfaVerificationFailed` (webhook type `mfa.verification_failed`). See [UPGRADING.md](../UPGRADING.md) for the storage cutover and the per-backend status of the two challenge-repository primitives the login path relies on.
+
+**When to use:** Always set `secret_cipher` in any deployment that enables the `mfa` feature; leave it `None` only where enrolment is meant to be refused.
+
+## Email delivery (SMTP)
+
+`YAuthConfig::smtp` (`Option<SmtpConfig>`) turns on verification, magic-link, password-reset, unlock and already-registered mail:
+
+- `host`, `port`, `from`
+- `username`, `password` — `Some` for an authenticated STARTTLS relay (for example the AWS SES SMTP endpoint); `None` (default) sends over an unauthenticated plaintext relay such as the docker-compose mailpit.
+- `from_name` — display name for the `From` header (`Name <from>`); `None` or blank (default) sends the bare address.
+- `reply_to` — `Reply-To` address for every mail, for when `from` is unmonitored; `None` or blank (default) sets no such header.
+
+Every mail carries `From` (with the display name), `Reply-To` when configured, a `Message-ID` minted under the `from` domain, `Auto-Submitted: auto-generated` and `MIME-Version: 1.0`. `EmailService::build_message` returns the exact message a send would submit, so a host can assert its headers without an SMTP server.
+
+Sends go through lettre's `AsyncSmtpTransport<Tokio1Executor>`. Two additive builder seams, both effective only when `smtp` is `Some`:
+
+- `YAuthBuilder::with_email_transport(transport)` — inject a transport you built at boot so yauth shares one connection pool with the rest of your application.
+- `YAuthBuilder::with_email_templates(Arc<dyn AuthEmailTemplates>)` — brand the five mails. Each trait method receives the action URL and returns the subject and body; the built-in unbranded templates remain the default. The provided method `plain_text_alternative(body_html)` returns `None` by default; return `Some(text)` to send the mail as `multipart/alternative`, text part first.
+
+**Admission.** The four routes that mail an address an unauthenticated caller chose (`/register`, `/resend-verification`, `/forgot-password`, `/magic-link/send`) share a fixed budget of 10 requests per address per 60 seconds on top of their per-operation limits (`EmailPasswordConfig::rate_limit`, which `None` disables, and magic-link's fixed 10 per 60 seconds). The budget is not configurable and is applied whether or not `smtp` is set. Budget keys hold a SHA-256 of the normalised address, never the address. If the rate-limit store fails, these routes answer `503` rather than send unmetered mail.
 
 ## Account Lockout
 

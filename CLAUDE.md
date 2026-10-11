@@ -136,10 +136,10 @@ MYSQL_DATABASE_URL=mysql://yauth:yauth@127.0.0.1:3307/yauth_test \
 The suite covers three categories:
 
 1. **Method coverage** — every method on every repository trait has at least one test that creates data, reads it back, and asserts specific return values (not just `is_ok()`).
-2. **Behavioral contracts** — semantic invariants the type system can't enforce: expired tokens return `None`, used tokens return `None`, `user.delete()` cascades to all related entities, rate limiting is fail-open on error.
+2. **Behavioral contracts** — semantic invariants the type system can't enforce: expired tokens return `None`, used tokens return `None`, `user.delete()` cascades to all related entities, rate limiting is fail-open on error (except on the four routes that mail an address an unauthenticated caller chose — register, resend-verification, forgot-password, magic-link send — which fail closed with `503`).
 3. **Type edge cases** — UUID round-trip (CHAR(36) ↔ Uuid), NULL vs empty string, large text (no silent truncation), unicode/emoji, datetime precision, JSON structural equality, case-insensitive email.
 
-**When adding a new backend:** implement `DatabaseBackend` + all repository traits, add the backend to `test_backends()`, and run the suite. If all 65 tests pass, the backend is correct.
+**When adding a new backend:** implement `DatabaseBackend` + all repository traits, add the backend to `test_backends()`, and run the suite. If all 65 tests pass, the backend is correct. Override `ChallengeRepository::try_claim_challenge` (set-if-absent) and `update_challenge_if_live` (conditional update) as single statements — their trait defaults are a non-atomic read-then-write and `NotImplemented` respectively, and the MFA login path relies on both; `backends/seaorm_pg/challenge_repo.rs` is the reference.
 
 **Schema setup in tests:** Conformance and integration tests set up the database schema using raw SQL via test helper functions (not `backend.migrate()`). Each test backend has a setup function that executes DDL directly against the database connection. This keeps the test infrastructure independent of the migration system.
 
@@ -339,7 +339,7 @@ If CI publishes to crates.io/npm but fails before pushing the version commit and
 - **Configurable PG schema** — use `DieselPgBackend::from_pool_with_schema(pool, "auth")` to isolate yauth tables in a separate PostgreSQL schema (default `"public"`).
 - **Timing-safe patterns** — dummy password hash on failed lookups to prevent timing attacks
 - **HIBP k-anonymity** — password breach checking via HaveIBeenPwned API (configurable)
-- **Rate limiting** — per-operation rate limits (login, register, forgot-password, etc.)
+- **Rate limiting** — per-operation rate limits (login, register, forgot-password, etc.), plus one fixed per-address budget shared by the four routes that send mail to a caller-chosen address; those keys hold a SHA-256 of the normalised address (`auth::rate_limit::mail_budget_key`), never the address itself
 - **Event system** — `AuthEvent` enum emitted on all auth operations for plugin interception
 
 ## Telemetry
@@ -350,7 +350,7 @@ Uses native OpenTelemetry SDK (no `tracing` crate). Key points:
 - `crate::otel` helper module provides `record_error()`, `add_event()`, `set_attribute()`, `with_span()` — all compile to no-ops when `telemetry` feature is disabled
 - `telemetry::init()` registers `TraceContextPropagator` for W3C traceparent/tracestate propagation
 - `telemetry::layer::trace_middleware` creates native OTel server spans with context attached via `cx.attach()` and stored in request extensions
-- Operational logging uses `log` crate (not `tracing`) — library does NOT init a log subscriber
+- Operational logging uses `log` crate (not `tracing`) — library does NOT init a log subscriber. The exceptions go through `tracing`: three structured security events that carry a `user_id` field — `mfa_verification_failed` and `secret_unsealable` (`target: "yauth::mfa"`) and `session_sweep_failed` (`target: "yauth::session"`) — and the `email admission budget unavailable` warning (`target: "yauth.email"`), which deliberately carries neither the rate-limit key nor the error because either can contain an address
 - `@opentelemetry/sdk-trace-web` for frontend
 - CORS must include `traceparent` and `tracestate` headers
 - Health checks excluded from tracing

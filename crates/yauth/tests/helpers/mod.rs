@@ -1,5 +1,9 @@
-pub mod otel;
+// Shared helper modules are compiled into every integration-test binary, so
+// each one sees the parts the *other* targets use as dead. Same reason the
+// `schema` allow below was already here.
 #[allow(dead_code)]
+pub mod otel;
+#[allow(dead_code, unused_imports)]
 pub mod schema;
 
 #[cfg(feature = "organizations")]

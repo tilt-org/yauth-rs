@@ -1,6 +1,6 @@
 use sea_orm::prelude::*;
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{ConnectionTrait, Schema, Set};
+use sea_orm::{ConnectionTrait, DbErr, QuerySelect, Schema, Set, TransactionTrait};
 
 use super::entities::rate_limits;
 use super::sea_err;
@@ -53,88 +53,79 @@ impl RateLimitRepository for SeaOrmRateLimitRepo {
         Box::pin(async move {
             self.ensure_init().await?;
 
-            let now = chrono::Utc::now();
-            let now_tz = now.fixed_offset();
-            let window_start_cutoff = now - chrono::Duration::seconds(window_secs as i64);
+            let window = i64::try_from(window_secs)
+                .ok()
+                .and_then(chrono::Duration::try_seconds)
+                .filter(|window| *window > chrono::Duration::zero())
+                .ok_or_else(|| RepoError::Internal("invalid rate-limit window".into()))?;
+            if limit > i32::MAX as u32 {
+                return Err(RepoError::Internal("invalid rate-limit capacity".into()));
+            }
+            let txn = self.db.begin().await.map_err(sea_err)?;
 
-            // Read current state
-            let existing = rate_limits::Entity::find_by_id(&key)
-                .one(&self.db)
+            // The insert also serializes competing first requests. A conflict
+            // is expected; every other insertion failure must stop admission.
+            let insert = rate_limits::Entity::insert(rate_limits::ActiveModel {
+                key: Set(key.clone()),
+                count: Set(0),
+                window_start: Set(chrono::Utc::now().fixed_offset()),
+            })
+            .on_conflict(
+                OnConflict::column(rate_limits::Column::Key)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(&txn)
+            .await;
+            match insert {
+                Ok(_) | Err(DbErr::RecordNotInserted) => {}
+                Err(error) => return Err(sea_err(error)),
+            }
+
+            let row = rate_limits::Entity::find_by_id(&key)
+                .lock_exclusive()
+                .one(&txn)
                 .await
-                .map_err(sea_err)?;
-
-            let (count, window_start) = match existing {
-                Some(row) => {
-                    let ws = row.window_start.with_timezone(&chrono::Utc);
-                    if ws < window_start_cutoff {
-                        // Window expired — reset
-                        rate_limits::Entity::update_many()
-                            .col_expr(rate_limits::Column::Count, Expr::value(1))
-                            .col_expr(rate_limits::Column::WindowStart, Expr::value(now_tz))
-                            .filter(rate_limits::Column::Key.eq(&key))
-                            .exec(&self.db)
-                            .await
-                            .map_err(sea_err)?;
-                        (1u32, now)
-                    } else {
-                        // Window active — increment
-                        let new_count = row.count + 1;
-                        rate_limits::Entity::update_many()
-                            .col_expr(rate_limits::Column::Count, Expr::value(new_count))
-                            .filter(rate_limits::Column::Key.eq(&key))
-                            .exec(&self.db)
-                            .await
-                            .map_err(sea_err)?;
-                        (new_count as u32, ws)
-                    }
-                }
-                None => {
-                    // New key — insert
-                    let model = rate_limits::ActiveModel {
-                        key: Set(key.clone()),
-                        count: Set(1),
-                        window_start: Set(now_tz),
-                    };
-                    let _ = rate_limits::Entity::insert(model)
-                        .on_conflict(
-                            OnConflict::column(rate_limits::Column::Key)
-                                .do_nothing()
-                                .to_owned(),
-                        )
-                        .exec(&self.db)
-                        .await;
-                    (1u32, now)
-                }
-            };
-
-            Ok(rate_limit_result(count, limit, window_start, window_secs))
+                .map_err(sea_err)?
+                .ok_or(RepoError::NotFound)?;
+            if row.count < 0 {
+                return Err(RepoError::Internal("invalid rate-limit counter".into()));
+            }
+            // Evaluate expiry only after acquiring the row lock: waiting for
+            // another request must not resurrect an expired window.
+            let now = chrono::Utc::now();
+            let mut window_start = row.window_start.with_timezone(&chrono::Utc);
+            let mut window_end = window_start
+                .checked_add_signed(window)
+                .ok_or_else(|| RepoError::Internal("invalid rate-limit expiry".into()))?;
+            let mut count = row.count as u32;
+            if window_end <= now {
+                window_start = now;
+                window_end = now
+                    .checked_add_signed(window)
+                    .ok_or_else(|| RepoError::Internal("invalid rate-limit expiry".into()))?;
+                count = 0;
+            }
+            let allowed = count < limit;
+            if allowed {
+                count += 1;
+                let mut active: rate_limits::ActiveModel = row.into();
+                active.count = Set(count as i32);
+                active.window_start = Set(window_start.fixed_offset());
+                active.update(&txn).await.map_err(sea_err)?;
+            }
+            // Refusals do not grow the counter or extend its expiry. The
+            // configured N requests are all admitted; request N+1 is refused.
+            txn.commit().await.map_err(sea_err)?;
+            Ok(domain::RateLimitResult {
+                allowed,
+                remaining: limit.saturating_sub(count),
+                retry_after: if allowed {
+                    0
+                } else {
+                    (window_end - now).num_seconds().max(1) as u64
+                },
+            })
         })
-    }
-}
-
-use sea_orm::sea_query::Expr;
-
-fn rate_limit_result(
-    count: u32,
-    limit: u32,
-    window_start: chrono::DateTime<chrono::Utc>,
-    window_secs: u64,
-) -> domain::RateLimitResult {
-    if count >= limit {
-        let window_end = window_start + chrono::Duration::seconds(window_secs as i64);
-        let now = chrono::Utc::now();
-        let diff = (window_end - now).num_seconds();
-        let retry_after = if diff > 0 { diff as u64 } else { 0 };
-        domain::RateLimitResult {
-            allowed: false,
-            remaining: 0,
-            retry_after,
-        }
-    } else {
-        domain::RateLimitResult {
-            allowed: true,
-            remaining: limit - count,
-            retry_after: 0,
-        }
     }
 }

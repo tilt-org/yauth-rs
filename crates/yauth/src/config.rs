@@ -209,14 +209,36 @@ pub struct SmtpConfig {
     pub port: u16,
     /// Sender email address for all outgoing emails (e.g., `"auth@example.com"`).
     pub from: String,
+    /// Display name for the `From` header — `Name <from>` instead of the bare
+    /// address, which mailbox providers (and the AWS SES production-access
+    /// review) read as a hygiene signal. `None`/blank (default) ⇒ the bare
+    /// address. In-house message-hygiene patch — see
+    /// `auth::email::EmailService::build_message`.
+    #[serde(default)]
+    pub from_name: Option<String>,
+    /// `Reply-To` address for every outgoing email — a monitored mailbox a
+    /// recipient's reply reaches when [`Self::from`] is unmonitored.
+    /// `None`/blank (default) ⇒ no `Reply-To` header.
+    #[serde(default)]
+    pub reply_to: Option<String>,
+    /// SMTP auth username. `None` (default) ⇒ unauthenticated plaintext relay
+    /// (e.g. the docker-compose mailpit). `Some` together with [`Self::password`]
+    /// ⇒ STARTTLS relay with credentials, for an authenticated relay such as
+    /// the AWS SES SMTP endpoint (in-house R1 patch — see
+    /// `auth::email::EmailService::send`).
+    #[serde(default)]
+    pub username: Option<String>,
+    /// SMTP auth password; paired with [`Self::username`]. See its docs.
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 /// Per-operation rate limit configuration.
 ///
-/// Controls how many requests are allowed within a sliding time window.
-/// Set to `None` on `EmailPasswordConfig` to disable rate limiting entirely
-/// (useful for testing). The default preserves existing behavior: 10 requests
-/// per 60-second window.
+/// Controls how many requests are allowed within a time window (fixed on the
+/// SeaORM Postgres backend). `None` on `EmailPasswordConfig` disables these
+/// per-operation limits; the shared ten-per-minute email recipient ceiling
+/// still applies. Defaults to 10 requests per 60-second window.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitConfig {
     pub max_requests: u32,
@@ -248,9 +270,10 @@ pub struct EmailPasswordConfig {
     /// Additional password complexity requirements (uppercase, digits, etc.).
     #[serde(default)]
     pub password_policy: PasswordPolicyConfig,
-    /// Per-operation rate limit. `Some(config)` enables rate limiting with the
-    /// given parameters; `None` disables rate limiting entirely. Defaults to
-    /// 10 requests per 60-second window.
+    /// Per-operation rate limit. `Some(config)` enables these limits with the
+    /// given parameters; `None` disables only the per-operation limits, not
+    /// the shared email recipient ceiling. Defaults to 10 requests per
+    /// 60-second window.
     #[serde(default = "default_rate_limit")]
     pub rate_limit: Option<RateLimitConfig>,
 }
@@ -283,14 +306,32 @@ pub struct PasswordPolicyConfig {
     pub min_length: usize,
     /// Maximum password length (default: 128). Prevents denial-of-service via very long passwords.
     pub max_length: usize,
-    pub require_uppercase: bool,
-    pub require_lowercase: bool,
-    pub require_digit: bool,
-    pub require_special: bool,
+    /// Character classes the password must contain (default: no requirement).
+    #[serde(default)]
+    pub character_requirements: CharacterRequirements,
     /// Reject common passwords (top 10,000 from SecLists).
     pub disallow_common_passwords: bool,
     /// Number of previous passwords to remember and prevent reuse. 0 = disabled.
     pub password_history_count: u32,
+}
+
+/// Which character classes a password must contain, beyond the length rules.
+/// One policy knob replacing the former `require_uppercase` /
+/// `require_lowercase` / `require_digit` / `require_special` boolean quartet.
+#[cfg(feature = "email-password")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CharacterRequirements {
+    /// No character-class requirement — any characters satisfy the policy
+    /// (the old all-`false` default).
+    #[default]
+    AnyCharacters,
+    /// At least one digit **or** one special (ASCII non-alphanumeric)
+    /// character.
+    DigitOrSpecial,
+    /// At least one uppercase letter, one lowercase letter, one digit **and**
+    /// one special character (the old all-`true` strict policy).
+    Complex,
 }
 
 #[cfg(feature = "email-password")]
@@ -304,10 +345,7 @@ impl Default for PasswordPolicyConfig {
         Self {
             min_length: 8,
             max_length: 128,
-            require_uppercase: false,
-            require_lowercase: false,
-            require_digit: false,
-            require_special: false,
+            character_requirements: CharacterRequirements::default(),
             disallow_common_passwords: true,
             password_history_count: 0,
         }
@@ -329,14 +367,45 @@ pub struct PasskeyConfig {
     pub rp_name: String,
 }
 
-/// Configuration for the MFA (TOTP + backup codes) plugin.
+/// Re-exported so hosts can `use yauth::prelude::*` (or `yauth::config::…`) and
+/// implement the TOTP-secret cipher without reaching into `auth::`.
 #[cfg(feature = "mfa")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+pub use crate::auth::secret_cipher::{TotpCipherError, TotpSecretCipher};
+
+/// Configuration for the MFA (TOTP + backup codes) plugin.
+///
+/// `Debug` is hand-written (not derived) so the configured cipher — which owns
+/// key material — can never be printed by a `{:?}` of the config.
+#[cfg(feature = "mfa")]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MfaConfig {
     /// Issuer name shown in authenticator apps (e.g., `"My App"` → appears as `My App: user@example.com`).
     pub issuer: String,
     /// Number of one-time backup codes generated when MFA is enabled (default: 10).
     pub backup_code_count: usize,
+    /// Envelope cipher for the TOTP shared secret at rest (finding B11).
+    ///
+    /// `None` — the default — makes the MFA plugin **fail closed**: enrolment
+    /// (`POST /mfa/totp/setup`), backup-code regeneration and any read of a
+    /// stored secret return HTTP 503 rather than writing or trusting plaintext.
+    /// Set it to a host-provided [`TotpSecretCipher`] to enable MFA.
+    ///
+    /// Not serialisable (`#[serde(skip)]`): key custody lives in the host, so a
+    /// config file can never name, carry, or round-trip the cipher.
+    #[serde(skip, default)]
+    pub secret_cipher: Option<std::sync::Arc<dyn TotpSecretCipher>>,
+}
+
+#[cfg(feature = "mfa")]
+impl std::fmt::Debug for MfaConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MfaConfig")
+            .field("issuer", &self.issuer)
+            .field("backup_code_count", &self.backup_code_count)
+            // Presence only — never the cipher itself.
+            .field("secret_cipher", &self.secret_cipher.is_some())
+            .finish()
+    }
 }
 
 #[cfg(feature = "mfa")]
@@ -345,6 +414,7 @@ impl Default for MfaConfig {
         Self {
             issuer: "YAuth".into(),
             backup_code_count: 10,
+            secret_cipher: None,
         }
     }
 }
@@ -900,10 +970,10 @@ mod tests {
         let config = PasswordPolicyConfig::default();
         assert_eq!(config.min_length, 8);
         assert_eq!(config.max_length, 128);
-        assert!(!config.require_uppercase);
-        assert!(!config.require_lowercase);
-        assert!(!config.require_digit);
-        assert!(!config.require_special);
+        assert_eq!(
+            config.character_requirements,
+            CharacterRequirements::AnyCharacters
+        );
         assert!(config.disallow_common_passwords);
         assert_eq!(config.password_history_count, 0);
     }

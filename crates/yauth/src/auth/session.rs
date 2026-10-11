@@ -233,3 +233,48 @@ pub async fn delete_other_user_sessions(
         .delete_other_sessions_for_user(user_id, &keep_hash)
         .await?)
 }
+
+/// Cut every session for `user_id` except the one `keep_token` names, and
+/// swallow the failure (review finding 44).
+///
+/// The security sweep three handlers run after re-establishing an account's
+/// credentials: password change, password reset and TOTP enrolment. Each had
+/// its own byte-identical copy of the `Some(cookie)` / `None` branch, and
+/// upstream is archived, so the drift would have been purely in-house.
+///
+/// `keep_token` is `None` when the caller has no session of their own to
+/// preserve — the reset flow proves ownership with an emailed token, not a
+/// cookie — and every session goes.
+///
+/// **The result is deliberately swallowed**, preserving what all three call
+/// sites already did. The sweep is defence in depth layered on top of a
+/// credential change that has already been committed by the time it runs;
+/// failing the request here would tell the caller their password or second
+/// factor did not change when it did, and would leave them without the new
+/// credential *and* without the session sweep. The count is returned so a
+/// future caller can act on it, and the error is logged at `warn` so a
+/// repository that is quietly failing the sweep is visible to operators rather
+/// than only to whoever reads the source.
+pub async fn delete_sessions_except(
+    state: &YAuthState,
+    user_id: Uuid,
+    keep_token: Option<&str>,
+) -> Option<u64> {
+    let swept = match keep_token {
+        Some(token) => delete_other_user_sessions(state, user_id, token).await,
+        None => delete_all_user_sessions(state, user_id).await,
+    };
+
+    match swept {
+        Ok(count) => Some(count),
+        Err(e) => {
+            tracing::warn!(
+                target: "yauth::session",
+                user_id = %user_id,
+                error = %e,
+                "session_sweep_failed"
+            );
+            None
+        }
+    }
+}

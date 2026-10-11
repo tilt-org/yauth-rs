@@ -9,6 +9,9 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::auth::rate_limit::{
+    check_mail_rate_limit, check_recipient_mail_budget, mail_budget_key,
+};
 use crate::auth::{crypto, hibp, input, password, password_policy, session};
 use crate::error::api_err;
 use crate::middleware::AuthUser;
@@ -134,6 +137,96 @@ fn enumeration_safe_register_ok() -> Response {
         .into_response()
 }
 
+/// Mail the owner of an already-registered address after a duplicate signup
+/// attempt: a fresh verification link for a still-unverified account
+/// (mirroring `resend_verification`), or an "already registered" notice with a
+/// password-reset link for a verified one (mirroring `forgot_password`'s
+/// mint). Best-effort by contract — every failure is recorded and swallowed so
+/// the caller's enumeration-safe 200 is unaffected.
+async fn notify_existing_account(state: &YAuthState, user: &crate::domain::User) {
+    if !user.email_verified {
+        let _ = state
+            .repos
+            .email_verifications
+            .delete_all_for_user(user.id)
+            .await;
+
+        let token = crypto::generate_token();
+        let token_hash = crypto::hash_token(&token);
+        let expires_at =
+            chrono::Utc::now() + chrono::Duration::hours(VERIFICATION_TOKEN_EXPIRY_HOURS);
+
+        let new_verification = crate::domain::NewEmailVerification {
+            id: Uuid::now_v7(),
+            user_id: user.id,
+            token_hash,
+            expires_at: expires_at.naive_utc(),
+            created_at: chrono::Utc::now().naive_utc(),
+        };
+
+        if let Err(e) = state
+            .repos
+            .email_verifications
+            .create(new_verification)
+            .await
+        {
+            crate::otel::record_error("verification_create_failed", &e);
+            return;
+        }
+
+        if let Some(ref email_service) = state.email_service
+            && let Err(e) = email_service
+                .send_verification_email(&user.email, &token)
+                .await
+        {
+            crate::otel::record_error("send_verification_email_failed", &e);
+        }
+
+        crate::otel::add_event(
+            "verification_email_resent",
+            #[cfg(feature = "telemetry")]
+            vec![opentelemetry::KeyValue::new(
+                "user.email",
+                user.email.clone(),
+            )],
+            #[cfg(not(feature = "telemetry"))]
+            vec![],
+        );
+        return;
+    }
+
+    let _ = state
+        .repos
+        .password_resets
+        .delete_unused_for_user(user.id)
+        .await;
+
+    let token = crypto::generate_token();
+    let token_hash = crypto::hash_token(&token);
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(RESET_TOKEN_EXPIRY_HOURS);
+
+    let new_reset = crate::domain::NewPasswordReset {
+        id: Uuid::now_v7(),
+        user_id: user.id,
+        token_hash,
+        expires_at: expires_at.naive_utc(),
+        created_at: chrono::Utc::now().naive_utc(),
+    };
+
+    if let Err(e) = state.repos.password_resets.create(new_reset).await {
+        crate::otel::record_error("password_reset_create_failed", &e);
+        return;
+    }
+
+    if let Some(ref email_service) = state.email_service
+        && let Err(e) = email_service
+            .send_already_registered_email(&user.email, &token)
+            .await
+    {
+        crate::otel::record_error("send_already_registered_email_failed", &e);
+    }
+}
+
 async fn register(
     State(state): State<YAuthState>,
     Json(input): Json<RegisterRequest>,
@@ -146,17 +239,8 @@ async fn register(
         ));
     }
 
-    if let Some(ref rl) = state.email_password_config.rate_limit
-        && !state
-            .repos
-            .rate_limits
-            .check_rate_limit("register", rl.max_requests, rl.window_secs)
-            .await
-            .map(|r| r.allowed)
-            .unwrap_or(true)
-    {
-        crate::otel::add_event("register_rate_limited", vec![]);
-        return Err(api_err(StatusCode::TOO_MANY_REQUESTS, "Too many requests"));
+    if let Some(ref rl) = state.email_password_config.rate_limit {
+        check_mail_rate_limit(&state, "register", rl.max_requests, rl.window_secs).await?;
     }
 
     let email = input::sanitize(&input.email).to_lowercase();
@@ -185,7 +269,10 @@ async fn register(
 
     let violations = password_policy::validate(&pwd, &ep_config.password_policy);
     if !violations.is_empty() {
-        return Err(api_err(StatusCode::BAD_REQUEST, &violations.join("; ")));
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            &password_policy::compose_message(&violations),
+        ));
     }
 
     if ep_config.hibp_check
@@ -201,6 +288,8 @@ async fn register(
         return Err(api_err(StatusCode::BAD_REQUEST, &breach_msg));
     }
 
+    check_recipient_mail_budget(&state, &email).await?;
+
     // Check if user exists
     {
         let existing = state.repos.users.find_by_email(&email).await.map_err(|e| {
@@ -208,7 +297,7 @@ async fn register(
             api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
         })?;
 
-        if existing.is_some() {
+        if let Some(existing) = existing {
             crate::otel::add_event(
                 "register_duplicate_email",
                 #[cfg(feature = "telemetry")]
@@ -216,9 +305,22 @@ async fn register(
                 #[cfg(not(feature = "telemetry"))]
                 vec![],
             );
-            // Return a generic 200 — identical shape to "check your inbox" —
-            // so callers cannot distinguish registered vs unregistered emails
-            // (OWASP A07: identification and authentication failures).
+            // The response must stay a generic 200 — identical shape to
+            // "check your inbox" — so callers cannot distinguish registered
+            // vs unregistered emails (OWASP A07). But silence towards the
+            // MAILBOX is not required for that, and it strands the account
+            // owner (they were promised an email and get nothing). So mail
+            // the address, best-effort — errors are recorded and the generic
+            // 200 still goes out:
+            // * unverified account → re-mint and re-send the verification
+            //   link (the common double-signup case), exactly as
+            //   `resend_verification` would;
+            // * verified account → "you already have an account", carrying a
+            //   fresh password-reset link (a forgotten password is the usual
+            //   reason for re-registering). Both mints are already reachable
+            //   unauthenticated via /resend-verification and /forgot-password,
+            //   so this adds no new capability.
+            notify_existing_account(&state, &existing).await;
             return Ok(enumeration_safe_register_ok());
         }
     }
@@ -314,7 +416,7 @@ async fn register(
             })?;
 
         if let Some(ref email_service) = state.email_service
-            && let Err(e) = email_service.send_verification_email(&email, &token)
+            && let Err(e) = email_service.send_verification_email(&email, &token).await
         {
             crate::otel::record_error("send_verification_email_failed", &e);
         }
@@ -752,21 +854,16 @@ async fn resend_verification(
 ) -> Result<Json<MessageResponse>, (StatusCode, Json<serde_json::Value>)> {
     let email = input::sanitize(&input.email).to_lowercase();
 
-    if let Some(ref rl) = state.email_password_config.rate_limit
-        && !state
-            .repos
-            .rate_limits
-            .check_rate_limit(
-                &format!("resend:{}", email),
-                rl.max_requests,
-                rl.window_secs,
-            )
-            .await
-            .map(|r| r.allowed)
-            .unwrap_or(true)
-    {
-        return Err(api_err(StatusCode::TOO_MANY_REQUESTS, "Too many requests"));
+    if let Some(ref rl) = state.email_password_config.rate_limit {
+        check_mail_rate_limit(
+            &state,
+            &mail_budget_key("resend", &email),
+            rl.max_requests,
+            rl.window_secs,
+        )
+        .await?;
     }
+    check_recipient_mail_budget(&state, &email).await?;
 
     let success_msg = Json(MessageResponse {
         message: "If an account exists with that email, a verification link has been sent."
@@ -812,7 +909,7 @@ async fn resend_verification(
         })?;
 
     if let Some(ref email_service) = state.email_service
-        && let Err(e) = email_service.send_verification_email(&email, &token)
+        && let Err(e) = email_service.send_verification_email(&email, &token).await
     {
         crate::otel::record_error("send_verification_email_failed", &e);
     }
@@ -837,21 +934,16 @@ async fn forgot_password(
 ) -> Result<Json<MessageResponse>, (StatusCode, Json<serde_json::Value>)> {
     let email = input::sanitize(&input.email).to_lowercase();
 
-    if let Some(ref rl) = state.email_password_config.rate_limit
-        && !state
-            .repos
-            .rate_limits
-            .check_rate_limit(
-                &format!("forgot:{}", email),
-                rl.max_requests,
-                rl.window_secs,
-            )
-            .await
-            .map(|r| r.allowed)
-            .unwrap_or(true)
-    {
-        return Err(api_err(StatusCode::TOO_MANY_REQUESTS, "Too many requests"));
+    if let Some(ref rl) = state.email_password_config.rate_limit {
+        check_mail_rate_limit(
+            &state,
+            &mail_budget_key("forgot", &email),
+            rl.max_requests,
+            rl.window_secs,
+        )
+        .await?;
     }
+    check_recipient_mail_budget(&state, &email).await?;
 
     let success_msg = Json(MessageResponse {
         message: "If an account exists with that email, a password reset link has been sent."
@@ -898,7 +990,9 @@ async fn forgot_password(
         })?;
 
     if let Some(ref email_service) = state.email_service
-        && let Err(e) = email_service.send_password_reset_email(&user_email, &token)
+        && let Err(e) = email_service
+            .send_password_reset_email(&user_email, &token)
+            .await
     {
         crate::otel::record_error("send_password_reset_email_failed", &e);
     }
@@ -944,7 +1038,10 @@ async fn reset_password(
 
     let violations = password_policy::validate(&reset_password, &ep_config.password_policy);
     if !violations.is_empty() {
-        return Err(api_err(StatusCode::BAD_REQUEST, &violations.join("; ")));
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            &password_policy::compose_message(&violations),
+        ));
     }
 
     if ep_config.hibp_check
@@ -1022,9 +1119,19 @@ async fn reset_password(
         .delete_unused_for_user(reset.user_id)
         .await;
 
-    session::delete_all_user_sessions(&state, reset.user_id)
-        .await
-        .ok();
+    // No caller session to keep: the reset flow proves ownership with an emailed
+    // token, not a cookie, so every session goes (review finding 44).
+    session::delete_sessions_except(&state, reset.user_id, None).await;
+
+    // Same event, same payload, same position in the sequence as
+    // `change_password` below: the hash is stored and the sessions are gone
+    // before any subscriber runs. A completed reset IS a password change — the
+    // only difference is that the caller proved ownership with an emailed token
+    // instead of the old password — so a subscriber that alerts on one must see
+    // the other, or the reset flow is the silent way to take over an account.
+    state.emit_event(&AuthEvent::PasswordChanged {
+        user_id: reset.user_id,
+    });
 
     crate::otel::add_event(
         "password_reset_completed",
@@ -1088,7 +1195,10 @@ async fn change_password(
 
     let violations = password_policy::validate(&new_password, &ep_config.password_policy);
     if !violations.is_empty() {
-        return Err(api_err(StatusCode::BAD_REQUEST, &violations.join("; ")));
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            &password_policy::compose_message(&violations),
+        ));
     }
 
     // Fetch current password hash
@@ -1147,15 +1257,13 @@ async fn change_password(
         api_err(StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
     })?;
 
-    if let Some(cookie) = jar.get(&state.config.session_cookie_name) {
-        session::delete_other_user_sessions(&state, user.id, cookie.value())
-            .await
-            .ok();
-    } else {
-        session::delete_all_user_sessions(&state, user.id)
-            .await
-            .ok();
-    }
+    session::delete_sessions_except(
+        &state,
+        user.id,
+        jar.get(&state.config.session_cookie_name)
+            .map(|cookie| cookie.value()),
+    )
+    .await;
 
     state.emit_event(&AuthEvent::PasswordChanged { user_id: user.id });
 

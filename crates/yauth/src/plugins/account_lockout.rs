@@ -441,7 +441,7 @@ async fn request_unlock(
             if let Some(ref email_service) = state.email_service {
                 let unlock_url =
                     format!("{}/account/unlock?token={}", state.config.base_url, token);
-                if let Err(e) = email_service.send_unlock_email(&email, &unlock_url) {
+                if let Err(e) = email_service.send_unlock_email(&email, &unlock_url).await {
                     crate::otel::record_error("lockout_send_unlock_email_failed", &e);
                     // Don't fail the request - still return generic message
                 }

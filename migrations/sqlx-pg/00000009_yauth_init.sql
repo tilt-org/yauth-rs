@@ -182,7 +182,7 @@ CREATE TABLE IF NOT EXISTS yauth_totp_secrets (
 CREATE TABLE IF NOT EXISTS yauth_backup_codes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES yauth_users(id) ON DELETE CASCADE,
-    code_hash VARCHAR(64) NOT NULL,
+    code_hash VARCHAR NOT NULL,
     used BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

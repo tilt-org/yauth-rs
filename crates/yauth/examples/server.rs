@@ -87,7 +87,15 @@ async fn main() {
             .and_then(|p| p.parse().ok())
             .unwrap_or(587);
         let from = env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@localhost".into());
-        yauth::config::SmtpConfig { host, port, from }
+        yauth::config::SmtpConfig {
+            host,
+            port,
+            from,
+            from_name: env::var("SMTP_FROM_NAME").ok(),
+            reply_to: env::var("SMTP_REPLY_TO").ok(),
+            username: env::var("SMTP_USERNAME").ok(),
+            password: env::var("SMTP_PASSWORD").ok(),
+        }
     });
 
     // Passkey / WebAuthn
@@ -191,6 +199,11 @@ async fn main() {
     .with_mfa(yauth::config::MfaConfig {
         issuer: mfa_issuer,
         backup_code_count: 10,
+        // Fork patch 2026-08-10 (#263 / B11): TOTP secrets are sealed at rest by
+        // a host-supplied cipher. `None` keeps this example runnable — MFA then
+        // fails closed, refusing enrolment with a 503 rather than storing a
+        // plaintext secret. A real deployment supplies a `TotpSecretCipher`.
+        secret_cipher: None,
     })
     // JWT bearer tokens (for API / mobile clients)
     .with_bearer(yauth::config::BearerConfig {

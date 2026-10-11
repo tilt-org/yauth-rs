@@ -22,6 +22,8 @@ All routes are mounted under your chosen prefix (e.g., `/api/auth`).
 | POST | `/reset-password` | No | Reset password with token |
 | POST | `/change-password` | Yes | Change password |
 
+`register`, `resend-verification` and `forgot-password` — and `/magic-link/send` below — share a budget of 10 requests per address per 60 seconds across all four routes, on top of their own limits, and answer `429` past it. If the rate-limit store fails they answer `503 {"error": "Email requests are temporarily unavailable"}` instead of sending unmetered mail (see [Configuration](configuration.md#email-delivery-smtp)).
+
 ## Passkey (WebAuthn)
 
 | Method | Path | Auth | Description |
@@ -43,6 +45,8 @@ All routes are mounted under your chosen prefix (e.g., `/api/auth`).
 | DELETE | `/mfa/totp` | Yes | Disable TOTP |
 | GET | `/mfa/backup-codes` | Yes | Get backup code count |
 | POST | `/mfa/backup-codes/regenerate` | Yes | Regenerate backup codes |
+
+`setup`, `confirm` and `backup-codes/regenerate` answer `503` when no `MfaConfig::secret_cipher` is configured (see [Configuration](configuration.md#mfa-mfa-feature)). `verify` accepts a given TOTP code once per 120-second window and allows five wrong codes per pending challenge before deleting it; backup codes are `xxxx-xxxx-xxxx` and are consumed on use. Confirming TOTP revokes the caller's other sessions.
 
 ## OAuth (Client)
 
@@ -76,6 +80,8 @@ All routes are mounted under your chosen prefix (e.g., `/api/auth`).
 |--------|------|------|-------------|
 | POST | `/magic-link/send` | No | Send magic link email |
 | POST | `/magic-link/verify` | No | Verify magic link token |
+
+`send` is limited to 10 requests per address per 60 seconds and counts against the shared per-address mail budget described under [Email/Password](#emailpassword); it answers `503` when the rate-limit store fails.
 
 ## Status
 

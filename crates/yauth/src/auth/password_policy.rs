@@ -1,4 +1,4 @@
-use crate::config::PasswordPolicyConfig;
+use crate::config::{CharacterRequirements, PasswordPolicyConfig};
 
 /// Top 100 most common passwords (subset of SecLists). Checked when
 /// `disallow_common_passwords` is enabled.
@@ -105,52 +105,108 @@ const COMMON_PASSWORDS: &[&str] = &[
     "p@ssw0rd",
 ];
 
+/// Standalone copy for the common-password check; kept out of the composed
+/// "Password must …" sentence when it is the only violation.
+const COMMON_PASSWORD_VIOLATION: &str =
+    "This password is too common. Please choose a different one.";
+
 /// Validate a password against the configured policy. Returns a list of violations
-/// (empty = password is valid).
+/// (empty = password is valid). Each violation is a "must …" fragment shaped to
+/// slot into [`compose_message`]; the common-password check is the one
+/// standalone sentence ([`COMMON_PASSWORD_VIOLATION`]).
 pub fn validate(password: &str, config: &PasswordPolicyConfig) -> Vec<String> {
     let mut violations = Vec::new();
 
     if password.len() < config.min_length {
-        violations.push(format!(
-            "Password must be at least {} characters",
-            config.min_length
-        ));
+        violations.push(format!("be at least {} characters long", config.min_length));
     }
 
     if password.len() > config.max_length {
-        violations.push(format!(
-            "Password must be at most {} characters",
-            config.max_length
-        ));
+        violations.push(format!("be at most {} characters long", config.max_length));
     }
 
-    if config.require_uppercase && !password.chars().any(|c| c.is_uppercase()) {
-        violations.push("Password must contain at least one uppercase letter".into());
-    }
-
-    if config.require_lowercase && !password.chars().any(|c| c.is_lowercase()) {
-        violations.push("Password must contain at least one lowercase letter".into());
-    }
-
-    if config.require_digit && !password.chars().any(|c| c.is_ascii_digit()) {
-        violations.push("Password must contain at least one digit".into());
-    }
-
-    if config.require_special
-        && !password
-            .chars()
-            .any(|c| !c.is_alphanumeric() && c.is_ascii())
-    {
-        violations.push("Password must contain at least one special character".into());
+    match config.character_requirements {
+        CharacterRequirements::AnyCharacters => {}
+        CharacterRequirements::DigitOrSpecial => {
+            if !password
+                .chars()
+                .any(|c| c.is_ascii_digit() || is_special(c))
+            {
+                violations.push("include a number or a special character".into());
+            }
+        }
+        CharacterRequirements::Complex => {
+            if !password.chars().any(|c| c.is_uppercase()) {
+                violations.push("include an uppercase letter".into());
+            }
+            if !password.chars().any(|c| c.is_lowercase()) {
+                violations.push("include a lowercase letter".into());
+            }
+            if !password.chars().any(|c| c.is_ascii_digit()) {
+                violations.push("include a number".into());
+            }
+            if !password.chars().any(is_special) {
+                violations.push("include a special character".into());
+            }
+        }
     }
 
     if config.disallow_common_passwords
         && COMMON_PASSWORDS.contains(&password.to_lowercase().as_str())
     {
-        violations.push("This password is too common. Please choose a different one.".into());
+        violations.push(COMMON_PASSWORD_VIOLATION.into());
     }
 
     violations
+}
+
+/// A "special character" for policy purposes: ASCII and not alphanumeric.
+fn is_special(c: char) -> bool {
+    !c.is_alphanumeric() && c.is_ascii()
+}
+
+/// Compose the violations from [`validate`] into one human-readable sentence,
+/// e.g. "Password must be at least 8 characters long and include an uppercase
+/// letter, a number and a special character."
+pub fn compose_message(violations: &[String]) -> String {
+    let common = violations.iter().any(|v| v == COMMON_PASSWORD_VIOLATION);
+    let mut fragments: Vec<String> = violations
+        .iter()
+        .filter(|v| *v != COMMON_PASSWORD_VIOLATION)
+        .cloned()
+        .collect();
+
+    if fragments.is_empty() {
+        return COMMON_PASSWORD_VIOLATION.to_string();
+    }
+
+    // Fold the "include X" fragments into a single clause so the sentence
+    // reads "… include an uppercase letter, a number and a special character"
+    // rather than repeating the verb.
+    let includes: Vec<String> = fragments
+        .iter()
+        .filter_map(|f| f.strip_prefix("include "))
+        .map(str::to_string)
+        .collect();
+    if includes.len() > 1 {
+        fragments.retain(|f| !f.starts_with("include "));
+        fragments.push(format!("include {}", join_natural(&includes)));
+    }
+
+    if common {
+        fragments.push("not be a commonly used password".into());
+    }
+
+    format!("Password must {}.", join_natural(&fragments))
+}
+
+/// Join items with commas and a final "and": `a, b and c`.
+fn join_natural(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [only] => only.clone(),
+        [head @ .., last] => format!("{} and {}", head.join(", "), last),
+    }
 }
 
 /// Check if a password matches any of the given historical password hashes.
@@ -171,12 +227,17 @@ mod tests {
         PasswordPolicyConfig {
             min_length: 8,
             max_length: 128,
-            require_uppercase: true,
-            require_lowercase: true,
-            require_digit: true,
-            require_special: true,
+            character_requirements: CharacterRequirements::Complex,
             disallow_common_passwords: true,
             password_history_count: 0,
+        }
+    }
+
+    fn digit_or_special_policy() -> PasswordPolicyConfig {
+        PasswordPolicyConfig {
+            character_requirements: CharacterRequirements::DigitOrSpecial,
+            disallow_common_passwords: false,
+            ..PasswordPolicyConfig::default()
         }
     }
 
@@ -201,7 +262,7 @@ mod tests {
     #[test]
     fn missing_digit() {
         let violations = validate("MyP@ssword!", &strict_policy());
-        assert!(violations.iter().any(|v| v.contains("digit")));
+        assert!(violations.iter().any(|v| v.contains("number")));
     }
 
     #[test]
@@ -238,6 +299,55 @@ mod tests {
     }
 
     #[test]
+    fn compose_single_violation() {
+        let violations = validate("myp@ssw0rd!", &strict_policy());
+        assert_eq!(
+            compose_message(&violations),
+            "Password must include an uppercase letter."
+        );
+    }
+
+    #[test]
+    fn compose_merges_includes_into_one_clause() {
+        // Missing uppercase, digit and special → one "include" clause.
+        let violations = validate("mypassword", &strict_policy());
+        assert_eq!(
+            compose_message(&violations),
+            "Password must include an uppercase letter, a number and a special character."
+        );
+    }
+
+    #[test]
+    fn compose_leads_with_length() {
+        let violations = validate("short", &strict_policy());
+        assert_eq!(
+            compose_message(&violations),
+            "Password must be at least 8 characters long and include an uppercase letter, \
+             a number and a special character."
+        );
+    }
+
+    #[test]
+    fn compose_common_password_only_keeps_standalone_copy() {
+        let policy = PasswordPolicyConfig {
+            disallow_common_passwords: true,
+            ..Default::default()
+        };
+        let violations = validate("password", &policy);
+        assert_eq!(compose_message(&violations), COMMON_PASSWORD_VIOLATION);
+    }
+
+    #[test]
+    fn compose_common_password_with_others_joins_in() {
+        let violations = validate("password", &strict_policy());
+        assert_eq!(
+            compose_message(&violations),
+            "Password must include an uppercase letter, a number and a special character \
+             and not be a commonly used password."
+        );
+    }
+
+    #[test]
     fn default_policy_allows_reasonable_password() {
         let violations = validate("reasonablepassword123", &PasswordPolicyConfig::default());
         assert!(violations.is_empty());
@@ -248,14 +358,75 @@ mod tests {
         let policy = PasswordPolicyConfig {
             min_length: 0,
             max_length: 999,
-            require_uppercase: false,
-            require_lowercase: false,
-            require_digit: false,
-            require_special: false,
+            character_requirements: CharacterRequirements::AnyCharacters,
             disallow_common_passwords: false,
             password_history_count: 0,
         };
         let violations = validate("a", &policy);
         assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn digit_or_special_accepts_digit_only() {
+        let violations = validate("mypassword1", &digit_or_special_policy());
+        assert!(violations.is_empty(), "violations: {:?}", violations);
+    }
+
+    #[test]
+    fn digit_or_special_accepts_special_only() {
+        let violations = validate("mypassword!", &digit_or_special_policy());
+        assert!(violations.is_empty(), "violations: {:?}", violations);
+    }
+
+    #[test]
+    fn digit_or_special_rejects_letters_only() {
+        let violations = validate("mypassword", &digit_or_special_policy());
+        assert_eq!(
+            compose_message(&violations),
+            "Password must include a number or a special character."
+        );
+    }
+
+    #[test]
+    fn digit_or_special_composes_with_length() {
+        let violations = validate("short", &digit_or_special_policy());
+        assert_eq!(
+            compose_message(&violations),
+            "Password must be at least 8 characters long and include a number or a special \
+             character."
+        );
+    }
+
+    #[test]
+    fn digit_or_special_counts_a_tab_as_special() {
+        // `is_special` is "ASCII and not alphanumeric", which the C0 controls
+        // satisfy. Clients mirroring this rule with a printable-only range
+        // would disagree here.
+        let violations = validate("mypasswo\t", &digit_or_special_policy());
+        assert!(violations.is_empty(), "violations: {violations:?}");
+    }
+
+    #[test]
+    fn length_is_measured_in_bytes_not_chars() {
+        // `Пароль1` is 7 chars but 13 UTF-8 bytes, so it clears a min of 8.
+        // Pinned because the violation copy says "characters": a future
+        // "fix" to `chars().count()` would reject this and silently break
+        // parity with the client mirror (src/lib/password-policy.ts).
+        let password = "Пароль1";
+        assert_eq!(password.chars().count(), 7);
+        let violations = validate(password, &digit_or_special_policy());
+        assert!(violations.is_empty(), "violations: {violations:?}");
+    }
+
+    #[test]
+    fn max_length_is_measured_in_bytes_not_chars() {
+        // 66 chars, 131 bytes — under a 128-char ceiling, over a 128-byte one.
+        let password = format!("{}1", "é".repeat(65));
+        assert_eq!(password.chars().count(), 66);
+        let violations = validate(&password, &digit_or_special_policy());
+        assert!(
+            violations.iter().any(|v| v.contains("at most")),
+            "{violations:?}"
+        );
     }
 }

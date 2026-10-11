@@ -915,6 +915,92 @@ fn backup_code_create_mark_used() {
     });
 }
 
+/// The MFA columns must round-trip the values the plugin actually writes since
+/// the 2026-08-10 hardening: an Argon2id PHC string (~97 chars, salt embedded)
+/// for `code_hash`, and a sealed, versioned envelope for `encrypted_secret`.
+///
+/// Both were sized for the old scheme — `code_hash` was `VARCHAR(64)`, exactly
+/// a hex SHA-256 — so a backend (or a host that owns its own DDL) that missed
+/// the widening fails here on insert or silently truncates, rather than in
+/// production at the first enrolment.
+#[cfg(feature = "mfa")]
+#[test]
+fn mfa_columns_round_trip_hardened_values() {
+    shared_runtime().block_on(async {
+        for (name, repos) in test_backends().await {
+            let _span = helpers::otel::TestSpan::new("mfa_columns_round_trip", name);
+            let email = unique("mfa_widths");
+            let uid = create_test_user(&repos, &email).await;
+
+            // Shape of a real Argon2id PHC string at the fork's default params.
+            let phc = format!(
+                "$argon2id$v=19$m=19456,t=2,p=1${}${}",
+                "c29tZXNhbHR2YWx1ZTEyMzQ", "aGFzaG91dHB1dHRoYXRpczMyYnl0ZXNsb25nZm9ycmVhbA"
+            );
+            assert!(phc.len() > 64, "fixture must exceed the old VARCHAR(64)");
+
+            repos
+                .backup_codes
+                .create(domain::NewBackupCode {
+                    id: Uuid::now_v7(),
+                    user_id: uid,
+                    code_hash: phc.clone(),
+                    used: false,
+                    created_at: now(),
+                })
+                .await
+                .unwrap_or_else(|e| panic!("{name}: create argon2 backup code: {e}"));
+
+            let codes = repos
+                .backup_codes
+                .find_unused_by_user_id(uid)
+                .await
+                .unwrap_or_else(|e| panic!("{name}: find unused: {e}"));
+            assert_eq!(codes.len(), 1, "{name}: expected the code back");
+            assert_eq!(
+                codes[0].code_hash, phc,
+                "{name}: code_hash must survive intact — no truncation"
+            );
+
+            // A sealed secret is longer than the 32-char base32 it replaces.
+            let sealed = format!("tsc.v1.{}", "A".repeat(200));
+            repos
+                .totp
+                .create(domain::NewTotpSecret {
+                    id: Uuid::now_v7(),
+                    user_id: uid,
+                    encrypted_secret: sealed.clone(),
+                    verified: false,
+                    created_at: now(),
+                })
+                .await
+                .unwrap_or_else(|e| panic!("{name}: create sealed totp secret: {e}"));
+
+            let stored = repos
+                .totp
+                .find_by_user_id(uid, Some(false))
+                .await
+                .unwrap_or_else(|e| panic!("{name}: find totp: {e}"))
+                .unwrap_or_else(|| panic!("{name}: sealed secret should be found"));
+            assert_eq!(
+                stored.encrypted_secret, sealed,
+                "{name}: encrypted_secret must survive intact"
+            );
+
+            repos
+                .backup_codes
+                .delete_all_for_user(uid)
+                .await
+                .unwrap_or_else(|e| panic!("{name}: delete all codes: {e}"));
+            repos
+                .totp
+                .delete_for_user(uid, None)
+                .await
+                .unwrap_or_else(|e| panic!("{name}: delete totp: {e}"));
+        }
+    });
+}
+
 // ---------------------------------------------------------------------------
 // oauth: OauthAccountRepository + OauthStateRepository
 // ---------------------------------------------------------------------------
